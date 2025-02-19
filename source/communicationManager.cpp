@@ -28,7 +28,6 @@ CommunicationManager::~CommunicationManager() {
     m_connectionHandles.clear();
 }
 
-
 bool CommunicationManager::addLink(const std::string& connection) {
     const auto [connectionResult, connectionHandle] = m_mavsdk.add_any_connection_with_handle(connection);
 
