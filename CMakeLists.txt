@@ -7,12 +7,21 @@ find_package(MAVSDK REQUIRED)
 
 set(GRS_SOURCE
         source/main.cpp
-        source/userInputListener.cpp
-        source/userInputListener.h
+        source/UserInputs/userInputListener.cpp
+        source/UserInputs/userInputListener.h
         source/groundStationApp.cpp
         source/groundStationApp.h
-        source/commandHandler.cpp
-        source/commandHandler.h
+        source/communicationManager.cpp
+        source/communicationManager.h
+)
+
+set(GRS_CONTROL
+        source/Control/controlInterface.cpp
+        source/Control/controlInterface.h
+)
+
+set(GRS_DEFINITION
+        source/Definitions/communicationStructures.h
 )
 
 set(GRS_LOG
@@ -20,9 +29,17 @@ set(GRS_LOG
         source/Log/programLogger.h
 )
 
+set(GRS_USERINPUTS
+        source/UserInputs/commandHandler.cpp
+        source/UserInputs/commandHandler.h
+)
+
 add_executable(GRS_GroundStation
         ${GRS_SOURCE}
+        ${GRS_CONTROL}
+        ${GRS_DEFINITIONS}
         ${GRS_LOG}
+        ${GRS_USERINPUTS}
 )
 
 target_include_directories(GRS_GroundStation PUBLIC source)

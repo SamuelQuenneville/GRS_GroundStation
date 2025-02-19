@@ -9,13 +9,13 @@
 #ifndef GROUNDSTATION_H
 #define GROUNDSTATION_H
 
-#include <mavsdk/mavsdk.h>
-#include <thread>
-#include <memory>
+#include <shared_mutex>
 
-#include "Log/programLogger.h"
+#include "Control/controlInterface.h"
+#include "communicationManager.h"
 
-#define GROUND_STATION mavsdk::Mavsdk::Configuration(mavsdk::Mavsdk::ComponentType::GroundStation)
+static constexpr std::string DEFAULT_REMOTE_IP = "127.0.0.1";
+static constexpr int DEFAULT_TCP_PORT = 5760; // Ardupilot specifics
 
 class GroundStationApp {
 
@@ -24,15 +24,33 @@ public:
     ~GroundStationApp();
 
     void start();
+    void startController() const;
     void stop();
 
+    void updateControlInput(int newInput);
+    int getControlInput();
+
+    void updateControlOutput(int newOutput);
+    int getControlOutput();
+
+    void setNumberOfUavs(int numUavs);
+    [[nodiscard]] int getNumberOfUavs() const;
+
 private:
-    mavsdk::Mavsdk m_mavsdk;
-    std::shared_ptr<mavsdk::System> m_system;
+    CommunicationManager m_communicationManager;
+
+    int m_numberOfUavs = 0;
 
     void m_run();
-    std::thread m_runThread;
+    void m_updateState();
+
+    std::thread m_communicationThread;
     std::atomic<bool> m_running;
+
+    std::unique_ptr<ControlInterface> m_controlInterface;
+    int m_controlInput;
+    int m_controlOutput;
+    std::shared_mutex m_dataMutex;
 };
 
 

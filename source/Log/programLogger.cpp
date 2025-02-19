@@ -33,7 +33,7 @@ void ProgramLogger::enableVerbose(const bool enable) {
 
 void ProgramLogger::log(const LogLevel level, const std::string& message) {
     std::lock_guard<std::mutex> lock(m_logMutex);
-    const std::string logMessage = "[" + m_getLevelString(level) + "] " + message;
+    const std::string logMessage = m_getLevelString(level) + message;
 
     if (m_verbose) {
         std::cout << logMessage << std::endl;
@@ -46,10 +46,10 @@ void ProgramLogger::log(const LogLevel level, const std::string& message) {
 
 std::string ProgramLogger::m_getLevelString(const LogLevel level) {
     switch (level) {
-        case LogLevel::debug: return "DEBUG";
-        case LogLevel::info: return "INFO";
-        case LogLevel::warning: return "WARNING";
-        case LogLevel::error: return "ERROR";
-        default: return "UNKNOWN";
+        case LogLevel::debug: return "[DEBUG] ";
+        case LogLevel::info: return "[INFO] ";
+        case LogLevel::warning: return "[WARNING] ";
+        case LogLevel::error: return "[ERROR] ";
+        default: return "[UNKNOWN] ";
     }
 }

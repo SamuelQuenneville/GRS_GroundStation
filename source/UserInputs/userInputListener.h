@@ -9,16 +9,14 @@
 #ifndef USERINPUTLISTENER_H
 #define USERINPUTLISTENER_H
 
-#include <thread>
 #include <atomic>
-#include <functional>
 
 #include "groundStationApp.h"
 
 class UserInputListener {
 
 public:
-    UserInputListener(std::function<void(const std::string&)> callback);
+    explicit UserInputListener(std::function<void(const std::string&)> callback);
     ~UserInputListener();
 
     void start();

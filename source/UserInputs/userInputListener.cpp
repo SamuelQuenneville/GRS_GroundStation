@@ -5,8 +5,6 @@
  * Université de Sherbrooke
  * Createk Innovation Lab
  */
-#include <utility>
-
 #include "userInputListener.h"
 
 UserInputListener::UserInputListener(std::function<void(const std::string&)> callback)
@@ -35,7 +33,7 @@ void UserInputListener::stop() {
 void UserInputListener::m_listen() const {
     std::string command;
     while (m_running) {
-        std::cout << "\nSERVER->";
+        std::cout << "\nGCS->";
         std::getline(std::cin, command);
 
         if (!m_running) {

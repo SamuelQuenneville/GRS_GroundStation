@@ -9,8 +9,6 @@
 #ifndef COMMANDHANDLER_H
 #define COMMANDHANDLER_H
 
-#include <string>
-
 #include "groundStationApp.h"
 
 class CommandHandler {
@@ -19,6 +17,7 @@ public:
     explicit CommandHandler(GroundStationApp& gcs);
     ~CommandHandler() = default;
 
+    static void printCommands();
     void handleCommand(const std::string& command) const;
 
 private:

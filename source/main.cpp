@@ -7,11 +7,9 @@
  */
 
 #include <condition_variable>
-#include <mavsdk/mavsdk.h>
-#include <mutex>
 
-#include "commandHandler.h"
-#include "userInputListener.h"
+#include "UserInputs/commandHandler.h"
+#include "UserInputs/userInputListener.h"
 
 std::mutex mutex;
 std::condition_variable cv;
@@ -21,6 +19,9 @@ int main(const int argc, const char * argv[]) {
 
     PROGRAM_LOGGER.setLogFileName("log_gcs.txt");
 
+    GroundStationApp gcs;
+    const CommandHandler commandHandler(gcs);
+
     // Loop through command-line arguments
     for (int i = 1; i < argc; ++i) {
 
@@ -28,23 +29,26 @@ int main(const int argc, const char * argv[]) {
 
         if (arg == "--verbose") {
             PROGRAM_LOGGER.enableVerbose(true);
+        } else if (arg.find("--UAVs=") == 0) {
+            gcs.setNumberOfUavs(std::stoi(arg.substr(7)));
         } else if (arg.find("--matlab=") == 0) {
             [[maybe_unused]]int port = std::stoi(arg.substr(9));
-        }else if (arg == "--help") {
+        } else if (arg == "--listCommand") {
+            CommandHandler::printCommands();
+        } else if (arg == "--help") {
             std::cout << "Usage: " << argv[0] << " [options]\n"
                       << "Options:\n"
                       << "  --help           Show this help message\n"
                       << "  --verbose        Enable verbose mode\n"
-                      << "  --matlab=[port]  Enable matlab controller via UDP\n";
+                      << "  --UAVs=[Number]  Number of UAVs\n"
+                      << "  --matlab=[port]  Enable matlab controller via UDP\n"
+                      << "  --listCommand    Show all commands\n";
             return 0;
         } else {
             std::cerr << "Unknown option: " << arg << "\n";
             return 1;
         }
     }
-
-    GroundStationApp gcs;
-    const CommandHandler commandHandler(gcs);
 
     UserInputListener userInput([&](const std::string& cmd) {
         if (cmd == "exit") {
