@@ -11,7 +11,7 @@
 
 #pragma once
 
-#include <stdint.h>
+#include <cstdint>
 
 struct subscriptionHandles {
     mavsdk::Telemetry::HealthHandle                      healthHandle;
@@ -27,10 +27,28 @@ struct subscriptionHandles {
     mavsdk::Telemetry::FixedwingMetricsHandle            fixedwingMetricsHandle;
 };
 
-struct attitude {
-    double roll;
-    double pitch;
-    double yaw;
+struct uavHealth {
+    mavsdk::Telemetry::FlightMode flightMode = mavsdk::Telemetry::FlightMode::Unknown;
+    mavsdk::Telemetry::Health health;
+    bool isHealthy = false;
+    bool isArmed = false;
+};
+
+struct uavStates {
+    float airspeedMeterSecond;
+    float northMeter;
+    float eastMeter;
+    float downMeter;
+    float northMeterSecond;
+    float eastMeterSecond;
+    float downMeterSecond;
+    double latitudeDegree;
+    double longitudeDegree;
+    float altitudeAmslMeter;
+    float rollDegree;
+    float pitchDegree;
+    float yawDegree;
+    //float rpm; TODO add to mavsdk?
 };
 
 struct controllerInput {
