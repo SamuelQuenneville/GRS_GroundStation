@@ -76,6 +76,28 @@ void CommunicationManager::listLinks() {
     }
 }
 
+std::map<uint8_t, uavStates> CommunicationManager::getUavsStates() {
+    std::lock_guard<std::mutex> lock(m_statesMutex);
+
+    return m_uavStates;
+}
+
+std::shared_ptr<mavsdk::Telemetry> CommunicationManager::getTelemetry(const uint8_t sysId) {
+    std::lock_guard<std::mutex> lock(m_linkMutex);
+    if (m_telemetry.contains(sysId)) {
+        return m_telemetry[sysId];
+    }
+    return nullptr;
+}
+
+std::shared_ptr<mavsdk::Action> CommunicationManager::getAction(const uint8_t sysId) {
+    std::lock_guard<std::mutex> lock(m_linkMutex);
+    if (m_links.contains(sysId)) {
+        return m_action[sysId];
+    }
+    return nullptr;
+}
+
 void CommunicationManager::m_subscribeMavlink(const uint8_t sysId) {
     const auto telemetryIterator = m_telemetry.find(sysId);
 
@@ -149,7 +171,7 @@ void CommunicationManager::m_unsubscribeMavlink(const uint8_t sysId) {
 void CommunicationManager::m_subscribeHealth(const std::shared_ptr<mavsdk::Telemetry> &telemetry, uint8_t sysId, subscriptionHandles &handles) {
 
     handles.healthHandle = telemetry->subscribe_health([this, sysId](const mavsdk::Telemetry::Health& health) {
-        std::lock_guard<std::mutex> lock(m_linkMutex);
+        std::lock_guard<std::mutex> lock(m_statesMutex);
 
         m_uavHealths[sysId].health = health;
     });
@@ -158,7 +180,7 @@ void CommunicationManager::m_subscribeHealth(const std::shared_ptr<mavsdk::Telem
 void CommunicationManager::m_subscribeHealthAllOk(const std::shared_ptr<mavsdk::Telemetry> &telemetry, uint8_t sysId, subscriptionHandles &handles) {
 
     handles.healthAllOkHandle = telemetry->subscribe_health_all_ok([this, sysId](const bool isHealthy) {
-        std::lock_guard<std::mutex> lock(m_linkMutex);
+        std::lock_guard<std::mutex> lock(m_statesMutex);
 
         m_uavHealths[sysId].isHealthy = isHealthy;
         if (m_uavHealths[sysId].isHealthy) {
@@ -170,7 +192,7 @@ void CommunicationManager::m_subscribeHealthAllOk(const std::shared_ptr<mavsdk::
 void CommunicationManager::m_subscribeArmed(const std::shared_ptr<mavsdk::Telemetry> &telemetry, uint8_t sysId, subscriptionHandles &handles) {
 
     handles.armedHandle = telemetry->subscribe_armed([this, sysId](const bool isArmed) {
-        std::lock_guard<std::mutex> lock(m_linkMutex);
+        std::lock_guard<std::mutex> lock(m_statesMutex);
 
         m_uavHealths[sysId].isArmed = isArmed;
     });
@@ -179,7 +201,7 @@ void CommunicationManager::m_subscribeArmed(const std::shared_ptr<mavsdk::Teleme
 void CommunicationManager::m_subscribeFlightMode(const std::shared_ptr<mavsdk::Telemetry> &telemetry, uint8_t sysId, subscriptionHandles &handles) {
 
     handles.flightModeHandle = telemetry->subscribe_flight_mode([this, sysId](const mavsdk::Telemetry::FlightMode& flightMode) {
-        std::lock_guard<std::mutex> lock(m_linkMutex);
+        std::lock_guard<std::mutex> lock(m_statesMutex);
 
         m_uavHealths[sysId].flightMode = flightMode;
     });
@@ -189,7 +211,7 @@ void CommunicationManager::m_subscribeFlightMode(const std::shared_ptr<mavsdk::T
 void CommunicationManager::m_subscribeAttitude(const std::shared_ptr<mavsdk::Telemetry>& telemetry, uint8_t sysId, subscriptionHandles& handles) {
 
     handles.attitudeHandle = telemetry->subscribe_attitude_euler([this, sysId](const mavsdk::Telemetry::EulerAngle& attitude) {
-        std::lock_guard<std::mutex> lock(m_linkMutex);
+        std::lock_guard<std::mutex> lock(m_statesMutex);
 
         m_uavStates[sysId].rollDegree  = attitude.roll_deg;
         m_uavStates[sysId].pitchDegree = attitude.pitch_deg;
@@ -200,7 +222,7 @@ void CommunicationManager::m_subscribeAttitude(const std::shared_ptr<mavsdk::Tel
 void CommunicationManager::m_subscribePositionVelocity(const std::shared_ptr<mavsdk::Telemetry> &telemetry, uint8_t sysId, subscriptionHandles &handles) {
 
     handles.positionVelocityNedHandle = telemetry->subscribe_position_velocity_ned([this, sysId](const mavsdk::Telemetry::PositionVelocityNed& positionVelocityNed) {
-        std::lock_guard<std::mutex> lock(m_linkMutex);
+        std::lock_guard<std::mutex> lock(m_statesMutex);
 
         m_uavStates[sysId].northMeter = positionVelocityNed.position.north_m;
         m_uavStates[sysId].eastMeter  = positionVelocityNed.position.east_m;
@@ -215,7 +237,7 @@ void CommunicationManager::m_subscribePositionVelocity(const std::shared_ptr<mav
 void CommunicationManager::m_subscribePosition(const std::shared_ptr<mavsdk::Telemetry> &telemetry, uint8_t sysId, subscriptionHandles &handles) {
 
     handles.positionHandle = telemetry->subscribe_position([this, sysId](const mavsdk::Telemetry::Position& position) {
-        std::lock_guard<std::mutex> lock(m_linkMutex);
+        std::lock_guard<std::mutex> lock(m_statesMutex);
 
         m_uavStates[sysId].latitudeDegree    = position.latitude_deg;
         m_uavStates[sysId].longitudeDegree   = position.longitude_deg;
@@ -226,7 +248,7 @@ void CommunicationManager::m_subscribePosition(const std::shared_ptr<mavsdk::Tel
 void CommunicationManager::m_subscribeHeading(const std::shared_ptr<mavsdk::Telemetry> &telemetry, uint8_t sysId, subscriptionHandles &handles) {
 
     handles.headingHandle = telemetry->subscribe_heading([this, sysId](const mavsdk::Telemetry::Heading& heading) {
-        std::lock_guard<std::mutex> lock(m_linkMutex);
+        std::lock_guard<std::mutex> lock(m_statesMutex);
 
         // TODO heading callback if required
     });
@@ -235,24 +257,8 @@ void CommunicationManager::m_subscribeHeading(const std::shared_ptr<mavsdk::Tele
 void CommunicationManager::m_subscribeFixedwingMetrics(const std::shared_ptr<mavsdk::Telemetry> &telemetry, uint8_t sysId, subscriptionHandles &handles) {
 
     handles.fixedwingMetricsHandle = telemetry->subscribe_fixedwing_metrics([this, sysId](const mavsdk::Telemetry::FixedwingMetrics& fixedwingMetrics) {
-        std::lock_guard<std::mutex> lock(m_linkMutex);
+        std::lock_guard<std::mutex> lock(m_statesMutex);
 
         m_uavStates[sysId].airspeedMeterSecond = fixedwingMetrics.airspeed_m_s;
     });
-}
-
-std::shared_ptr<mavsdk::Telemetry> CommunicationManager::getTelemetry(const uint8_t sysId) {
-    std::lock_guard<std::mutex> lock(m_linkMutex);
-    if (m_telemetry.contains(sysId)) {
-        return m_telemetry[sysId];
-    }
-    return nullptr;
-}
-
-std::shared_ptr<mavsdk::Action> CommunicationManager::getAction(const uint8_t sysId) {
-    std::lock_guard<std::mutex> lock(m_linkMutex);
-    if (m_links.contains(sysId)) {
-        return m_action[sysId];
-    }
-    return nullptr;
 }

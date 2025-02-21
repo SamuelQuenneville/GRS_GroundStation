@@ -9,7 +9,7 @@
 #include "controlInterface.h"
 #include "groundStationApp.h"
 
-ControlInterface::ControlInterface(GroundStationApp &gcs, const double frequency)
+ControlInterface::ControlInterface(GroundStationApp& gcs, const double frequency)
     : m_gcs(gcs)
     , m_running(false)
     , m_frequency(frequency)
@@ -40,14 +40,13 @@ void ControlInterface::controlLoop() {
         nextTick += std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::duration<double>(1.0 / m_frequency));
 
         // TODO place holder control loop
-        const int latestData = m_gcs.getControlInput();
+        std::map<uint8_t, uavStates>  latestData = m_gcs.getControllerInput();
 
         // Use new data to update mpc and send back the infos required in SET_ATTITUDE_TARGET
 
-        const int controlOutput = latestData * 2;
-        m_gcs.updateControlOutput(controlOutput);
-
-        LOG_INFO("Controller -> Processed data:" + std::to_string(controlOutput));
+        //m_gcs.updateControlOutput(controlOutput);
+        const auto a = latestData.at(1).rollDegree;
+        LOG_INFO("Controller -> Roll" + std::to_string(a));
 
         std::this_thread::sleep_until(nextTick);
     }

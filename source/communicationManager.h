@@ -33,6 +33,8 @@ public:
     bool addLink(const std::string& connection);
     void listLinks();
 
+    std::map<uint8_t, uavStates> getUavsStates();
+
     std::shared_ptr<mavsdk::Telemetry> getTelemetry(uint8_t sysId);
     std::shared_ptr<mavsdk::Action> getAction(uint8_t sysId);
 
@@ -62,6 +64,7 @@ private:
     std::map<uint8_t, uavStates> m_uavStates;
     std::map<uint8_t, uavHealth> m_uavHealths;
 
+    std::mutex m_statesMutex;
     std::mutex m_linkMutex;
 };
 

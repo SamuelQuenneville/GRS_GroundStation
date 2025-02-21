@@ -51,10 +51,6 @@ struct uavStates {
     //float rpm; TODO add to mavsdk?
 };
 
-struct controllerInput {
-
-};
-
 struct controllerOutput {
     uint8_t sysId;
     float quaternion[4];

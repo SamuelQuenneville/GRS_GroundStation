@@ -27,8 +27,7 @@ public:
     void startController() const;
     void stop();
 
-    void updateControlInput(int newInput);
-    int getControlInput();
+    std::map<uint8_t, uavStates>  getControllerInput();
 
     void updateControlOutput(int newOutput);
     int getControlOutput();
@@ -50,7 +49,7 @@ private:
     std::unique_ptr<ControlInterface> m_controlInterface;
     int m_controlInput;
     int m_controlOutput;
-    std::shared_mutex m_dataMutex;
+    std::mutex m_dataMutex;
 };
 
 

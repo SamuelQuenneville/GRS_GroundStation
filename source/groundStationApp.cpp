@@ -39,24 +39,18 @@ void GroundStationApp::stop() {
     m_controlInterface->stop();
 }
 
-void GroundStationApp::updateControlInput(const int newInput) {
-    std::unique_lock<std::shared_mutex> lock(m_dataMutex);
-    m_controlInput = newInput;
-    LOG_INFO("Updated shared data:");
-}
-
-int GroundStationApp::getControlInput() {
-    std::shared_lock<std::shared_mutex> lock(m_dataMutex);
-    return m_controlInput;
+std::map<uint8_t, uavStates> GroundStationApp::getControllerInput() {
+    std::lock_guard<std::mutex> lock(m_dataMutex);
+    return m_communicationManager.getUavsStates();
 }
 
 void GroundStationApp::updateControlOutput(const int newOutput) {
-    std::unique_lock<std::shared_mutex> lock(m_dataMutex);
+    std::lock_guard<std::mutex> lock(m_dataMutex);
     m_controlOutput = newOutput;
 }
 
 int GroundStationApp::getControlOutput() {
-    std::shared_lock<std::shared_mutex> lock(m_dataMutex);
+    std::lock_guard<std::mutex> lock(m_dataMutex);
     return m_controlOutput;
 }
 
@@ -72,6 +66,7 @@ void GroundStationApp::m_run() {
 
     if (!m_numberOfUavs == 0) {
         for (int i = 0; i < m_numberOfUavs; i++) {
+        // Ardupilot add 10 to the tcp port for each new connection
         m_communicationManager.addLink("tcpout://" + DEFAULT_REMOTE_IP + ":" + std::to_string(DEFAULT_TCP_PORT + (10*i)));
         }
     }

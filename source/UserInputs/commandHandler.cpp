@@ -19,7 +19,6 @@ void CommandHandler::printCommands() {
                       << "  start             --> Start the Ground Station\n"
                       << "  startController   --> Start the controller\n"
                       << "  stop              --> Stop the Ground Station\n"
-                      << "  update            --> Temporary passthrough to controller\n"
                       << "  exit              --> Terminate the execution\n";
 }
 
@@ -34,10 +33,7 @@ void CommandHandler::handleCommand(const std::string& command) const {
     } else if (command == "stop") {
         LOG_INFO("Stopping main process...");
         m_gcs.stop();
-    } else if (command.substr(0, 7) == "update ") {
-        const int value = std::stoi(command.substr(7));
-        m_gcs.updateControlInput(value);
-    }else if (command == "exit") {
+    } else if (command == "exit") {
         LOG_INFO("Exiting program...");
         m_gcs.stop();
         exit(0);
