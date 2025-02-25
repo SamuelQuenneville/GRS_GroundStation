@@ -9,10 +9,8 @@
 #ifndef GROUNDSTATION_H
 #define GROUNDSTATION_H
 
-#include <shared_mutex>
-
-#include "Control/controlInterface.h"
 #include "communicationManager.h"
+#include "Control/controlInterface.h"
 
 static constexpr std::string DEFAULT_REMOTE_IP = "127.0.0.1";
 static constexpr int DEFAULT_TCP_PORT = 5760; // Ardupilot specifics
@@ -24,13 +22,14 @@ public:
     ~GroundStationApp();
 
     void start();
-    void startController() const;
     void stop();
 
-    std::map<uint8_t, uavStates>  getControllerInput();
+    void initMatlabController(const char* ip, uint16_t port) const;
+    void startController() const;
+    void setControllerFrequency(double frequency) const;
 
-    void updateControlOutput(int newOutput);
-    int getControlOutput();
+    std::map<uint8_t, uavStates>  getControllerInput();
+    void updateControlOutput(const std::map<uint8_t, uavCommands>& uavCommands);
 
     void setNumberOfUavs(int numUavs);
     [[nodiscard]] int getNumberOfUavs() const;
@@ -47,8 +46,6 @@ private:
     std::atomic<bool> m_running;
 
     std::unique_ptr<ControlInterface> m_controlInterface;
-    int m_controlInput;
-    int m_controlOutput;
     std::mutex m_dataMutex;
 };
 

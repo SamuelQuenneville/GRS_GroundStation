@@ -11,7 +11,8 @@
 
 #pragma once
 
-#include <cstdint>
+#include <mavsdk/mavsdk.h>
+#include <mavsdk/plugins/telemetry/telemetry.h>
 
 struct subscriptionHandles {
     mavsdk::Telemetry::HealthHandle                      healthHandle;
@@ -42,21 +43,22 @@ struct uavStates {
     float northMeterSecond;
     float eastMeterSecond;
     float downMeterSecond;
-    double latitudeDegree;
-    double longitudeDegree;
-    float altitudeAmslMeter;
     float rollDegree;
     float pitchDegree;
     float yawDegree;
-    //float rpm; TODO add to mavsdk?
-};
+    double altitudeAmslMeter;
+    double latitudeDegree;
+    double longitudeDegree;
+}__attribute__((packed));
 
-struct controllerOutput {
-    uint8_t sysId;
-    float quaternion[4];
-    float altitude;
-    float thrust;
-};
+struct uavCommands {
+    float sysId;            // float mean easier encoding/decoding with matlab
+    float rollCommand;
+    float pitchCommand;
+    float yawCommand;
+    float altitudeCommand;
+    float thrustCommand;
+}__attribute__((packed));
 
 
 #endif //COMMUNICATIONSTRUCTURES_H

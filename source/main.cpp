@@ -31,18 +31,28 @@ int main(const int argc, const char * argv[]) {
             PROGRAM_LOGGER.enableVerbose(true);
         } else if (arg.find("--UAVs=") == 0) {
             gcs.setNumberOfUavs(std::stoi(arg.substr(7)));
+        } else if (arg.find("--hlc-freq=") == 0) {
+            gcs.setControllerFrequency(std::stod(arg.substr(11)));
         } else if (arg.find("--matlab=") == 0) {
-            [[maybe_unused]]int port = std::stoi(arg.substr(9));
+            const size_t equalPos = arg.find('=');
+            const size_t colonPos = arg.find(':');
+
+            static std::string ipStr = arg.substr(equalPos + 1, colonPos - equalPos - 1);
+            const auto ip = ipStr.c_str();
+            const auto port = static_cast<uint16_t>(std::stoi(arg.substr(colonPos + 1)));
+
+            gcs.initMatlabController(ip, port);
         } else if (arg == "--listCommand") {
             CommandHandler::printCommands();
         } else if (arg == "--help") {
             std::cout << "Usage: " << argv[0] << " [options]\n"
                       << "Options:\n"
-                      << "  --help           Show this help message\n"
-                      << "  --verbose        Enable verbose mode\n"
-                      << "  --UAVs=[Number]  Number of UAVs\n"
-                      << "  --matlab=[port]  Enable matlab controller via UDP\n"
-                      << "  --listCommand    Show all commands\n";
+                      << "  --help                Show this help message\n"
+                      << "  --verbose             Enable verbose mode\n"
+                      << "  --UAVs=[Number]       Number of UAVs\n"
+                      << "  --hlc-freq=[freq]     Controller frequency in Hz\n"
+                      << "  --matlab=[ip]:[port]  Enable matlab controller via UDP\n"
+                      << "  --listCommand         Show all commands\n";
             return 0;
         } else {
             std::cerr << "Unknown option: " << arg << "\n";

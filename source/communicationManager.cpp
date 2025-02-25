@@ -8,8 +8,6 @@
 
 #include "communicationManager.h"
 
-#include <charconv>
-
 CommunicationManager::CommunicationManager()
     : m_mavsdk(GROUND_STATION)
 {
@@ -97,6 +95,12 @@ std::shared_ptr<mavsdk::Action> CommunicationManager::getAction(const uint8_t sy
     }
     return nullptr;
 }
+
+void CommunicationManager::setUavCommands(const std::map<uint8_t, uavCommands>& uavCommands) {
+    std::lock_guard<std::mutex> lock(m_statesMutex);
+    m_uavCommands = uavCommands;
+}
+
 
 void CommunicationManager::m_subscribeMavlink(const uint8_t sysId) {
     const auto telemetryIterator = m_telemetry.find(sysId);

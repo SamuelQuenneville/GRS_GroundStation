@@ -11,9 +11,7 @@
 GroundStationApp::GroundStationApp()
     : m_running(false)
 {
-    m_controlInterface = std::make_unique<ControlInterface>(*this, 10.0);
-    m_controlInput = 0;
-    m_controlOutput = 0;
+    m_controlInterface = std::make_unique<ControlInterface>(*this, ControlMode::LOCAL);
 }
 
 GroundStationApp::~GroundStationApp() {
@@ -25,8 +23,16 @@ void GroundStationApp::start() {
     m_communicationThread = std::thread(&GroundStationApp::m_run, this);
 }
 
+void GroundStationApp::initMatlabController(const char* ip, const uint16_t port) const {
+    m_controlInterface->setMatlabMode(ip, port);
+}
+
 void GroundStationApp::startController() const {
     m_controlInterface->start();
+}
+
+void GroundStationApp::setControllerFrequency(const double frequency) const {
+    m_controlInterface->setControllerFrequency(frequency);
 }
 
 
@@ -44,14 +50,9 @@ std::map<uint8_t, uavStates> GroundStationApp::getControllerInput() {
     return m_communicationManager.getUavsStates();
 }
 
-void GroundStationApp::updateControlOutput(const int newOutput) {
+void GroundStationApp::updateControlOutput(const std::map<uint8_t, uavCommands>& uavCommands) {
     std::lock_guard<std::mutex> lock(m_dataMutex);
-    m_controlOutput = newOutput;
-}
-
-int GroundStationApp::getControlOutput() {
-    std::lock_guard<std::mutex> lock(m_dataMutex);
-    return m_controlOutput;
+    m_communicationManager.setUavCommands(uavCommands);
 }
 
 void GroundStationApp::setNumberOfUavs(const int numUavs) {
