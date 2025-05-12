@@ -40,7 +40,7 @@ int main(const int argc, const char * argv[]) {
             static std::string ipStr = arg.substr(equalPos + 1, colonPos - equalPos - 1);
             const auto ip = ipStr.c_str();
             const auto port = static_cast<uint16_t>(std::stoi(arg.substr(colonPos + 1)));
-
+            std::cout << ipStr << ":" << std::to_string(port) << std::endl;
             gcs.initMatlabController(ip, port);
         } else if (arg == "--listCommand") {
             CommandHandler::printCommands();

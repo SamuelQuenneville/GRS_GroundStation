@@ -42,6 +42,10 @@ void ProgramLogger::log(const LogLevel level, const std::string& message) {
     if (m_logFile.is_open()) {
         m_logFile << logMessage << std::endl;
     }
+
+    if (level == LogLevel::error) {
+        std::exit(EXIT_FAILURE);
+    }
 }
 
 std::string ProgramLogger::m_getLevelString(const LogLevel level) {

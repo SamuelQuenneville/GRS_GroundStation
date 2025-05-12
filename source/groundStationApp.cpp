@@ -45,6 +45,14 @@ void GroundStationApp::stop() {
     m_controlInterface->stop();
 }
 
+void GroundStationApp::armAll() {
+    m_communicationManager.armAll();
+}
+
+void GroundStationApp::setGuidedAll() {
+    m_communicationManager.setGuidedAll();
+}
+
 std::map<uint8_t, uavStates> GroundStationApp::getControllerInput() {
     std::lock_guard<std::mutex> lock(m_dataMutex);
     return m_communicationManager.getUavsStates();
@@ -73,7 +81,7 @@ void GroundStationApp::m_run() {
     }
 
     while (m_running) {
-        m_updateState();
+        //m_updateState();
         std::this_thread::sleep_for(std::chrono::seconds(1));
     }
 }

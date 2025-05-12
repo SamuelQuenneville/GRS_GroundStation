@@ -9,8 +9,13 @@ set(GRS_SOURCE
         source/main.cpp
         source/groundStationApp.cpp
         source/groundStationApp.h
-        source/communicationManager.cpp
-        source/communicationManager.h
+)
+
+set(GRS_COMMUNICATION
+        source/Communication/communicationManager.cpp
+        source/Communication/communicationManager.h
+        source/Communication/guided.cpp
+        source/Communication/guided.h
 )
 
 set(GRS_CONTROL
@@ -36,6 +41,7 @@ set(GRS_USERINPUTS
 
 add_executable(GRS_GroundStation
         ${GRS_SOURCE}
+        ${GRS_COMMUNICATION}
         ${GRS_CONTROL}
         ${GRS_DEFINITIONS}
         ${GRS_LOG}

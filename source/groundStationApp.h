@@ -9,7 +9,7 @@
 #ifndef GROUNDSTATION_H
 #define GROUNDSTATION_H
 
-#include "communicationManager.h"
+#include "Communication/communicationManager.h"
 #include "Control/controlInterface.h"
 
 static constexpr std::string DEFAULT_REMOTE_IP = "127.0.0.1";
@@ -23,6 +23,9 @@ public:
 
     void start();
     void stop();
+
+    void armAll();
+    void setGuidedAll();
 
     void initMatlabController(const char* ip, uint16_t port) const;
     void startController() const;

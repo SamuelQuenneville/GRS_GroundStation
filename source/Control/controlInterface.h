@@ -14,8 +14,10 @@
 #include <chrono>
 #include <map>
 #include <arpa/inet.h>
+#include <ranges>
 
 #include "Definitions/communicationStructures.h"
+#include "Log/programLogger.h"
 
 class GroundStationApp;
 

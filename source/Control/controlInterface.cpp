@@ -55,14 +55,17 @@ void ControlInterface::m_controlLoop() {
         std::map<uint8_t, uavStates>  latestData = m_gcs.getControllerInput();
 
         if (m_controlMode == ControlMode::MATLAB) {
+            LOG_DEBUG("ControlInterface::m_controlLoop() -->MATLAB");
             m_sendDataToMatlab(latestData);
             m_gcs.updateControlOutput(m_receiveDataFromMatlab());
         } else if (m_controlMode == ControlMode::LOCAL) {
             // TODO mpc controller interface
-
-            //m_gcs.updateControlOutput(controlOutput);
+            std::map<uint8_t, uavCommands>  cmd;
+            cmd[1] = {1,0,15,0, 0.8};
+            cmd[2] = {2,0,15,0, 0.8};
+            m_gcs.updateControlOutput(cmd);
         } else {
-            std::cerr << "Error setting controller Mode\n";
+            LOG_ERROR("Error setting controller Mode");
         }
 
         std::this_thread::sleep_until(nextTick);
@@ -73,7 +76,7 @@ void ControlInterface::m_initMatlabConnection(const char* ip, const uint16_t por
 
     m_udpSocketMatlab = socket(AF_INET, SOCK_DGRAM, 0);
     if (m_udpSocketMatlab < 0) {
-        std::cerr << "Error creating UDP socket\n";
+        LOG_ERROR("Error creating UDP socket");
         return;
     }
 

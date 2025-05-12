@@ -17,6 +17,8 @@ CommandHandler::CommandHandler(GroundStationApp& gcs)
 void CommandHandler::printCommands() {
     std::cout << "Commands: [commands]\n"
                       << "  start             --> Start the Ground Station\n"
+                      << "  arm               --> Arm all connected system\n"
+                      << "  guided            --> Set guided mode for all connected system\n"
                       << "  startController   --> Start the controller\n"
                       << "  stop              --> Stop the Ground Station\n"
                       << "  exit              --> Terminate the execution\n";
@@ -27,7 +29,13 @@ void CommandHandler::handleCommand(const std::string& command) const {
     if (command == "start") {
         LOG_INFO("Starting main process...");
         m_gcs.start();
-    } else if (command == "startController") {
+    } else if (command == "arm") {
+        LOG_INFO("Arming controller ...");
+        m_gcs.armAll();
+    } else if (command == "guided") {
+        LOG_INFO("Setting guided mode ...");
+        m_gcs.setGuidedAll();
+    }else if (command == "startController") {
         LOG_INFO("Starting controller ...");
         m_gcs.startController();
     } else if (command == "stop") {

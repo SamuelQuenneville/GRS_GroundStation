@@ -18,6 +18,7 @@ struct subscriptionHandles {
     mavsdk::Telemetry::HealthHandle                      healthHandle;
     mavsdk::Telemetry::HealthAllOkHandle                 healthAllOkHandle;
     mavsdk::Telemetry::ArmedHandle                       armedHandle;
+    mavsdk::Telemetry::HomeHandle                        homeHandle;
     mavsdk::Telemetry::FlightModeHandle                  flightModeHandle;
     mavsdk::Telemetry::AttitudeEulerHandle               attitudeHandle;
     mavsdk::Telemetry::AttitudeAngularVelocityBodyHandle angularVelocityHandle;
@@ -56,7 +57,6 @@ struct uavCommands {
     float rollCommand;
     float pitchCommand;
     float yawCommand;
-    float altitudeCommand;
     float thrustCommand;
 }__attribute__((packed));
 
