@@ -30,9 +30,11 @@ int main(const int argc, const char * argv[]) {
         if (arg == "--verbose") {
             PROGRAM_LOGGER.enableVerbose(true);
         } else if (arg.find("--UAVs=") == 0) {
-            gcs.setNumberOfUavs(std::stoi(arg.substr(7)));
+            gcs.setNumberOfUavs(std::stoi(arg.substr(arg.find('=') + 1)));
+
         } else if (arg.find("--hlc-freq=") == 0) {
-            gcs.setControllerFrequency(std::stod(arg.substr(11)));
+            gcs.setControllerFrequency(std::stod(arg.substr(arg.find('=') + 1)));
+
         } else if (arg.find("--matlab=") == 0) {
             const size_t equalPos = arg.find('=');
             const size_t colonPos = arg.find(':');
@@ -42,8 +44,13 @@ int main(const int argc, const char * argv[]) {
             const auto port = static_cast<uint16_t>(std::stoi(arg.substr(colonPos + 1)));
             std::cout << ipStr << ":" << std::to_string(port) << std::endl;
             gcs.initMatlabController(ip, port);
+
+        } else if (arg.find("--commandFile=") == 0) {
+            gcs.parseCommandFile(arg.substr(arg.find('=') + 1));
+
         } else if (arg == "--listCommand") {
             CommandHandler::printCommands();
+
         } else if (arg == "--help") {
             std::cout << "Usage: " << argv[0] << " [options]\n"
                       << "Options:\n"
@@ -52,6 +59,7 @@ int main(const int argc, const char * argv[]) {
                       << "  --UAVs=[Number]       Number of UAVs\n"
                       << "  --hlc-freq=[freq]     Controller frequency in Hz\n"
                       << "  --matlab=[ip]:[port]  Enable matlab controller via UDP\n"
+                      << "  --commandFile=[file]  Enable control input (RPYT) from file\n"
                       << "  --listCommand         Show all commands\n";
             return 0;
         } else {

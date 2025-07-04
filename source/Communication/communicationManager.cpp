@@ -180,6 +180,16 @@ void CommunicationManager::setUavCommands(const std::map<uint8_t, uavCommands>& 
     m_sendGuidedCommand();
 }
 
+void CommunicationManager::setUavShouldMove(const std::map<uint8_t, bool>& shouldMoveList) {
+    std::lock_guard<std::mutex> lock(m_statesMutex);
+    m_shouldMoveList = shouldMoveList;
+}
+
+void CommunicationManager::setEndSimulation(const std::map<uint8_t, bool>& endSimulation) {
+    std::lock_guard<std::mutex> lock(m_statesMutex);
+    m_endSimulationList = endSimulation;
+}
+
 void CommunicationManager::m_subscribeMavlink(const uint8_t sysId) {
     const auto telemetryIterator = m_telemetry.find(sysId);
 
@@ -453,6 +463,8 @@ void CommunicationManager::m_sendGuidedCommand() {
         attitude.yawDegree   = m_uavCommands[sysId].yawCommand;
         attitude.thrustValue = m_uavCommands[sysId].thrustCommand;
 
+        guided->setShouldMove(m_shouldMoveList[sysId]);
+        guided->setEndSimulation(m_endSimulationList[sysId]);
         guided->setAttitude(attitude);
     }
 

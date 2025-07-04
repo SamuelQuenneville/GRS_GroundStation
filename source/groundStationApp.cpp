@@ -35,6 +35,93 @@ void GroundStationApp::setControllerFrequency(const double frequency) const {
     m_controlInterface->setControllerFrequency(frequency);
 }
 
+void GroundStationApp::parseCommandFile(const std::string& file) const {
+    std::ifstream fileStream(file);
+
+    if (!fileStream.is_open()) {
+        LOG_ERROR("Failed to open file");
+    }
+
+    std::map<uint8_t, std::vector<double>> timeList;
+    std::map<uint8_t, std::vector<uavCommands>> commandsList;
+    std::map<uint8_t, std::vector<bool>> shouldMoveList;
+    std::map<uint8_t, std::vector<bool>> endSimulationList;
+    std::string line;
+
+    while (std::getline(fileStream, line)) {
+        double time;
+        uavCommands command{};
+        bool shouldMove;
+        bool endSimulation;
+        if (parseUavCommandsLine(line, time, command, shouldMove, endSimulation)) {
+            timeList[static_cast<uint8_t>(command.sysId)].push_back(time);
+            commandsList[static_cast<uint8_t>(command.sysId)].push_back(command);
+            shouldMoveList[static_cast<uint8_t>(command.sysId)].push_back(shouldMove);
+            endSimulationList[static_cast<uint8_t>(command.sysId)].push_back(endSimulation);
+        } else {
+            LOG_ERROR("Failed to parse command line from file");
+        }
+    }
+
+    fileStream.close();
+
+    double f = 1 / (timeList[1][1] - timeList[1][0]);
+    m_controlInterface->setFileFrequency(f);
+
+    m_controlInterface->setShouldMoveList(shouldMoveList);
+    m_controlInterface->setEndSimulationList(endSimulationList);
+    m_controlInterface->setCommandsList(commandsList);
+}
+
+bool GroundStationApp::parseUavCommandsLine(const std::string& line, double& time, uavCommands& command, bool& shouldMove, bool& endSimulation) {
+    std::istringstream lineStream(line);
+    std::string token;
+
+    // Line definition:
+    // time (sec), sysId, roll (deg), pitch (deg), yaw (deg), thrust (N), F1 (0/1), F2 (0/1)
+
+    if (!std::getline(lineStream, token, ',')) {
+        return false;
+    }
+    time = std::stod(token);
+
+    if (!std::getline(lineStream, token, ',')) {
+        return false;
+    }
+    command.sysId = std::stof(token);
+
+    if (!std::getline(lineStream, token, ',')) {
+        return false;
+    }
+    command.rollCommand = std::stof(token);
+
+    if (!std::getline(lineStream, token, ',')) {
+        return false;
+    }
+    command.pitchCommand = std::stof(token);
+
+    if (!std::getline(lineStream, token, ',')) {
+        return false;
+    }
+    command.yawCommand = std::stof(token);
+
+    if (!std::getline(lineStream, token, ',')) {
+        return false;
+    }
+    command.thrustCommand = std::stof(token);
+
+    if (!std::getline(lineStream, token, ',')) {
+        return false;
+    }
+    shouldMove = static_cast<bool>(std::stoi(token));
+
+    if (!std::getline(lineStream, token, ',')) {
+        return false;
+    }
+    endSimulation = static_cast<bool>(std::stoi(token));
+
+    return true;
+}
 
 void GroundStationApp::stop() {
     m_running = false;
@@ -60,6 +147,13 @@ std::map<uint8_t, uavStates> GroundStationApp::getControllerInput() {
 
 void GroundStationApp::updateControlOutput(const std::map<uint8_t, uavCommands>& uavCommands) {
     std::lock_guard<std::mutex> lock(m_dataMutex);
+    m_communicationManager.setUavCommands(uavCommands);
+}
+
+void GroundStationApp::updateControlOutput(const std::map<uint8_t, uavCommands>& uavCommands, const std::map<uint8_t, bool>& shouldMove, const std::map<uint8_t, bool>& endSimulation) {
+    std::lock_guard<std::mutex> lock(m_dataMutex);
+    m_communicationManager.setUavShouldMove(shouldMove);
+    m_communicationManager.setEndSimulation(endSimulation);
     m_communicationManager.setUavCommands(uavCommands);
 }
 

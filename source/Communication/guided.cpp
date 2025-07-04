@@ -80,6 +80,16 @@ void Guided::setAttitude(const Attitude& attitude) {
     m_lastSentTime = std::chrono::steady_clock::now();
 }
 
+void Guided::setShouldMove(const bool shouldMove) {
+    std::lock_guard<std::mutex> lock(m_attitudeMutex);
+    m_shouldMove = shouldMove;
+}
+
+void Guided::setEndSimulation(const bool endSimulation) {
+    std::lock_guard<std::mutex> lock(m_attitudeMutex);
+    m_endSimulation = endSimulation;
+}
+
 bool Guided::m_isGuidedMode() const {
     return m_currentMode == ARDUPILOT_PLANE_XNAV_MODE;
 }
@@ -108,8 +118,8 @@ bool Guided::m_setAttitudeTarget() {
             m_mavlinkPassthrough->get_target_compid(),
             ATTITUDE_TARGET_TYPEMASK_BODY_ROLL_RATE_IGNORE | ATTITUDE_TARGET_TYPEMASK_BODY_PITCH_RATE_IGNORE | ATTITUDE_TARGET_TYPEMASK_BODY_YAW_RATE_IGNORE,
             quaternion,
-            0,
-            0,
+            m_shouldMove,
+            m_endSimulation,
             0,
             thrust,
             thrustBody

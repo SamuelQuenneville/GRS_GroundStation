@@ -13,9 +13,8 @@ ControlInterface::ControlInterface(GroundStationApp& gcs, const ControlMode mode
     : m_gcs(gcs)
     , m_running(false)
     , m_frequency(CONTROLLER_DEFAULT_FREQUENCY_HZ)
-    , m_controlMode(mode)
-{
-
+    , m_fileFrequency(CONTROLLER_DEFAULT_FREQUENCY_HZ)
+    , m_controlMode(mode) {
 }
 
 ControlInterface::~ControlInterface() {
@@ -39,6 +38,9 @@ void ControlInterface::setControllerFrequency(const double frequency) {
     m_frequency = frequency;
 }
 
+void ControlInterface::setFileFrequency(const double frequency) {
+    m_fileFrequency = frequency;
+}
 
 void ControlInterface::setMatlabMode(const char* ip, const uint16_t port) {
     m_controlMode = ControlMode::MATLAB;
@@ -46,8 +48,22 @@ void ControlInterface::setMatlabMode(const char* ip, const uint16_t port) {
     m_initMatlabConnection(ip, port);
 }
 
+void ControlInterface::setCommandsList(const std::map<uint8_t, std::vector<uavCommands>>& commandsList) {
+    m_controlMode = ControlMode::FILE;
+    m_commandsList = commandsList;
+}
+
+void ControlInterface::setShouldMoveList(const std::map<uint8_t, std::vector<bool>>& shouldMoveList) {
+    m_shouldMoveList = shouldMoveList;
+}
+
+void ControlInterface::setEndSimulationList(const std::map<uint8_t, std::vector<bool>>& endSimulationList) {
+    m_endSimulationList = endSimulationList;
+}
+
 void ControlInterface::m_controlLoop() {
     std::chrono::steady_clock::time_point nextTick = std::chrono::steady_clock::now();
+    int fileIdx = 0;
 
     while (m_running) {
         nextTick += std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::duration<double>(1.0 / m_frequency));
@@ -64,6 +80,24 @@ void ControlInterface::m_controlLoop() {
             cmd[1] = {1,0,15,0, 0.8};
             cmd[2] = {2,0,15,0, 0.8};
             m_gcs.updateControlOutput(cmd);
+        } else if (m_controlMode == ControlMode::FILE) {
+            std::map<uint8_t, uavCommands>  cmd;
+            std::map<uint8_t, bool>  shouldMove;
+            std::map<uint8_t, bool>  endSimulation;
+
+            if (fileIdx >= m_commandsList[1].size()) {
+                LOG_INFO("Reach end of trajectory!");
+                return;
+            }
+
+            for (size_t i = 0; i < m_commandsList.size(); i++) {
+                cmd[i+1] = m_commandsList[i+1].at(fileIdx);
+                shouldMove[i+1] = m_shouldMoveList[i+1].at(fileIdx);
+                endSimulation[i+1] = m_endSimulationList[i+1].at(fileIdx);
+            }
+
+            m_gcs.updateControlOutput(cmd, shouldMove, endSimulation);
+            fileIdx += static_cast<int>(m_fileFrequency / m_frequency);
         } else {
             LOG_ERROR("Error setting controller Mode");
         }

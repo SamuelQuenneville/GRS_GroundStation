@@ -48,7 +48,9 @@ public:
     std::shared_ptr<mavsdk::Action> getAction(uint8_t sysId);
 
     void setHomeToCurrentPosition();
-    void setUavCommands(const std::map<uint8_t, uavCommands> &uavCommands);
+    void setUavCommands(const std::map<uint8_t, uavCommands>& uavCommands);
+    void setUavShouldMove(const std::map<uint8_t, bool>& shouldMoveList);
+    void setEndSimulation(const std::map<uint8_t, bool>& endSimulation);
 
 private:
     mavsdk::Mavsdk m_mavsdk;
@@ -97,6 +99,8 @@ private:
     std::map<uint8_t, uavHealth> m_uavHealths;
 
     std::map<uint8_t, uavCommands> m_uavCommands;
+    std::map<uint8_t, bool> m_shouldMoveList;
+    std::map<uint8_t, bool> m_endSimulationList;
 
     std::mutex m_statesMutex;
     std::mutex m_linkMutex;

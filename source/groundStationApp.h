@@ -31,8 +31,12 @@ public:
     void startController() const;
     void setControllerFrequency(double frequency) const;
 
+    void parseCommandFile(const std::string& file) const;
+    static bool parseUavCommandsLine(const std::string& line, double& time, uavCommands& command, bool& shouldMove, bool& endSimulation);
+
     std::map<uint8_t, uavStates>  getControllerInput();
     void updateControlOutput(const std::map<uint8_t, uavCommands>& uavCommands);
+    void updateControlOutput(const std::map<uint8_t, uavCommands>& uavCommands, const std::map<uint8_t, bool>& shouldMove, const std::map<uint8_t, bool>& endSimulation);
 
     void setNumberOfUavs(int numUavs);
     [[nodiscard]] int getNumberOfUavs() const;

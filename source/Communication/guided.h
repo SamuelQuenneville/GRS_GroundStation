@@ -46,6 +46,8 @@ public:
     void startAttitudeControl(float fallBackFrequencyHz = 10.0f);
     void stopAttitudeControl();
     void setAttitude(const Attitude& attitude);
+    void setShouldMove(bool shouldMove);
+    void setEndSimulation(bool shouldEndSimulation);
 
 private:
     std::shared_ptr<mavsdk::MavlinkPassthrough> m_mavlinkPassthrough;
@@ -62,6 +64,8 @@ private:
     static void m_toQuaternion(const Attitude& attitude, float q[4]);
 
     Attitude m_attitude{0.0,0.0,0.0,0.0};
+    bool m_shouldMove = false;
+    bool m_endSimulation = false;
 };
 
 #endif //GUIDED_H
