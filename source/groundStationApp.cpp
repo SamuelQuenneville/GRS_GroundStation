@@ -170,7 +170,7 @@ void GroundStationApp::m_run() {
     if (!m_numberOfUavs == 0) {
         for (int i = 0; i < m_numberOfUavs; i++) {
         // Ardupilot add 10 to the tcp port for each new connection
-        m_communicationManager.addLink("tcpout://" + DEFAULT_REMOTE_IP + ":" + std::to_string(DEFAULT_TCP_PORT + (10*i)));
+        m_communicationManager.addLink("tcpout://" + std::string(DEFAULT_REMOTE_IP) + ":" + std::to_string(DEFAULT_TCP_PORT + (10*i)));
         }
     }
 

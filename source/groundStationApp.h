@@ -12,7 +12,7 @@
 #include "Communication/communicationManager.h"
 #include "Control/controlInterface.h"
 
-static constexpr std::string DEFAULT_REMOTE_IP = "127.0.0.1";
+static constexpr std::string_view DEFAULT_REMOTE_IP = "127.0.0.1";
 static constexpr int DEFAULT_TCP_PORT = 5760; // Ardupilot specifics
 
 class GroundStationApp {
