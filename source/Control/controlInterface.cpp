@@ -53,6 +53,11 @@ void ControlInterface::setCommandsList(const std::map<uint8_t, std::vector<uavCo
     m_commandsList = commandsList;
 }
 
+void ControlInterface::setRcList(const std::map<uint8_t, std::vector<uavRc> > &rcList) {
+    m_controlMode = ControlMode::RC;
+    m_rcList = rcList;
+}
+
 void ControlInterface::setShouldMoveList(const std::map<uint8_t, std::vector<bool>>& shouldMoveList) {
     m_shouldMoveList = shouldMoveList;
 }
@@ -98,6 +103,26 @@ void ControlInterface::m_controlLoop() {
 
             m_gcs.updateControlOutput(cmd, shouldMove, endSimulation);
             fileIdx += static_cast<int>(m_fileFrequency / m_frequency);
+
+        } else if (m_controlMode == ControlMode::RC) {
+            std::map<uint8_t, uavRc>  rcData;
+            std::map<uint8_t, bool>  shouldMove;
+            std::map<uint8_t, bool>  endSimulation;
+
+            if (fileIdx >= m_rcList[1].size()) {
+                LOG_INFO("Reach end of trajectory!");
+                return;
+            }
+
+            for (size_t i = 0; i < m_rcList.size(); i++) {
+                rcData[i+1] = m_rcList[i+1].at(fileIdx);
+                shouldMove[i+1] = m_shouldMoveList[i+1].at(fileIdx);
+                endSimulation[i+1] = m_endSimulationList[i+1].at(fileIdx);
+            }
+
+            m_gcs.updateControlOutput(rcData, shouldMove, endSimulation);
+            fileIdx += static_cast<int>(m_fileFrequency / m_frequency);
+
         } else {
             LOG_ERROR("Error setting controller Mode");
         }

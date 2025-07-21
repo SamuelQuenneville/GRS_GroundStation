@@ -42,10 +42,18 @@ public:
         float thrustValue{};    // range 0 to 1
     };
 
+    struct RcRaw {
+        uint16_t aileron  = 1500;
+        uint16_t elevator = 1500;
+        uint16_t rudder   = 1500;
+        uint16_t throttle = 1100;
+    };
+
     bool setGuidedMode();
     void startAttitudeControl(float fallBackFrequencyHz = 10.0f);
     void stopAttitudeControl();
     void setAttitude(const Attitude& attitude);
+    void setRc(const RcRaw& rc);
     void setShouldMove(bool shouldMove);
     void setEndSimulation(bool shouldEndSimulation);
 
@@ -60,10 +68,12 @@ private:
 
     [[nodiscard]] bool m_isGuidedMode() const;
     bool m_setAttitudeTarget();
+    bool m_setRcOverride();
 
     static void m_toQuaternion(const Attitude& attitude, float q[4]);
 
     Attitude m_attitude{0.0,0.0,0.0,0.0};
+    RcRaw m_rcRaw{1500, 1500, 1500, 1100};
     bool m_shouldMove = false;
     bool m_endSimulation = false;
 };

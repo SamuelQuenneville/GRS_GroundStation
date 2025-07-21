@@ -34,9 +34,13 @@ public:
     void parseCommandFile(const std::string& file) const;
     static bool parseUavCommandsLine(const std::string& line, double& time, uavCommands& command, bool& shouldMove, bool& endSimulation);
 
+    void parseRcFile(const std::string& file);
+    static bool parseUavRcLine(const std::string& line, double& time, uavRc& rcRaw, bool& shouldMove, bool& endSimulation);
+
     std::map<uint8_t, uavStates>  getControllerInput();
     void updateControlOutput(const std::map<uint8_t, uavCommands>& uavCommands);
     void updateControlOutput(const std::map<uint8_t, uavCommands>& uavCommands, const std::map<uint8_t, bool>& shouldMove, const std::map<uint8_t, bool>& endSimulation);
+    void updateControlOutput(const std::map<uint8_t, uavRc>& uavCommands, const std::map<uint8_t, bool>& shouldMove, const std::map<uint8_t, bool>& endSimulation);
 
     void setNumberOfUavs(int numUavs);
     [[nodiscard]] int getNumberOfUavs() const;

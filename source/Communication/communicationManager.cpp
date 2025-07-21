@@ -180,6 +180,13 @@ void CommunicationManager::setUavCommands(const std::map<uint8_t, uavCommands>& 
     m_sendGuidedCommand();
 }
 
+void CommunicationManager::setUavRc(const std::map<uint8_t, uavRc>& uavRc) {
+    std::lock_guard<std::mutex> lock(m_statesMutex);
+    m_uavRc = uavRc;
+
+    m_sendRcCommand();
+}
+
 void CommunicationManager::setUavShouldMove(const std::map<uint8_t, bool>& shouldMoveList) {
     std::lock_guard<std::mutex> lock(m_statesMutex);
     m_shouldMoveList = shouldMoveList;
@@ -469,6 +476,24 @@ void CommunicationManager::m_sendGuidedCommand() {
     }
 
 }
+
+void CommunicationManager::m_sendRcCommand() {
+
+    for (auto& [sysId, guided] : m_guided) {
+
+        Guided::RcRaw rc;
+        rc.aileron  = static_cast<uint16_t>(m_uavRc[sysId].rawAileron);
+        rc.elevator = static_cast<uint16_t>(m_uavRc[sysId].rawElevator);
+        rc.throttle = static_cast<uint16_t>(m_uavRc[sysId].rawThrottle);
+        rc.rudder   = static_cast<uint16_t>(m_uavRc[sysId].rawRudder);
+
+        guided->setShouldMove(m_shouldMoveList[sysId]);
+        guided->setEndSimulation(m_endSimulationList[sysId]);
+        guided->setRc(rc);
+    }
+
+}
+
 
 void CommunicationManager::m_setParameter(const uint8_t sysId, const MAV_PARAM_TYPE type, std::string name, const float value) {
     const auto result = m_passthrough[sysId]->queue_message(

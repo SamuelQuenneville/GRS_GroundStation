@@ -24,7 +24,8 @@ class GroundStationApp;
 enum class ControlMode {
     LOCAL,
     MATLAB,
-    FILE
+    FILE,
+    RC
 };
 
 static constexpr double CONTROLLER_DEFAULT_FREQUENCY_HZ = 10;
@@ -42,6 +43,7 @@ public:
     void setFileFrequency(double frequency);
     void setMatlabMode(const char* ip, uint16_t port);
     void setCommandsList(const std::map<uint8_t, std::vector<uavCommands>>& commandsList);
+    void setRcList(const std::map<uint8_t, std::vector<uavRc>>& rcList);
     void setShouldMoveList(const std::map<uint8_t, std::vector<bool>>& shouldMoveList);
     void setEndSimulationList(const std::map<uint8_t, std::vector<bool>>& endSimulationList);
 
@@ -59,6 +61,7 @@ private:
     double m_fileFrequency;
 
     std::map<uint8_t, std::vector<uavCommands>> m_commandsList{};
+    std::map<uint8_t, std::vector<uavRc>> m_rcList{};
     std::map<uint8_t, std::vector<bool>> m_shouldMoveList{};
     std::map<uint8_t, std::vector<bool>> m_endSimulationList{};
 

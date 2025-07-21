@@ -60,5 +60,13 @@ struct uavCommands {
     float thrustCommand;
 }__attribute__((packed));
 
+struct uavRc {
+    float sysId;
+    float rawAileron;
+    float rawElevator;
+    float rawRudder;
+    float rawThrottle;
+}__attribute__((packed));
+
 
 #endif //COMMUNICATIONSTRUCTURES_H

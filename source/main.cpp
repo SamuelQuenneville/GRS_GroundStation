@@ -48,6 +48,9 @@ int main(const int argc, const char * argv[]) {
         } else if (arg.find("--commandFile=") == 0) {
             gcs.parseCommandFile(arg.substr(arg.find('=') + 1));
 
+        } else if (arg.find("--rcFile=") == 0) {
+            gcs.parseRcFile(arg.substr(arg.find('=') + 1));
+
         } else if (arg == "--listCommand") {
             CommandHandler::printCommands();
 
@@ -60,6 +63,7 @@ int main(const int argc, const char * argv[]) {
                       << "  --hlc-freq=[freq]     Controller frequency in Hz\n"
                       << "  --matlab=[ip]:[port]  Enable matlab controller via UDP\n"
                       << "  --commandFile=[file]  Enable control input (RPYT) from file\n"
+                      << "  --rcFile=[file]       Enable rc input (ail/elev/rud/throttle) from file\n"
                       << "  --listCommand         Show all commands\n";
             return 0;
         } else {

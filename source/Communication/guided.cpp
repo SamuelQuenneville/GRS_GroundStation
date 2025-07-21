@@ -80,6 +80,15 @@ void Guided::setAttitude(const Attitude& attitude) {
     m_lastSentTime = std::chrono::steady_clock::now();
 }
 
+void Guided::setRc(const RcRaw& rc) {
+    std::lock_guard<std::mutex> lock(m_attitudeMutex);
+    m_rcRaw = rc;
+
+    // Send immediately if called more frequently
+    m_setRcOverride();
+    m_lastSentTime = std::chrono::steady_clock::now();
+}
+
 void Guided::setShouldMove(const bool shouldMove) {
     std::lock_guard<std::mutex> lock(m_attitudeMutex);
     m_shouldMove = shouldMove;
@@ -123,6 +132,59 @@ bool Guided::m_setAttitudeTarget() {
             0,
             thrust,
             thrustBody
+        );
+        return message;
+    });
+
+    if (result != mavsdk::MavlinkPassthrough::Result::Success) {
+        std::cout << result << std::endl;
+        return false;
+    }
+
+    return true;
+}
+
+bool Guided::m_setRcOverride() {
+
+    const uint16_t chan[8] = {
+        m_rcRaw.aileron,
+        m_rcRaw.elevator,
+        m_rcRaw.throttle,
+        m_rcRaw.rudder,
+        UINT16_MAX,
+        UINT16_MAX,
+        UINT16_MAX,
+        UINT16_MAX
+    };
+
+    auto const result = m_mavlinkPassthrough->queue_message([&](const MavlinkAddress mavlink_address, const uint8_t channel) {
+
+        mavlink_message_t message;
+        mavlink_msg_rc_channels_override_pack_chan(
+            mavlink_address.system_id,
+            mavlink_address.component_id,
+            channel,
+            &message,
+            m_mavlinkPassthrough->get_target_sysid(),
+            m_mavlinkPassthrough->get_target_compid(),
+            chan[0],
+            chan[1],
+            chan[2],
+            chan[3],
+            chan[4],
+            chan[5],
+            chan[6],
+            chan[7],
+            UINT16_MAX,
+            UINT16_MAX,
+            UINT16_MAX,
+            UINT16_MAX,
+            UINT16_MAX,
+            UINT16_MAX,
+            UINT16_MAX,
+            UINT16_MAX,
+            UINT16_MAX,
+            UINT16_MAX
         );
         return message;
     });
