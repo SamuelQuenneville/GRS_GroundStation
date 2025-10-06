@@ -166,7 +166,7 @@ bool GroundStationApp::parseUavRcLine(const std::string &line, double &time, uav
     std::string token;
 
     // Line definition
-    // time (msec), sysId, aileron (PWM), elevator (PWM), throttle (PWM), rudder (PWM), F1 (0/1), F2 (0,1)
+    // time (sec), sysId, aileron (PWM), elevator (PWM), throttle (PWM), rudder (PWM), F1 (0/1), F2 (0,1)
 
     if (!std::getline(lineStream, token, ',')) {
         return false;

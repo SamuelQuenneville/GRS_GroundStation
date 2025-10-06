@@ -24,8 +24,8 @@ class GroundStationApp;
 enum class ControlMode {
     LOCAL,
     MATLAB,
-    FILE,
-    RC
+    RC_FILE,
+    ATTITUDE_FILE
 };
 
 static constexpr double CONTROLLER_DEFAULT_FREQUENCY_HZ = 10;

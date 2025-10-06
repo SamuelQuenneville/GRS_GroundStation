@@ -153,8 +153,8 @@ bool Guided::m_setRcOverride() {
         m_rcRaw.rudder,
         UINT16_MAX,
         UINT16_MAX,
-        UINT16_MAX,
-        UINT16_MAX
+        m_shouldMove,
+        m_endSimulation
     };
 
     auto const result = m_mavlinkPassthrough->queue_message([&](const MavlinkAddress mavlink_address, const uint8_t channel) {

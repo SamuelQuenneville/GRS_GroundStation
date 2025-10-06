@@ -49,12 +49,12 @@ void ControlInterface::setMatlabMode(const char* ip, const uint16_t port) {
 }
 
 void ControlInterface::setCommandsList(const std::map<uint8_t, std::vector<uavCommands>>& commandsList) {
-    m_controlMode = ControlMode::FILE;
+    m_controlMode = ControlMode::ATTITUDE_FILE;
     m_commandsList = commandsList;
 }
 
 void ControlInterface::setRcList(const std::map<uint8_t, std::vector<uavRc> > &rcList) {
-    m_controlMode = ControlMode::RC;
+    m_controlMode = ControlMode::RC_FILE;
     m_rcList = rcList;
 }
 
@@ -85,7 +85,7 @@ void ControlInterface::m_controlLoop() {
             cmd[1] = {1,0,15,0, 0.8};
             cmd[2] = {2,0,15,0, 0.8};
             m_gcs.updateControlOutput(cmd);
-        } else if (m_controlMode == ControlMode::FILE) {
+        } else if (m_controlMode == ControlMode::ATTITUDE_FILE) {
             std::map<uint8_t, uavCommands>  cmd;
             std::map<uint8_t, bool>  shouldMove;
             std::map<uint8_t, bool>  endSimulation;
@@ -104,7 +104,7 @@ void ControlInterface::m_controlLoop() {
             m_gcs.updateControlOutput(cmd, shouldMove, endSimulation);
             fileIdx += static_cast<int>(m_fileFrequency / m_frequency);
 
-        } else if (m_controlMode == ControlMode::RC) {
+        } else if (m_controlMode == ControlMode::RC_FILE) {
             std::map<uint8_t, uavRc>  rcData;
             std::map<uint8_t, bool>  shouldMove;
             std::map<uint8_t, bool>  endSimulation;
