@@ -40,10 +40,8 @@ set(GRS_LOG
 )
 
 set(GRS_USERINPUTS
-        source/UserInputs/commandHandler.cpp
-        source/UserInputs/commandHandler.h
-        source/UserInputs/userInputListener.cpp
-        source/UserInputs/userInputListener.h
+        source/UserInputs/consoleInterface.cpp
+        source/UserInputs/consoleInterface.h
 )
 
 add_executable(GRS_GroundStation

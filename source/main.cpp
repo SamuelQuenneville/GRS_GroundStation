@@ -8,8 +8,7 @@
 
 #include <condition_variable>
 
-#include "UserInputs/commandHandler.h"
-#include "UserInputs/userInputListener.h"
+#include "UserInputs/consoleInterface.h"
 
 std::mutex mutex;
 std::condition_variable cv;
@@ -20,7 +19,6 @@ int main(const int argc, const char * argv[]) {
     PROGRAM_LOGGER.setLogFileName("log_gcs.txt");
 
     GroundStationApp gcs;
-    const CommandHandler commandHandler(gcs);
 
     // Loop through command-line arguments
     for (int i = 1; i < argc; ++i) {
@@ -52,7 +50,7 @@ int main(const int argc, const char * argv[]) {
             gcs.parseRcFile(arg.substr(arg.find('=') + 1));
 
         } else if (arg == "--listCommand") {
-            CommandHandler::printCommands();
+            ConsoleInterface::printCommands();
 
         } else if (arg == "--help") {
             std::cout << "Usage: " << argv[0] << " [options]\n"
@@ -72,17 +70,7 @@ int main(const int argc, const char * argv[]) {
         }
     }
 
-    UserInputListener userInput([&](const std::string& cmd) {
-        if (cmd == "exit") {
-            {
-                std::lock_guard<std::mutex> lock(mutex);
-                exitFlag = true;
-            }
-            cv.notify_one();  // Notify main thread to exit
-        }
-        commandHandler.handleCommand(cmd);
-    });
-
+    ConsoleInterface userInput(gcs, exitFlag, cv);
     userInput.start();
 
     // Wait for exit signal instead of sleeping

@@ -5,16 +5,34 @@
  * Université de Sherbrooke
  * Createk Innovation Lab
  */
+#include "consoleInterface.h"
 
-#include "commandHandler.h"
-
-CommandHandler::CommandHandler(GroundStationApp& gcs)
-    : m_gcs(gcs)
+ConsoleInterface::ConsoleInterface(GroundStationApp& gcs, bool& exitFlag, std::condition_variable& cv)
+    : m_running(false)
+    , m_gcs(gcs)
+    , m_exitFlag(exitFlag)
+    , m_cv(cv)
 {
 
 }
 
-void CommandHandler::printCommands() {
+ConsoleInterface::~ConsoleInterface() {
+    stop();
+}
+
+void ConsoleInterface::start() {
+    m_running = true;
+    m_inputThread = std::thread(&ConsoleInterface::m_listen, this);
+}
+
+void ConsoleInterface::stop() {
+    m_running = false;
+    if (m_inputThread.joinable()) {
+        m_inputThread.join();
+    }
+}
+
+void ConsoleInterface::printCommands() {
     std::cout << "Commands: [commands]\n"
                       << "  start             --> Start the Ground Station\n"
                       << "  arm               --> Arm all connected system\n"
@@ -25,7 +43,7 @@ void CommandHandler::printCommands() {
 }
 
 
-void CommandHandler::handleCommand(const std::string& command) const {
+void ConsoleInterface::handleCommand(const std::string& command) const {
     if (command == "start") {
         LOG_INFO("Starting main process...");
         m_gcs.start();
@@ -44,8 +62,34 @@ void CommandHandler::handleCommand(const std::string& command) const {
     } else if (command == "exit") {
         LOG_INFO("Exiting program...");
         m_gcs.stop();
-        exit(0);
     } else {
         LOG_INFO("Unknown command");
+    }
+}
+
+void ConsoleInterface::m_listen() {
+    std::string command;
+    while (m_running) {
+        std::cout << "\nGCS->";
+        std::getline(std::cin, command);
+
+        if (!m_running) {
+            break;
+        }
+
+        if (command == "exit") {
+            {
+                std::lock_guard<std::mutex> lock(*(new std::mutex())); // short-lived local lock
+                m_exitFlag = true;
+            }
+            handleCommand(command);
+            m_cv.notify_one();
+            m_running = false;
+            return;
+        }
+
+        if (!command.empty()) {
+            handleCommand(command);
+        }
     }
 }

@@ -23,10 +23,8 @@
 
 static constexpr uint32_t ARDUPILOT_PLANE_XNAV_MODE = 3;
 
-constexpr double PI = 3.14159265358979323846;
-
 template<typename T> constexpr T degToRad(T deg) {
-    return static_cast<T>(PI) / static_cast<T>(180.0) * deg;
+    return static_cast<T>(M_PI) / static_cast<T>(180.0) * deg;
 }
 
 class Guided {
