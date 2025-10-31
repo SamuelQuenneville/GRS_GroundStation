@@ -53,7 +53,7 @@ void Guided::startAttitudeControl(float fallBackFrequencyHz) {
             auto now = std::chrono::steady_clock::now();
 
             // Send periodic attitude updates if needed
-            std::lock_guard<std::mutex> lock(m_attitudeMutex);
+            std::lock_guard lock(m_attitudeMutex);
             if (now - m_lastSentTime >= interval) {
                 m_setAttitudeTarget();
                 m_lastSentTime = now;
@@ -78,25 +78,6 @@ void Guided::setAttitude(const Attitude& attitude) {
     // Send immediately if called more frequently
     m_setAttitudeTarget();
     m_lastSentTime = std::chrono::steady_clock::now();
-}
-
-void Guided::setRc(const RcRaw& rc) {
-    std::lock_guard<std::mutex> lock(m_attitudeMutex);
-    m_rcRaw = rc;
-
-    // Send immediately if called more frequently
-    m_setRcOverride();
-    m_lastSentTime = std::chrono::steady_clock::now();
-}
-
-void Guided::setShouldMove(const bool shouldMove) {
-    std::lock_guard<std::mutex> lock(m_attitudeMutex);
-    m_shouldMove = shouldMove;
-}
-
-void Guided::setEndSimulation(const bool endSimulation) {
-    std::lock_guard<std::mutex> lock(m_attitudeMutex);
-    m_endSimulation = endSimulation;
 }
 
 bool Guided::m_isGuidedMode() const {
@@ -144,6 +125,7 @@ bool Guided::m_setAttitudeTarget() {
     return true;
 }
 
+/*
 bool Guided::m_setRcOverride() {
 
     const uint16_t chan[8] = {
@@ -196,6 +178,7 @@ bool Guided::m_setRcOverride() {
 
     return true;
 }
+*/
 
 void Guided::m_toQuaternion(const Attitude& attitude, float q[4]) {
 
@@ -203,12 +186,12 @@ void Guided::m_toQuaternion(const Attitude& attitude, float q[4]) {
     const float pitch  = degToRad(attitude.pitchDegree);
     const float yaw    = degToRad(attitude.yawDegree);
 
-    const double cos_phi_2   = cos(static_cast<double>(roll) * 0.5);
-    const double sin_phi_2   = sin(static_cast<double>(roll) * 0.5);
-    const double cos_theta_2 = cos(static_cast<double>(pitch) * 0.5);
-    const double sin_theta_2 = sin(static_cast<double>(pitch) * 0.5);
-    const double cos_psi_2   = cos(static_cast<double>(yaw) * 0.5);
-    const double sin_psi_2   = sin(static_cast<double>(yaw) * 0.5);
+    const double cos_phi_2   = std::cos(static_cast<double>(roll) * 0.5);
+    const double sin_phi_2   = std::sin(static_cast<double>(roll) * 0.5);
+    const double cos_theta_2 = std::cos(static_cast<double>(pitch) * 0.5);
+    const double sin_theta_2 = std::sin(static_cast<double>(pitch) * 0.5);
+    const double cos_psi_2   = std::cos(static_cast<double>(yaw) * 0.5);
+    const double sin_psi_2   = std::sin(static_cast<double>(yaw) * 0.5);
 
     q[0] = static_cast<float>(cos_phi_2 * cos_theta_2 * cos_psi_2 + sin_phi_2 * sin_theta_2 * sin_psi_2);
     q[1] = static_cast<float>(sin_phi_2 * cos_theta_2 * cos_psi_2 - cos_phi_2 * sin_theta_2 * sin_psi_2);

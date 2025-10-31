@@ -16,36 +16,25 @@
 #include <arpa/inet.h>
 #include <ranges>
 
+#include "gcsConfig.h"
 #include "Definitions/communicationStructures.h"
 #include "Log/programLogger.h"
-
-class GroundStationApp;
-
-enum class ControlMode {
-    LOCAL,
-    MATLAB,
-    RC_FILE,
-    ATTITUDE_FILE
-};
-
-static constexpr double CONTROLLER_DEFAULT_FREQUENCY_HZ = 10;
 
 class ControlInterface {
 
 public:
-    ControlInterface(GroundStationApp& gcs, ControlMode mode);
+    ControlInterface();
     ~ControlInterface();
 
+    void initialize(const gcsConfig& config);
     void start();
     void stop();
 
-    void setControllerFrequency(double frequency);
-    void setFileFrequency(double frequency);
-    void setMatlabMode(const char* ip, uint16_t port);
-    void setCommandsList(const std::map<uint8_t, std::vector<uavCommands>>& commandsList);
-    void setRcList(const std::map<uint8_t, std::vector<uavRc>>& rcList);
-    void setShouldMoveList(const std::map<uint8_t, std::vector<bool>>& shouldMoveList);
-    void setEndSimulationList(const std::map<uint8_t, std::vector<bool>>& endSimulationList);
+    void setCommandCallback(std::function<void(const std::map<uint8_t, uavCommandsFlags>&)> cb);
+    void updateStates(const std::map<uint8_t, uavStates>& states);
+
+    void initMatlabConnection(const char* ip, uint16_t port);
+    void setCommandsList(const std::map<uint8_t, std::vector<uavCommandsFlags>>& commandsList);
 
 private:
     void m_controlLoop();
@@ -54,22 +43,21 @@ private:
     void m_sendDataToMatlab(const std::map<uint8_t, uavStates>& states);
     std::map<uint8_t, uavCommands> m_receiveDataFromMatlab();
 
-    GroundStationApp& m_gcs;
     std::atomic<bool> m_running;
     std::thread m_controllerThread;
-    double m_frequency;
-    double m_fileFrequency;
+    double m_fileFrequency = 10.0;
 
-    std::map<uint8_t, std::vector<uavCommands>> m_commandsList{};
-    std::map<uint8_t, std::vector<uavRc>> m_rcList{};
-    std::map<uint8_t, std::vector<bool>> m_shouldMoveList{};
-    std::map<uint8_t, std::vector<bool>> m_endSimulationList{};
+    gcsConfig m_config;
 
-    std::atomic<ControlMode> m_controlMode;
+    std::function<void(const std::map<uint8_t, uavCommandsFlags>&)> m_sendCommand;
+    std::map<uint8_t, uavStates> m_latestStates;
+    std::mutex m_stateMutex;
+
+    std::map<uint8_t, std::vector<uavCommandsFlags>> m_commandsList{};
+
     int m_udpSocketMatlab = 0;
     sockaddr_in m_matlabAddress{};
 };
-
 
 
 #endif //CONTROLINTERFACE_H

@@ -18,14 +18,86 @@ CommunicationManager::CommunicationManager()
 }
 
 CommunicationManager::~CommunicationManager() {
+    stop();
+}
 
-    for (const auto [sysId, handle]: m_connectionHandles) {
-        m_unsubscribeMavlink(sysId);
-        m_mavsdk.remove_connection(handle);
+void CommunicationManager::initialize(const gcsConfig& config) {
+    m_config = config;
+}
+
+void CommunicationManager::start() {
+    bool expected = false;
+    if (!m_running.compare_exchange_strong(expected, true)) return;
+
+    if (m_config.telemetry_publish_hz > 0.0) {
+        // start a small publisher thread that will send consolidated snapshots at fixed rate
+        const auto period = std::chrono::microseconds(static_cast<int64_t>(1e6 / m_config.telemetry_publish_hz));
+        m_publishThread = std::thread([this, period]() {
+            while (m_running.load()) {
+                std::this_thread::sleep_for(period);
+
+                // only publish if some aggregator changed since last publish
+                if (!m_snapshotDirty.load()) continue;
+
+                std::map<uint8_t, uavStates> snapshot;
+                {
+                    std::lock_guard lock(m_statesMutex);
+                    for (const auto& [id, agg] : m_aggregators) {
+                        if (agg) snapshot[id] = agg->getSnapshot();
+                    }
+                    m_snapshotDirty.store(false);
+                }
+
+                if (m_telemetryCallback) {
+                    m_telemetryCallback(snapshot);
+                }
+            }
+        });
     }
 
-    m_messageHandles.clear();
-    m_connectionHandles.clear();
+    LOG_INFO("CommunicationManager started");
+}
+
+void CommunicationManager::stop() {
+    m_running = false;
+    if (m_publishThread.joinable()) m_publishThread.join();
+
+    // unsubscribe & remove connections
+    {
+        std::lock_guard lock(m_linkMutex);
+        for (const auto & [sysId, handle]: m_connectionHandles) {
+            try {
+                m_unsubscribeMavlink(sysId);
+                m_mavsdk.remove_connection(handle);
+            } catch ([[maybe_unused]] const std::exception& e) {
+                LOG_WARNING("Exception removing connection handle");
+            }
+        }
+
+        m_messageHandles.clear();
+        m_connectionHandles.clear();
+        m_links.clear();
+    }
+
+    LOG_INFO("CommunicationManager stopped");
+}
+
+void CommunicationManager::setTelemetryCallback(std::function<void(const std::map<uint8_t, uavStates>&)> cb) {
+    m_telemetryCallback = std::move(cb);
+}
+
+void CommunicationManager::connectAll(const std::string &baseIp, const uint16_t basePort, const int numUavs, const int increment) {
+
+    LOG_INFO("Connecting to UAV(s)...");
+
+    for (int i = 0; i < numUavs; ++i) {
+        const uint16_t port = basePort + i * increment;
+        const std::string uri = "tcpout://" + baseIp + ":" + std::to_string(port);
+        LOG_INFO("Adding link");
+        addLink(uri);
+    }
+
+    LOG_INFO("All UAV links initialized.");
 }
 
 void CommunicationManager::armAll() {
@@ -78,8 +150,7 @@ bool CommunicationManager::addLink(const std::string& connection) {
         return false;
     }
 
-    m_numberOfUavs += 1;
-    while (m_mavsdk.systems().size() < m_numberOfUavs) {
+    while (m_mavsdk.systems().size() <= m_config.numUavs) {
         std::this_thread::sleep_for(std::chrono::seconds(1));
     }
 
@@ -90,25 +161,20 @@ bool CommunicationManager::addLink(const std::string& connection) {
 
         uint8_t sysId = system->get_system_id();
 
-        std::lock_guard<std::mutex> lock(m_linkMutex);
+        m_aggregators[sysId] = std::make_shared<StatesAggregator>();
+
+        std::lock_guard lock(m_linkMutex);
         if (!m_links.contains(sysId)) {
             m_links[sysId] = system;
             m_connectionHandles[sysId] = connectionHandle;
 
-            m_telemetry[sysId] = std::make_shared<mavsdk::Telemetry>(system);
-            m_action[sysId]    = std::make_shared<mavsdk::Action>(system);
+            m_telemetry[sysId]   = std::make_shared<mavsdk::Telemetry>(system);
+            m_action[sysId]      = std::make_shared<mavsdk::Action>(system);
             m_passthrough[sysId] = std::make_shared<mavsdk::MavlinkPassthrough>(system);
 
             m_guided[sysId] = std::make_shared<Guided>(m_passthrough[sysId]);
 
             m_subscribeMavlink(sysId);
-
-            // Set some SITL parameters
-            m_setParameter(sysId, MAV_PARAM_TYPE_INT8, "ARMING_CHECK", 0);
-            m_setParameter(sysId, MAV_PARAM_TYPE_INT8, "RPM1_TYPE", 10);
-            m_setParameter(sysId, MAV_PARAM_TYPE_INT8, "RPM2_TYPE", 10);
-            m_setParameter(sysId, MAV_PARAM_TYPE_INT32, "SIM_VIB_MOT_MASK", 4);
-            m_setParameter(sysId, MAV_PARAM_TYPE_INT8, "AHRS_EKF_TYPE", 10);
 
             LOG_INFO("Connected: sysID = " + std::to_string(sysId));
         }
@@ -117,7 +183,7 @@ bool CommunicationManager::addLink(const std::string& connection) {
 }
 
 void CommunicationManager::listLinks() {
-    std::lock_guard<std::mutex> lock(m_linkMutex);
+    std::lock_guard lock(m_linkMutex);
     if (m_links.empty()) {
         LOG_WARNING("No links connected");
     } else {
@@ -127,14 +193,8 @@ void CommunicationManager::listLinks() {
     }
 }
 
-std::map<uint8_t, uavStates> CommunicationManager::getUavsStates() {
-    std::lock_guard<std::mutex> lock(m_statesMutex);
-
-    return m_uavStates;
-}
-
 std::shared_ptr<mavsdk::Telemetry> CommunicationManager::getTelemetry(const uint8_t sysId) {
-    std::lock_guard<std::mutex> lock(m_linkMutex);
+    std::lock_guard lock(m_linkMutex);
     if (m_telemetry.contains(sysId)) {
         return m_telemetry[sysId];
     }
@@ -142,7 +202,7 @@ std::shared_ptr<mavsdk::Telemetry> CommunicationManager::getTelemetry(const uint
 }
 
 std::shared_ptr<mavsdk::Action> CommunicationManager::getAction(const uint8_t sysId) {
-    std::lock_guard<std::mutex> lock(m_linkMutex);
+    std::lock_guard lock(m_linkMutex);
     if (m_links.contains(sysId)) {
         return m_action[sysId];
     }
@@ -173,28 +233,11 @@ void CommunicationManager::setHomeToCurrentPosition() {
     }
 }
 
-void CommunicationManager::setUavCommands(const std::map<uint8_t, uavCommands>& uavCommands) {
-    std::lock_guard<std::mutex> lock(m_statesMutex);
+void CommunicationManager::setUavCommands(const std::map<uint8_t, uavCommandsFlags>& uavCommands) {
+    std::lock_guard lock(m_statesMutex);
     m_uavCommands = uavCommands;
 
-    m_sendGuidedCommand();
-}
-
-void CommunicationManager::setUavRc(const std::map<uint8_t, uavRc>& uavRc) {
-    std::lock_guard<std::mutex> lock(m_statesMutex);
-    m_uavRc = uavRc;
-
-    m_sendRcCommand();
-}
-
-void CommunicationManager::setUavShouldMove(const std::map<uint8_t, bool>& shouldMoveList) {
-    std::lock_guard<std::mutex> lock(m_statesMutex);
-    m_shouldMoveList = shouldMoveList;
-}
-
-void CommunicationManager::setEndSimulation(const std::map<uint8_t, bool>& endSimulation) {
-    std::lock_guard<std::mutex> lock(m_statesMutex);
-    m_endSimulationList = endSimulation;
+    m_sendGuidedCommand();  // TODO take this and send to uavs. Need to pass by guided.cpp or refactor into mavlink helper class?
 }
 
 void CommunicationManager::m_subscribeMavlink(const uint8_t sysId) {
@@ -274,19 +317,17 @@ void CommunicationManager::m_unsubscribeMavlink(const uint8_t sysId) {
     m_messageHandles.erase(sysId);
 }
 
-bool CommunicationManager::m_waitForAck(uint16_t command, mavlink_command_ack_t& ack, const std::optional<int> timeout_ms) {
-    std::unique_lock<std::mutex> lock(m_commandAckMutex);
-
-    if (timeout_ms) {
-        if (!m_cvCommandAck.wait_for(lock, std::chrono::milliseconds(*timeout_ms), [this, command] { return m_lastAck.command == command; })) {
-            return false;  // Timeout occurred
+void CommunicationManager::m_onTelemetryUpdate() {
+    std::map<uint8_t, uavStates> snapshot;
+    {
+        std::lock_guard lock(m_statesMutex);
+        for (const auto& [id, agg] : m_aggregators) {
+            snapshot[id] = agg->getSnapshot();
         }
-    } else {
-        m_cvCommandAck.wait(lock, [this, command] { return m_lastAck.command == command; });
     }
 
-    ack = m_lastAck;
-    return true;
+    if (m_telemetryCallback)
+        m_telemetryCallback(snapshot);
 }
 
 void CommunicationManager::m_handleCommandAck(const mavlink_message_t& message) {
@@ -294,7 +335,7 @@ void CommunicationManager::m_handleCommandAck(const mavlink_message_t& message) 
         mavlink_command_ack_t ack;
         mavlink_msg_command_ack_decode(&message, &ack);
 
-        std::lock_guard<std::mutex> lock(m_commandAckMutex);
+        std::lock_guard lock(m_commandAckMutex);
         m_lastAck = ack;
 
         if (m_lastAck.command == MAVLINK_MSG_ID_ATTITUDE_TARGET) {
@@ -361,14 +402,15 @@ void CommunicationManager::m_handleAttitudeTarget(const mavlink_message_t& messa
 }
 
 void CommunicationManager::m_subscribeAttitudeTarget(const uint8_t sysId) {
-     m_passthrough[sysId]->subscribe_message(MAVLINK_MSG_ID_ATTITUDE_TARGET,
-         [this](const mavlink_message_t& message) { m_handleAttitudeTarget(message); });
+     m_passthrough[sysId]->subscribe_message(MAVLINK_MSG_ID_ATTITUDE_TARGET, [this](const mavlink_message_t& message) {
+         m_handleAttitudeTarget(message);
+     });
 }
 
 void CommunicationManager::m_subscribeHealth(const std::shared_ptr<mavsdk::Telemetry> &telemetry, uint8_t sysId, subscriptionHandles &handles) {
 
     handles.healthHandle = telemetry->subscribe_health([this, sysId](const mavsdk::Telemetry::Health& health) {
-        std::lock_guard<std::mutex> lock(m_statesMutex);
+        std::lock_guard lock(m_statesMutex);
 
         m_uavHealths[sysId].health = health;
     });
@@ -377,19 +419,16 @@ void CommunicationManager::m_subscribeHealth(const std::shared_ptr<mavsdk::Telem
 void CommunicationManager::m_subscribeHealthAllOk(const std::shared_ptr<mavsdk::Telemetry> &telemetry, uint8_t sysId, subscriptionHandles &handles) {
 
     handles.healthAllOkHandle = telemetry->subscribe_health_all_ok([this, sysId](const bool isHealthy) {
-        std::lock_guard<std::mutex> lock(m_statesMutex);
+        std::lock_guard lock(m_statesMutex);
 
         m_uavHealths[sysId].isHealthy = isHealthy;
-        // if (m_uavHealths[sysId].isHealthy) {
-        //     LOG_INFO("SysId " + std::to_string(sysId) + " is healthy");
-        // }
     });
 }
 
 void CommunicationManager::m_subscribeArmed(const std::shared_ptr<mavsdk::Telemetry> &telemetry, uint8_t sysId, subscriptionHandles &handles) {
 
     handles.armedHandle = telemetry->subscribe_armed([this, sysId](const bool isArmed) {
-        std::lock_guard<std::mutex> lock(m_statesMutex);
+        std::lock_guard lock(m_statesMutex);
 
         m_uavHealths[sysId].isArmed = isArmed;
     });
@@ -408,7 +447,7 @@ void CommunicationManager::m_subscribeHome(const std::shared_ptr<mavsdk::Telemet
 void CommunicationManager::m_subscribeFlightMode(const std::shared_ptr<mavsdk::Telemetry> &telemetry, uint8_t sysId, subscriptionHandles &handles) {
 
     handles.flightModeHandle = telemetry->subscribe_flight_mode([this, sysId](const mavsdk::Telemetry::FlightMode& flightMode) {
-        std::lock_guard<std::mutex> lock(m_statesMutex);
+        std::lock_guard lock(m_statesMutex);
 
         m_uavHealths[sysId].flightMode = flightMode;
     });
@@ -417,83 +456,72 @@ void CommunicationManager::m_subscribeFlightMode(const std::shared_ptr<mavsdk::T
 void CommunicationManager::m_subscribeAttitude(const std::shared_ptr<mavsdk::Telemetry>& telemetry, uint8_t sysId, subscriptionHandles& handles) {
 
     handles.attitudeHandle = telemetry->subscribe_attitude_euler([this, sysId](const mavsdk::Telemetry::EulerAngle& attitude) {
-        std::lock_guard<std::mutex> lock(m_statesMutex);
+        m_aggregators[sysId]->updateAttitude(attitude.roll_deg, attitude.pitch_deg, attitude.yaw_deg);
 
-        m_uavStates[sysId].rollDegree  = attitude.roll_deg;
-        m_uavStates[sysId].pitchDegree = attitude.pitch_deg;
-        m_uavStates[sysId].yawDegree   = attitude.yaw_deg;
+        if (m_config.telemetry_publish_hz <= 0.0) {
+            // immediate publish
+            m_onTelemetryUpdate();
+        } else {
+            m_snapshotDirty.store(true);
+        }
     });
 }
 
 void CommunicationManager::m_subscribePositionVelocity(const std::shared_ptr<mavsdk::Telemetry>& telemetry, uint8_t sysId, subscriptionHandles& handles) {
 
     handles.positionVelocityNedHandle = telemetry->subscribe_position_velocity_ned([this, sysId](const mavsdk::Telemetry::PositionVelocityNed& positionVelocityNed) {
-        std::lock_guard<std::mutex> lock(m_statesMutex);
+        m_aggregators[sysId]->updatePosition(positionVelocityNed.position.north_m, positionVelocityNed.position.east_m, positionVelocityNed.position.down_m);
+        m_aggregators[sysId]->updateVelocity(positionVelocityNed.velocity.north_m_s, positionVelocityNed.velocity.east_m_s, positionVelocityNed.velocity.down_m_s);
 
-        m_uavStates[sysId].northMeter = positionVelocityNed.position.north_m;
-        m_uavStates[sysId].eastMeter  = positionVelocityNed.position.east_m;
-        m_uavStates[sysId].downMeter  = positionVelocityNed.position.down_m;
-
-        m_uavStates[sysId].northMeterSecond = positionVelocityNed.velocity.north_m_s;
-        m_uavStates[sysId].eastMeterSecond  = positionVelocityNed.velocity.east_m_s;
-        m_uavStates[sysId].downMeterSecond  = positionVelocityNed.velocity.down_m_s;
+        if (m_config.telemetry_publish_hz <= 0.0) {
+            // immediate publish
+            m_onTelemetryUpdate();
+        } else {
+            m_snapshotDirty.store(true);
+        }
     });
 }
 
 void CommunicationManager::m_subscribePosition(const std::shared_ptr<mavsdk::Telemetry>& telemetry, uint8_t sysId, subscriptionHandles& handles) {
 
     handles.positionHandle = telemetry->subscribe_position([this, sysId](const mavsdk::Telemetry::Position& position) {
-        std::lock_guard<std::mutex> lock(m_statesMutex);
+        m_aggregators[sysId]->updateGlobalPosition(position.latitude_deg, position.longitude_deg, position.absolute_altitude_m);
 
-        m_uavStates[sysId].latitudeDegree    = position.latitude_deg;
-        m_uavStates[sysId].longitudeDegree   = position.longitude_deg;
-        m_uavStates[sysId].altitudeAmslMeter = position.absolute_altitude_m;
+        if (m_config.telemetry_publish_hz <= 0.0) {
+            // immediate publish
+            m_onTelemetryUpdate();
+        } else {
+            m_snapshotDirty.store(true);
+        }
     });
 }
 
 void CommunicationManager::m_subscribeFixedwingMetrics(const std::shared_ptr<mavsdk::Telemetry>& telemetry, uint8_t sysId, subscriptionHandles& handles) {
 
     handles.fixedwingMetricsHandle = telemetry->subscribe_fixedwing_metrics([this, sysId](const mavsdk::Telemetry::FixedwingMetrics& fixedwingMetrics) {
-        std::lock_guard<std::mutex> lock(m_statesMutex);
+        m_aggregators[sysId]->updateAirspeed(fixedwingMetrics.airspeed_m_s);
 
-        m_uavStates[sysId].airspeedMeterSecond = fixedwingMetrics.airspeed_m_s;
+        if (m_config.telemetry_publish_hz <= 0.0) {
+            // immediate publish
+            m_onTelemetryUpdate();
+        } else {
+            m_snapshotDirty.store(true);
+        }
     });
 }
 
 void CommunicationManager::m_sendGuidedCommand() {
-
     for (auto& [sysId, guided] : m_guided) {
-
         Guided::Attitude attitude;
-        attitude.rollDegree  = m_uavCommands[sysId].rollCommand;
-        attitude.pitchDegree = m_uavCommands[sysId].pitchCommand;
-        attitude.yawDegree   = m_uavCommands[sysId].yawCommand;
-        attitude.thrustValue = m_uavCommands[sysId].thrustCommand;
 
-        guided->setShouldMove(m_shouldMoveList[sysId]);
-        guided->setEndSimulation(m_endSimulationList[sysId]);
+        attitude.rollDegree  = m_uavCommands[sysId].commands.rollCommand;
+        attitude.pitchDegree = m_uavCommands[sysId].commands.pitchCommand;
+        attitude.yawDegree   = m_uavCommands[sysId].commands.yawCommand;
+        attitude.thrustValue = m_uavCommands[sysId].commands.thrustCommand;
+
         guided->setAttitude(attitude);
     }
-
 }
-
-void CommunicationManager::m_sendRcCommand() {
-
-    for (auto& [sysId, guided] : m_guided) {
-
-        Guided::RcRaw rc;
-        rc.aileron  = static_cast<uint16_t>(m_uavRc[sysId].rawAileron);
-        rc.elevator = static_cast<uint16_t>(m_uavRc[sysId].rawElevator);
-        rc.throttle = static_cast<uint16_t>(m_uavRc[sysId].rawThrottle);
-        rc.rudder   = static_cast<uint16_t>(m_uavRc[sysId].rawRudder);
-
-        guided->setShouldMove(m_shouldMoveList[sysId]);
-        guided->setEndSimulation(m_endSimulationList[sysId]);
-        guided->setRc(rc);
-    }
-
-}
-
 
 void CommunicationManager::m_setParameter(const uint8_t sysId, const MAV_PARAM_TYPE type, std::string name, const float value) {
     const auto result = m_passthrough[sysId]->queue_message(

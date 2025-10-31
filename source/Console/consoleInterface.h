@@ -11,12 +11,12 @@
 
 #include <atomic>
 
-#include "groundStationApp.h"
+#include "gcs.h"
 
 class ConsoleInterface {
 
 public:
-    explicit ConsoleInterface(GroundStationApp& gcs, bool& exitFlag, std::condition_variable& cv);
+    explicit ConsoleInterface(GroundControlStation& gcs, bool& exitFlag, std::condition_variable& cv);
     ~ConsoleInterface();
 
     void start();
@@ -30,7 +30,7 @@ private:
     std::thread m_inputThread;
     std::atomic<bool> m_running;
 
-    GroundStationApp& m_gcs;
+    GroundControlStation& m_gcs;
     bool& m_exitFlag;
     std::condition_variable& m_cv;
 };

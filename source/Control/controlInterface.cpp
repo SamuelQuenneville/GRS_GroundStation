@@ -7,19 +7,21 @@
  */
 
 #include "controlInterface.h"
-#include "groundStationApp.h"
+#include "gcs.h"
 
-ControlInterface::ControlInterface(GroundStationApp& gcs, const ControlMode mode)
-    : m_gcs(gcs)
-    , m_running(false)
-    , m_frequency(CONTROLLER_DEFAULT_FREQUENCY_HZ)
-    , m_fileFrequency(CONTROLLER_DEFAULT_FREQUENCY_HZ)
-    , m_controlMode(mode) {
+ControlInterface::ControlInterface()
+    : m_running(false)
+{
+
 }
 
 ControlInterface::~ControlInterface() {
     stop();
     close(m_udpSocketMatlab);
+}
+
+void ControlInterface::initialize(const gcsConfig& config) {
+    m_config = config;
 }
 
 void ControlInterface::start() {
@@ -34,61 +36,53 @@ void ControlInterface::stop() {
     }
 }
 
-void ControlInterface::setControllerFrequency(const double frequency) {
-    m_frequency = frequency;
+void ControlInterface::setCommandCallback(std::function<void(const std::map<uint8_t, uavCommandsFlags>&)> cb) {
+    m_sendCommand = std::move(cb);
 }
 
-void ControlInterface::setFileFrequency(const double frequency) {
-    m_fileFrequency = frequency;
+void ControlInterface::updateStates(const std::map<uint8_t, uavStates>& states) {
+    std::lock_guard lock(m_stateMutex);
+    m_latestStates = states;
 }
 
-void ControlInterface::setMatlabMode(const char* ip, const uint16_t port) {
-    m_controlMode = ControlMode::MATLAB;
-
+void ControlInterface::initMatlabConnection(const char* ip, const uint16_t port) {
     m_initMatlabConnection(ip, port);
 }
 
-void ControlInterface::setCommandsList(const std::map<uint8_t, std::vector<uavCommands>>& commandsList) {
-    m_controlMode = ControlMode::ATTITUDE_FILE;
+void ControlInterface::setCommandsList(const std::map<uint8_t, std::vector<uavCommandsFlags>>& commandsList) {
     m_commandsList = commandsList;
-}
-
-void ControlInterface::setRcList(const std::map<uint8_t, std::vector<uavRc> > &rcList) {
-    m_controlMode = ControlMode::RC_FILE;
-    m_rcList = rcList;
-}
-
-void ControlInterface::setShouldMoveList(const std::map<uint8_t, std::vector<bool>>& shouldMoveList) {
-    m_shouldMoveList = shouldMoveList;
-}
-
-void ControlInterface::setEndSimulationList(const std::map<uint8_t, std::vector<bool>>& endSimulationList) {
-    m_endSimulationList = endSimulationList;
+    m_fileFrequency = 1.0 / (m_commandsList[1][1].timestamp.value() - m_commandsList[1][0].timestamp.value());
 }
 
 void ControlInterface::m_controlLoop() {
-    std::chrono::steady_clock::time_point nextTick = std::chrono::steady_clock::now();
     int fileIdx = 0;
 
     while (m_running) {
-        nextTick += std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::duration<double>(1.0 / m_frequency));
 
-        std::map<uint8_t, uavStates>  latestData = m_gcs.getControllerInput();
+        std::map<uint8_t, uavStates> latestStates;
+        {
+            std::lock_guard lock(m_stateMutex);
+            latestStates = m_latestStates;
+        }
 
-        if (m_controlMode == ControlMode::MATLAB) {
-            LOG_DEBUG("ControlInterface::m_controlLoop() -->MATLAB");
-            m_sendDataToMatlab(latestData);
-            m_gcs.updateControlOutput(m_receiveDataFromMatlab());
-        } else if (m_controlMode == ControlMode::LOCAL) {
+        std::map<uint8_t, uavCommandsFlags>  cmds;
+
+        if (m_config.controlMode == ControlMode::MATLAB) {
+            LOG_DEBUG("ControlInterface::m_controlLoop() --> MATLAB");
+            m_sendDataToMatlab(latestStates);
+            auto output = m_receiveDataFromMatlab();
+
+            for (size_t i = 0; i < output.size(); i++) {
+                cmds[i+1].commands = output[i+1];
+            }
+
+        } else if (m_config.controlMode == ControlMode::MPC) {
             // TODO mpc controller interface
-            std::map<uint8_t, uavCommands>  cmd;
-            cmd[1] = {1,0,15,0, 0.8};
-            cmd[2] = {2,0,15,0, 0.8};
-            m_gcs.updateControlOutput(cmd);
-        } else if (m_controlMode == ControlMode::ATTITUDE_FILE) {
-            std::map<uint8_t, uavCommands>  cmd;
-            std::map<uint8_t, bool>  shouldMove;
-            std::map<uint8_t, bool>  endSimulation;
+            // cmds = m_nmpc.solve(latestStates);
+            cmds[1] = {1,0,15,0, 0.8};
+            cmds[2] = {2,0,15,0, 0.8};
+
+        } else if (m_config.controlMode == ControlMode::ATTITUDE_FILE) {
 
             if (fileIdx >= m_commandsList[1].size()) {
                 LOG_INFO("Reach end of trajectory!");
@@ -96,38 +90,20 @@ void ControlInterface::m_controlLoop() {
             }
 
             for (size_t i = 0; i < m_commandsList.size(); i++) {
-                cmd[i+1] = m_commandsList[i+1].at(fileIdx);
-                shouldMove[i+1] = m_shouldMoveList[i+1].at(fileIdx);
-                endSimulation[i+1] = m_endSimulationList[i+1].at(fileIdx);
+                cmds[i+1] = m_commandsList[i+1].at(fileIdx);
             }
 
-            m_gcs.updateControlOutput(cmd, shouldMove, endSimulation);
-            fileIdx += static_cast<int>(m_fileFrequency / m_frequency);
-
-        } else if (m_controlMode == ControlMode::RC_FILE) {
-            std::map<uint8_t, uavRc>  rcData;
-            std::map<uint8_t, bool>  shouldMove;
-            std::map<uint8_t, bool>  endSimulation;
-
-            if (fileIdx >= m_rcList[1].size()) {
-                LOG_INFO("Reach end of trajectory!");
-                return;
-            }
-
-            for (size_t i = 0; i < m_rcList.size(); i++) {
-                rcData[i+1] = m_rcList[i+1].at(fileIdx);
-                shouldMove[i+1] = m_shouldMoveList[i+1].at(fileIdx);
-                endSimulation[i+1] = m_endSimulationList[i+1].at(fileIdx);
-            }
-
-            m_gcs.updateControlOutput(rcData, shouldMove, endSimulation);
-            fileIdx += static_cast<int>(m_fileFrequency / m_frequency);
+            fileIdx += static_cast<int>(m_fileFrequency / m_config.hlcFrequency);
 
         } else {
             LOG_ERROR("Error setting controller Mode");
         }
 
-        std::this_thread::sleep_until(nextTick);
+        if (m_sendCommand) {
+            m_sendCommand(cmds); // push to dispatcher queue
+        }
+
+        std::this_thread::sleep_for(std::chrono::milliseconds(static_cast<int>(1000.0 / m_config.hlcFrequency)));
     }
 }
 
@@ -164,8 +140,8 @@ void ControlInterface::m_sendDataToMatlab(const std::map<uint8_t, uavStates>& st
 std::map<uint8_t, uavCommands> ControlInterface::m_receiveDataFromMatlab() {
 
     std::map<uint8_t, uavCommands> receivedData;
-    char buffer[m_gcs.getNumberOfUavs() * sizeof(uavCommands)];
-    std::vector<uavCommands> commands(m_gcs.getNumberOfUavs());
+    char buffer[m_config.numUavs * sizeof(uavCommands)];
+    std::vector<uavCommands> commands(m_config.numUavs);
 
     socklen_t addrLen = sizeof(m_matlabAddress);
     const auto bytesReceived = recvfrom(m_udpSocketMatlab, buffer, sizeof(buffer), 0,

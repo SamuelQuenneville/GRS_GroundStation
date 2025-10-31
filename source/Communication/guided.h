@@ -23,6 +23,7 @@
 
 static constexpr uint32_t ARDUPILOT_PLANE_XNAV_MODE = 3;
 
+
 template<typename T> constexpr T degToRad(T deg) {
     return static_cast<T>(M_PI) / static_cast<T>(180.0) * deg;
 }
@@ -51,9 +52,6 @@ public:
     void startAttitudeControl(float fallBackFrequencyHz = 10.0f);
     void stopAttitudeControl();
     void setAttitude(const Attitude& attitude);
-    void setRc(const RcRaw& rc);
-    void setShouldMove(bool shouldMove);
-    void setEndSimulation(bool shouldEndSimulation);
 
 private:
     std::shared_ptr<mavsdk::MavlinkPassthrough> m_mavlinkPassthrough;
@@ -71,9 +69,6 @@ private:
     static void m_toQuaternion(const Attitude& attitude, float q[4]);
 
     Attitude m_attitude{0.0,0.0,0.0,0.0};
-    RcRaw m_rcRaw{1500, 1500, 1500, 1100};
-    bool m_shouldMove = false;
-    bool m_endSimulation = false;
 };
 
 #endif //GUIDED_H

@@ -7,7 +7,7 @@
  */
 #include "consoleInterface.h"
 
-ConsoleInterface::ConsoleInterface(GroundStationApp& gcs, bool& exitFlag, std::condition_variable& cv)
+ConsoleInterface::ConsoleInterface(GroundControlStation& gcs, bool& exitFlag, std::condition_variable& cv)
     : m_running(false)
     , m_gcs(gcs)
     , m_exitFlag(exitFlag)
@@ -35,6 +35,7 @@ void ConsoleInterface::stop() {
 void ConsoleInterface::printCommands() {
     std::cout << "Commands: [commands]\n"
                       << "  start             --> Start the Ground Station\n"
+                      << "  connect           --> Connect to all UAVs\n"
                       << "  arm               --> Arm all connected system\n"
                       << "  guided            --> Set guided mode for all connected system\n"
                       << "  startController   --> Start the controller\n"
@@ -47,6 +48,9 @@ void ConsoleInterface::handleCommand(const std::string& command) const {
     if (command == "start") {
         LOG_INFO("Starting main process...");
         m_gcs.start();
+    } else if (command == "connect") {
+        LOG_INFO("Connecting to all UAVs...");
+        m_gcs.connectAll();
     } else if (command == "arm") {
         LOG_INFO("Arming controller ...");
         m_gcs.armAll();

@@ -24,6 +24,8 @@
 #include <ranges>
 #include <future>
 
+#include "gcsConfig.h"
+#include "statesAggregator.h"
 #include "Log/programLogger.h"
 #include "Definitions/communicationStructures.h"
 #include "Communication/guided.h"
@@ -36,6 +38,13 @@ public:
     CommunicationManager();
     ~CommunicationManager();
 
+    void initialize(const gcsConfig& config);
+    void start();
+    void stop();
+
+    void setTelemetryCallback(std::function<void(const std::map<uint8_t, uavStates>&)> cb);
+    void connectAll(const std::string& baseIp, uint16_t basePort, int numUavs, int increment);
+
     void armAll();
     void setGuidedAll();
     void startAttitudeControl();
@@ -43,15 +52,11 @@ public:
     bool addLink(const std::string& connection);
     void listLinks();
 
-    std::map<uint8_t, uavStates> getUavsStates();
     std::shared_ptr<mavsdk::Telemetry> getTelemetry(uint8_t sysId);
     std::shared_ptr<mavsdk::Action> getAction(uint8_t sysId);
 
     void setHomeToCurrentPosition();
-    void setUavCommands(const std::map<uint8_t, uavCommands>& uavCommands);
-    void setUavRc(const std::map<uint8_t, uavRc>& uavRc);
-    void setUavShouldMove(const std::map<uint8_t, bool>& shouldMoveList);
-    void setEndSimulation(const std::map<uint8_t, bool>& endSimulation);
+    void setUavCommands(const std::map<uint8_t, uavCommandsFlags>& uavCommands);
 
 private:
     mavsdk::Mavsdk m_mavsdk;
@@ -64,13 +69,18 @@ private:
     std::map<uint8_t, std::shared_ptr<Guided>> m_guided;
     std::atomic<uint32_t> m_currentMode;
 
-    int m_numberOfUavs = 0;
+    gcsConfig m_config;
+    std::function<void(const std::map<uint8_t, uavStates>&)> m_telemetryCallback;
 
     std::unordered_map<uint8_t, subscriptionHandles> m_messageHandles;
     void m_subscribeMavlink(uint8_t sysId);
     void m_unsubscribeMavlink(uint8_t sysId);
 
-    bool m_waitForAck(uint16_t command, mavlink_command_ack_t& ack, std::optional<int> timeout_ms = std::nullopt);
+    std::atomic<bool> m_running{false};
+    std::thread m_publishThread;
+    std::atomic<bool> m_snapshotDirty{false};
+    std::unordered_map<uint8_t, std::shared_ptr<StatesAggregator>> m_aggregators;
+    void m_onTelemetryUpdate();
 
     void m_handleCommandAck(const mavlink_message_t& message);
     void m_subscribeCommandAck(uint8_t sysId);
@@ -93,17 +103,11 @@ private:
     void m_subscribeFixedwingMetrics(const std::shared_ptr<mavsdk::Telemetry>& telemetry, uint8_t sysId, subscriptionHandles& handles);
 
     void m_sendGuidedCommand();
-    void m_sendRcCommand();
 
     void m_setParameter(uint8_t sysId, MAV_PARAM_TYPE type, std::string name, float value);
 
-    std::map<uint8_t, uavStates> m_uavStates;
     std::map<uint8_t, uavHealth> m_uavHealths;
-
-    std::map<uint8_t, uavCommands> m_uavCommands;
-    std::map<uint8_t, uavRc> m_uavRc;
-    std::map<uint8_t, bool> m_shouldMoveList;
-    std::map<uint8_t, bool> m_endSimulationList;
+    std::map<uint8_t, uavCommandsFlags> m_uavCommands;
 
     std::mutex m_statesMutex;
     std::mutex m_linkMutex;

@@ -14,8 +14,9 @@ find_package(casadi CONFIG REQUIRED)
 
 set(GRS_SOURCE
         source/main.cpp
-        source/groundStationApp.cpp
-        source/groundStationApp.h
+        source/gcs.cpp
+        source/gcs.h
+        source/gcsConfig.h
 )
 
 set(GRS_COMMUNICATION
@@ -23,11 +24,15 @@ set(GRS_COMMUNICATION
         source/Communication/communicationManager.h
         source/Communication/guided.cpp
         source/Communication/guided.h
+        source/Communication/statesAggregator.cpp
+        source/Communication/statesAggregator.h
 )
 
 set(GRS_CONTROL
         source/Control/controlInterface.cpp
         source/Control/controlInterface.h
+        source/Control/controlDispatcher.cpp
+        source/Control/controlDispatcher.h
 )
 
 set(GRS_DEFINITION
@@ -40,8 +45,8 @@ set(GRS_LOG
 )
 
 set(GRS_USERINPUTS
-        source/UserInputs/consoleInterface.cpp
-        source/UserInputs/consoleInterface.h
+        source/Console/consoleInterface.cpp
+        source/Console/consoleInterface.h
 )
 
 add_executable(GRS_GroundStation

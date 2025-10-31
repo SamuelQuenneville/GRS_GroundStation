@@ -8,30 +8,32 @@
 
 #include <condition_variable>
 
-#include "UserInputs/consoleInterface.h"
+#include "Console/consoleInterface.h"
+#include "gcsConfig.h"
 
-std::mutex mutex;
-std::condition_variable cv;
-bool exitFlag = false;
+// Global synchronization for clean shutdown
+std::mutex g_exitMutex;
+std::condition_variable g_exitCv;
+bool g_exitFlag = false;
 
 int main(const int argc, const char * argv[]) {
 
     PROGRAM_LOGGER.setLogFileName("log_gcs.txt");
 
-    GroundStationApp gcs;
+    gcsConfig config;
 
     // Loop through command-line arguments
     for (int i = 1; i < argc; ++i) {
-
-        std::string arg = argv[i];
+        const std::string arg = argv[i];
 
         if (arg == "--verbose") {
-            PROGRAM_LOGGER.enableVerbose(true);
+            config.verbose = true;
+
         } else if (arg.find("--UAVs=") == 0) {
-            gcs.setNumberOfUavs(std::stoi(arg.substr(arg.find('=') + 1)));
+            config.numUavs = std::stoi(arg.substr(arg.find('=') + 1));
 
         } else if (arg.find("--hlc-freq=") == 0) {
-            gcs.setControllerFrequency(std::stod(arg.substr(arg.find('=') + 1)));
+            config.hlcFrequency = std::stod(arg.substr(arg.find('=') + 1));
 
         } else if (arg.find("--matlab=") == 0) {
             const size_t equalPos = arg.find('=');
@@ -40,14 +42,12 @@ int main(const int argc, const char * argv[]) {
             static std::string ipStr = arg.substr(equalPos + 1, colonPos - equalPos - 1);
             const auto ip = ipStr.c_str();
             const auto port = static_cast<uint16_t>(std::stoi(arg.substr(colonPos + 1)));
-            std::cout << ipStr << ":" << std::to_string(port) << std::endl;
-            gcs.initMatlabController(ip, port);
+            config.matlab = std::make_pair(ip, port);
+            config.controlMode = ControlMode::MATLAB;
 
         } else if (arg.find("--commandFile=") == 0) {
-            gcs.parseCommandFile(arg.substr(arg.find('=') + 1));
-
-        } else if (arg.find("--rcFile=") == 0) {
-            gcs.parseRcFile(arg.substr(arg.find('=') + 1));
+            config.attitudeFile = arg.substr(arg.find('=') + 1);
+            config.controlMode = ControlMode::ATTITUDE_FILE;
 
         } else if (arg == "--listCommand") {
             ConsoleInterface::printCommands();
@@ -61,7 +61,6 @@ int main(const int argc, const char * argv[]) {
                       << "  --hlc-freq=[freq]     Controller frequency in Hz\n"
                       << "  --matlab=[ip]:[port]  Enable matlab controller via UDP\n"
                       << "  --commandFile=[file]  Enable control input (RPYT) from file\n"
-                      << "  --rcFile=[file]       Enable rc input (ail/elev/rud/throttle) from file\n"
                       << "  --listCommand         Show all commands\n";
             return 0;
         } else {
@@ -70,12 +69,23 @@ int main(const int argc, const char * argv[]) {
         }
     }
 
-    ConsoleInterface userInput(gcs, exitFlag, cv);
-    userInput.start();
+    // ---- Initialize app ----
+    GroundControlStation gcs;
+    gcs.initialize(config);
 
-    // Wait for exit signal instead of sleeping
-    std::unique_lock<std::mutex> lock(mutex);
-    cv.wait(lock, [] {return exitFlag;});
+    // ---- Launch console thread ----
+    ConsoleInterface console(gcs, g_exitFlag, g_exitCv);
+    console.start();
+
+    // ---- Wait for exit ----
+    std::unique_lock lock(g_exitMutex);
+    g_exitCv.wait(lock, [] {return g_exitFlag;});
+
+    LOG_INFO("Shutting down GCS...");
+    gcs.stop();
+    console.stop();
+
+    LOG_INFO("Ground Station terminated cleanly.");
 
     return 0;
 }
