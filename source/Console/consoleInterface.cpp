@@ -37,12 +37,12 @@ void ConsoleInterface::printCommands() {
                       << "  start             --> Start the Ground Station\n"
                       << "  connect           --> Connect to all UAVs\n"
                       << "  arm               --> Arm all connected system\n"
-                      << "  mode MODE         --> Set mode for all connected system\n"
+                      << "  mode [MODE]       --> Set mode for all connected system (MANUAL / GUIDED / XNAV)\n"
                       << "  startController   --> Start the controller\n"
+                      << "  fetchParams [ID]  --> Retrieve all parameter and create a .param file\n"
                       << "  stop              --> Stop the Ground Station\n"
                       << "  exit              --> Terminate the execution\n";
 }
-
 
 void ConsoleInterface::handleCommand(const std::string& command) const {
     if (command == "start") {
@@ -60,6 +60,8 @@ void ConsoleInterface::handleCommand(const std::string& command) const {
     }else if (command == "startController") {
         LOG_INFO("Starting controller ...");
         m_gcs.startController();
+    } else if (command.starts_with("fetchParams ")) {
+        m_gcs.fetchParam(std::stoi(command.substr(12)));
     } else if (command == "stop") {
         LOG_INFO("Stopping main process...");
         m_gcs.stop();

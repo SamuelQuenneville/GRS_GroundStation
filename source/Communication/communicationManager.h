@@ -49,6 +49,7 @@ public:
     void armAll();
     void setMode(uint8_t sysId, const std::string& mode);
     void setModeAll(const std::string& mode);
+    void fetchParam(int sysId);
 
     bool addLink(const std::string& connection);
     void listLinks();
@@ -60,11 +61,14 @@ public:
     void setUavCommands(const std::map<uint8_t, uavCommandsFlags>& uavCommands);
 
 private:
+    int m_numberOfUavs = 0;
+
     mavsdk::Mavsdk m_mavsdk;
     std::map<uint8_t, std::shared_ptr<mavsdk::System>> m_links;
     std::map<uint8_t, mavsdk::Handle<>> m_connectionHandles;
     std::map<uint8_t, std::shared_ptr<mavsdk::Telemetry>> m_telemetry;
     std::map<uint8_t, std::shared_ptr<mavsdk::Action>> m_action;
+    std::map<uint8_t, std::shared_ptr<mavsdk::Param>> m_param;
     std::map<uint8_t, std::shared_ptr<mavsdk::MavlinkPassthrough>> m_passthrough;
 
     std::atomic<uint32_t> m_currentMode;

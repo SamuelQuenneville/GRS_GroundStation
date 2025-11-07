@@ -86,7 +86,7 @@ void CommunicationManager::setTelemetryCallback(std::function<void(const std::ma
     m_telemetryCallback = std::move(cb);
 }
 
-void CommunicationManager::connectAll(const std::string &baseIp, const uint16_t basePort, const int numUavs, const int increment) {
+void CommunicationManager::connectAll(const std::string& baseIp, const uint16_t basePort, const int numUavs, const int increment) {
 
     LOG_INFO("Connecting to UAV(s)...");
 
@@ -148,6 +148,37 @@ void CommunicationManager::setModeAll(const std::string& mode) {
     }
 }
 
+void CommunicationManager::fetchParam(const int sysId) {
+    if (!m_param.contains(sysId)) {
+        LOG_INFO("UAV not connected");
+        return;
+    }
+
+    mavsdk::Param::AllParams params = m_param[sysId]->get_all_params();
+
+    std::string fileName = "uav" + std::to_string(sysId) + ".param";
+    std::ofstream file(fileName);
+    if (!file.is_open()) {
+        std::cerr << "Failed to open file for writing" << std::endl;
+        return;
+    }
+
+    for (const auto&[name, value] : params.int_params) {
+        file << name << "," << value << "\n";
+    }
+
+    for (const auto&[name, value] : params.float_params) {
+        file << name << "," << value << "\n";
+    }
+
+    for (const auto&[name, value] : params.custom_params) {
+        file << name << "," << value << "\n";
+    }
+
+    file.close();
+    LOG_INFO("Params file created");
+}
+
 bool CommunicationManager::addLink(const std::string& connection) {
     std::cout << "Connection:" << connection << std::endl;
     const auto [connectionResult, connectionHandle] = m_mavsdk.add_any_connection_with_handle(connection);
@@ -157,7 +188,8 @@ bool CommunicationManager::addLink(const std::string& connection) {
         return false;
     }
 
-    while (m_mavsdk.systems().size() <= m_config.numUavs) {
+    m_numberOfUavs += 1;
+    while (m_mavsdk.systems().size() < m_numberOfUavs) {
         std::this_thread::sleep_for(std::chrono::seconds(1));
     }
 
@@ -177,6 +209,7 @@ bool CommunicationManager::addLink(const std::string& connection) {
 
             m_telemetry[sysId]   = std::make_shared<mavsdk::Telemetry>(system);
             m_action[sysId]      = std::make_shared<mavsdk::Action>(system);
+            m_param[sysId]       = std::make_shared<mavsdk::Param>(system);
             m_passthrough[sysId] = std::make_shared<mavsdk::MavlinkPassthrough>(system);
 
             m_subscribeMavlink(sysId);

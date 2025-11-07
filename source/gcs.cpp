@@ -109,6 +109,10 @@ void GroundControlStation::startController() const {
     m_controlInterface->start();
 }
 
+void GroundControlStation::fetchParam(const int sysId) {
+    m_communicationManager->fetchParam(sysId);
+}
+
 void GroundControlStation::m_parseCommandFile(const std::string& file) const {
     std::ifstream fileStream(file);
 
