@@ -122,22 +122,29 @@ void CommunicationManager::armAll() {
     }
 }
 
-void CommunicationManager::setGuidedAll() {
+void CommunicationManager::setMode(const uint8_t sysId, const std::string& mode) {
+    mavsdk::MavlinkPassthrough::CommandLong command{};
+    command.command = MAV_CMD_DO_SET_MODE;
+    command.param1 = MAV_MODE_FLAG_CUSTOM_MODE_ENABLED;
+    command.param2 = flightModeMap()[mode];
+    command.target_sysid = m_passthrough[sysId]->get_target_sysid();
+    command.target_compid = MAV_COMP_ID_AUTOPILOT1;
 
-    setHomeToCurrentPosition();
+    const auto result = m_passthrough[sysId]->send_command_long(command);
 
-    for (const auto& guided: m_guided | std::views::values) {
-        if (guided->setGuidedMode()) {
-            LOG_INFO("Successfully switched to GUIDED mode!");
-        } else {
-            std::cerr << "Failed to switch to GUIDED mode" << std::endl;
-        }
+    if (result != mavsdk::MavlinkPassthrough::Result::Success) {
+        std::cout << result << std::endl;
+    } else {
+        LOG_INFO("Successfully switched mode!");
     }
 }
 
-void CommunicationManager::startAttitudeControl() {
-    for (const auto& guided: m_guided | std::views::values) {
-        guided->startAttitudeControl();
+void CommunicationManager::setModeAll(const std::string& mode) {
+
+    setHomeToCurrentPosition();
+
+    for (const auto& sysId : m_passthrough | std::views::keys) {
+        setMode(sysId, mode);
     }
 }
 
@@ -171,8 +178,6 @@ bool CommunicationManager::addLink(const std::string& connection) {
             m_telemetry[sysId]   = std::make_shared<mavsdk::Telemetry>(system);
             m_action[sysId]      = std::make_shared<mavsdk::Action>(system);
             m_passthrough[sysId] = std::make_shared<mavsdk::MavlinkPassthrough>(system);
-
-            m_guided[sysId] = std::make_shared<Guided>(m_passthrough[sysId]);
 
             m_subscribeMavlink(sysId);
 
@@ -237,7 +242,7 @@ void CommunicationManager::setUavCommands(const std::map<uint8_t, uavCommandsFla
     std::lock_guard lock(m_statesMutex);
     m_uavCommands = uavCommands;
 
-    m_sendGuidedCommand();  // TODO take this and send to uavs. Need to pass by guided.cpp or refactor into mavlink helper class?
+    m_sendAttitudeTarget();
 }
 
 void CommunicationManager::m_subscribeMavlink(const uint8_t sysId) {
@@ -510,16 +515,29 @@ void CommunicationManager::m_subscribeFixedwingMetrics(const std::shared_ptr<mav
     });
 }
 
-void CommunicationManager::m_sendGuidedCommand() {
-    for (auto& [sysId, guided] : m_guided) {
-        Guided::Attitude attitude;
+void CommunicationManager::m_sendAttitudeTarget() {
+    // Snapshot commands under lock
+    std::map<uint8_t, uavCommandsFlags> commandsCopy;
+    {
+        std::lock_guard lock(m_statesMutex);
+        commandsCopy = m_uavCommands;
+    }
 
-        attitude.rollDegree  = m_uavCommands[sysId].commands.rollCommand;
-        attitude.pitchDegree = m_uavCommands[sysId].commands.pitchCommand;
-        attitude.yawDegree   = m_uavCommands[sysId].commands.yawCommand;
-        attitude.thrustValue = m_uavCommands[sysId].commands.thrustCommand;
+    // Iterate over each UAV command
+    for (const auto& [sysId, cmd] : commandsCopy) {
+        if (!m_passthrough.contains(sysId)) {
+            LOG_WARNING("Skipping sysId " + std::to_string(sysId) + ": no passthrough instance");
+            continue;
+        }
 
-        guided->setAttitude(attitude);
+        // Send via MavlinkPassthrough (non-blocking)
+        const auto result = m_passthrough[sysId]->queue_message([&, cmd](const MavlinkAddress address, uint8_t channel) {
+            return MavlinkMessageBuilder::buildSetAttitudeTarget(address, channel, m_passthrough[sysId]->get_target_sysid(), m_passthrough[sysId]->get_target_compid(), cmd);
+        });
+
+        if (result != mavsdk::MavlinkPassthrough::Result::Success) {
+            LOG_WARNING("Failed to queue SET_ATTITUDE_TARGET for sysId " + std::to_string(sysId));
+        }
     }
 }
 

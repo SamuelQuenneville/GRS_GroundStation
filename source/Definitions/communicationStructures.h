@@ -54,10 +54,10 @@ struct uavStates {
 
 struct uavCommands {
     float sysId;            // float mean easier encoding/decoding with matlab
-    float rollCommand;
-    float pitchCommand;
-    float yawCommand;
-    float thrustCommand;
+    float rollDegree;
+    float pitchDegree;
+    float yawDegree;
+    float thrust;           // [0 1]
 }__attribute__((packed));
 
 struct uavCommandsFlags {

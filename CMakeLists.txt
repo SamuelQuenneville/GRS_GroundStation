@@ -22,10 +22,10 @@ set(GRS_SOURCE
 set(GRS_COMMUNICATION
         source/Communication/communicationManager.cpp
         source/Communication/communicationManager.h
-        source/Communication/guided.cpp
-        source/Communication/guided.h
         source/Communication/statesAggregator.cpp
         source/Communication/statesAggregator.h
+        source/Communication/mavlinkMessageBuilder.cpp
+        source/Communication/mavlinkMessageBuilder.h
 )
 
 set(GRS_CONTROL

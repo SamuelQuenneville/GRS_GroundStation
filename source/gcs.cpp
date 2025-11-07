@@ -101,8 +101,8 @@ void GroundControlStation::armAll() const {
     m_communicationManager->armAll();
 }
 
-void GroundControlStation::setGuidedAll() const {
-    m_communicationManager->setGuidedAll();
+void GroundControlStation::setModeAll(const std::string& mode) const {
+    m_communicationManager->setModeAll(mode);
 }
 
 void GroundControlStation::startController() const {
@@ -155,22 +155,22 @@ bool GroundControlStation::m_parseUavCommandsLine(const std::string& line, uavCo
     if (!std::getline(lineStream, token, ',')) {
         return false;
     }
-    commands.commands.rollCommand = std::stof(token);
+    commands.commands.rollDegree = std::stof(token);
 
     if (!std::getline(lineStream, token, ',')) {
         return false;
     }
-    commands.commands.pitchCommand = std::stof(token);
+    commands.commands.pitchDegree = std::stof(token);
 
     if (!std::getline(lineStream, token, ',')) {
         return false;
     }
-    commands.commands.yawCommand = std::stof(token);
+    commands.commands.yawDegree = std::stof(token);
 
     if (!std::getline(lineStream, token, ',')) {
         return false;
     }
-    commands.commands.thrustCommand = std::stof(token);
+    commands.commands.thrust = std::stof(token);
 
     if (!std::getline(lineStream, token, ',')) {
         return false;

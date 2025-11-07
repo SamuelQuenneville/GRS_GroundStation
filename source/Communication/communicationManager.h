@@ -28,7 +28,8 @@
 #include "statesAggregator.h"
 #include "Log/programLogger.h"
 #include "Definitions/communicationStructures.h"
-#include "Communication/guided.h"
+
+#include "mavlinkMessageBuilder.h"
 
 #define GROUND_STATION mavsdk::Mavsdk::Configuration(255, MAV_COMP_ID_MISSIONPLANNER, true)
 
@@ -46,8 +47,8 @@ public:
     void connectAll(const std::string& baseIp, uint16_t basePort, int numUavs, int increment);
 
     void armAll();
-    void setGuidedAll();
-    void startAttitudeControl();
+    void setMode(uint8_t sysId, const std::string& mode);
+    void setModeAll(const std::string& mode);
 
     bool addLink(const std::string& connection);
     void listLinks();
@@ -66,7 +67,6 @@ private:
     std::map<uint8_t, std::shared_ptr<mavsdk::Action>> m_action;
     std::map<uint8_t, std::shared_ptr<mavsdk::MavlinkPassthrough>> m_passthrough;
 
-    std::map<uint8_t, std::shared_ptr<Guided>> m_guided;
     std::atomic<uint32_t> m_currentMode;
 
     gcsConfig m_config;
@@ -102,7 +102,7 @@ private:
     void m_subscribePosition(const std::shared_ptr<mavsdk::Telemetry>& telemetry, uint8_t sysId, subscriptionHandles& handles);
     void m_subscribeFixedwingMetrics(const std::shared_ptr<mavsdk::Telemetry>& telemetry, uint8_t sysId, subscriptionHandles& handles);
 
-    void m_sendGuidedCommand();
+    void m_sendAttitudeTarget();
 
     void m_setParameter(uint8_t sysId, MAV_PARAM_TYPE type, std::string name, float value);
 

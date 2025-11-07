@@ -37,7 +37,7 @@ void ConsoleInterface::printCommands() {
                       << "  start             --> Start the Ground Station\n"
                       << "  connect           --> Connect to all UAVs\n"
                       << "  arm               --> Arm all connected system\n"
-                      << "  guided            --> Set guided mode for all connected system\n"
+                      << "  mode MODE         --> Set mode for all connected system\n"
                       << "  startController   --> Start the controller\n"
                       << "  stop              --> Stop the Ground Station\n"
                       << "  exit              --> Terminate the execution\n";
@@ -54,9 +54,9 @@ void ConsoleInterface::handleCommand(const std::string& command) const {
     } else if (command == "arm") {
         LOG_INFO("Arming controller ...");
         m_gcs.armAll();
-    } else if (command == "guided") {
-        LOG_INFO("Setting guided mode ...");
-        m_gcs.setGuidedAll();
+    } else if (command.starts_with("mode ")) {
+        LOG_INFO("Setting mode ...");
+        m_gcs.setModeAll(command.substr(5));
     }else if (command == "startController") {
         LOG_INFO("Starting controller ...");
         m_gcs.startController();

@@ -12,6 +12,7 @@
 #include <cstdint>
 #include <string>
 #include <optional>
+#include <map>
 
 enum class ControlMode {
     MPC,
@@ -20,11 +21,21 @@ enum class ControlMode {
 };
 
 // As define in GrsPlane/mode.h
-enum class FlightMode {
+enum FlightMode {
     INIT,
-    MANU,
-    GUID,
+    MANUAL,
+    GUIDED,
     XNAV
+};
+
+struct flightModeMap : public std::map<std::string, FlightMode> {
+    flightModeMap() {
+        this->operator[]("INIT") = INIT;
+        this->operator[]("MANUAL") = MANUAL;
+        this->operator[]("GUIDED") = GUIDED;
+        this->operator[]("XNAV") = XNAV;
+    };
+    ~flightModeMap() = default;
 };
 
 struct pixhawkConfig {

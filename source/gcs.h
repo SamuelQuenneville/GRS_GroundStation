@@ -27,7 +27,7 @@ public:
 
     void connectAll();
     void armAll() const;
-    void setGuidedAll() const;
+    void setModeAll(const std::string& mode) const;
     void startController() const;
 
 private:
