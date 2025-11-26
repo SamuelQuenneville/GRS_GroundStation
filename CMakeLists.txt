@@ -33,6 +33,10 @@ set(GRS_CONTROL
         source/Control/controlInterface.h
         source/Control/controlDispatcher.cpp
         source/Control/controlDispatcher.h
+        source/Control/NMPCController.cpp
+        source/Control/NMPCController.h
+        source/Control/solver.c
+        source/Control/solver.h
 )
 
 set(GRS_DEFINITION

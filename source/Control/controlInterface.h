@@ -14,11 +14,11 @@
 #include <chrono>
 #include <map>
 #include <arpa/inet.h>
-#include <ranges>
 
 #include "gcsConfig.h"
 #include "Definitions/communicationStructures.h"
 #include "Log/programLogger.h"
+#include "NMPCController.h"
 
 class ControlInterface {
 
@@ -36,6 +36,8 @@ public:
     void initMatlabConnection(const char* ip, uint16_t port);
     void setCommandsList(const std::map<uint8_t, std::vector<uavCommandsFlags>>& commandsList);
 
+    void initLaunch() const;
+
 private:
     void m_controlLoop();
 
@@ -48,6 +50,8 @@ private:
     double m_fileFrequency = 10.0;
 
     gcsConfig m_config;
+
+    std::unique_ptr<NMPCController> m_nmpc;
 
     std::function<void(const std::map<uint8_t, uavCommandsFlags>&)> m_sendCommand;
     std::map<uint8_t, uavStates> m_latestStates;

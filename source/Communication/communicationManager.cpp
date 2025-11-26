@@ -65,7 +65,7 @@ void CommunicationManager::stop() {
     // unsubscribe & remove connections
     {
         std::lock_guard lock(m_linkMutex);
-        for (const auto & [sysId, handle]: m_connectionHandles) {
+        for (const auto& [sysId, handle]: m_connectionHandles) {
             try {
                 m_unsubscribeMavlink(sysId);
                 m_mavsdk.remove_connection(handle);
@@ -199,6 +199,7 @@ bool CommunicationManager::addLink(const std::string& connection) {
         }
 
         uint8_t sysId = system->get_system_id();
+        m_vehicleType[sysId] = system->vehicle_type();
 
         m_aggregators[sysId] = std::make_shared<StatesAggregator>();
 
@@ -295,25 +296,27 @@ void CommunicationManager::m_subscribeMavlink(const uint8_t sysId) {
     m_subscribeArmed(telemetry, sysId, handles);
     m_subscribeFlightMode(telemetry, sysId, handles);
 
-    // ATTITUDE
-    m_subscribeAttitude(telemetry, sysId, handles);
-
     // LOCAL_POSITION_NED
     m_subscribePositionVelocity(telemetry, sysId, handles);
 
     // GLOBAL_POSITION_INT
     m_subscribePosition(telemetry, sysId, handles);
 
-    // VFR_HUD
-    m_subscribeFixedwingMetrics(telemetry, sysId, handles);
-
     // Command Ack
     m_subscribeHome(telemetry, sysId, handles);
     m_subscribeCommandAck(sysId);
     m_subscribeToHeartbeat(sysId);
 
-    m_requestAttitudeTarget(sysId);
-    m_subscribeAttitudeTarget(sysId);
+    if (m_vehicleType[sysId] == mavsdk::Vehicle::FixedWing) {
+        // ATTITUDE
+        m_subscribeAttitude(telemetry, sysId, handles);
+
+        // VFR_HUD
+        m_subscribeFixedwingMetrics(telemetry, sysId, handles);
+
+        m_requestAttitudeTarget(sysId);
+        m_subscribeAttitudeTarget(sysId);
+    }
 
     m_messageHandles[sysId] = handles;
 }
@@ -338,18 +341,19 @@ void CommunicationManager::m_unsubscribeMavlink(const uint8_t sysId) {
     telemetry->unsubscribe_armed(handles.armedHandle);
     telemetry->unsubscribe_flight_mode(handles.flightModeHandle);
 
-    // ATTITUDE
-    telemetry->unsubscribe_attitude_euler(handles.attitudeHandle);
-
     // LOCAL_POSITION_NED
     telemetry->unsubscribe_position_velocity_ned(handles.positionVelocityNedHandle);
 
     // GLOBAL_POSITION_INT
     telemetry->unsubscribe_position(handles.positionHandle);
-    telemetry->unsubscribe_heading(handles.headingHandle);
 
-    // VFR_HUD
-    telemetry->unsubscribe_fixedwing_metrics(handles.fixedwingMetricsHandle);
+    if (m_vehicleType[sysId] == mavsdk::Vehicle::FixedWing) {
+       // ATTITUDE
+        telemetry->unsubscribe_attitude_euler(handles.attitudeHandle);
+
+        // VFR_HUD
+        telemetry->unsubscribe_fixedwing_metrics(handles.fixedwingMetricsHandle);
+    }
 
     // Remove from map
     m_messageHandles.erase(sysId);

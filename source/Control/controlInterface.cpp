@@ -22,6 +22,19 @@ ControlInterface::~ControlInterface() {
 
 void ControlInterface::initialize(const gcsConfig& config) {
     m_config = config;
+
+    if (m_config.controlMode == ControlMode::MPC) {
+        constexpr double degToRad = M_PI / 180.0;
+        double INF = std::numeric_limits<double>::infinity();
+
+        std::vector<double> lbxStates = {-INF, -INF, -INF, 10.0, -INF, -30.0*degToRad, -40.0*degToRad, -INF, -INF, -INF, 10.0, -INF, -30.0*degToRad, -40.0*degToRad, -INF, -INF, -INF, -INF, -INF, -INF};
+        std::vector<double> ubxStates = { INF,  INF,  0.0, 40.0,  INF,  30.0*degToRad,  40.0*degToRad,  INF,  INF,  INF, 40.0,  INF,  30.0*degToRad,  40.0*degToRad,  INF,  INF,  INF,  INF,  INF,  INF};
+        std::vector<double> lbxControls = { 0.0, -30.0*degToRad, -40.0*degToRad,  0.0, -30.0*degToRad, -40.0*degToRad};
+        std::vector<double> ubxControls = {60.0,  30.0*degToRad,  40.0*degToRad, 60.0,  30.0*degToRad,  40.0*degToRad};
+
+        NMPCController::solverConfig solverConfig{20,6,3,25,2, lbxStates,ubxStates, lbxControls, ubxControls};
+        m_nmpc = std::make_unique<NMPCController>(solverConfig);
+    }
 }
 
 void ControlInterface::start() {
@@ -54,6 +67,10 @@ void ControlInterface::setCommandsList(const std::map<uint8_t, std::vector<uavCo
     m_fileFrequency = 1.0 / (m_commandsList[1][1].timestamp.value() - m_commandsList[1][0].timestamp.value());
 }
 
+void ControlInterface::initLaunch() const {
+    m_nmpc->initLaunch();
+}
+
 void ControlInterface::m_controlLoop() {
     int fileIdx = 0;
 
@@ -77,10 +94,7 @@ void ControlInterface::m_controlLoop() {
             }
 
         } else if (m_config.controlMode == ControlMode::MPC) {
-            // TODO mpc controller interface
-            // cmds = m_nmpc.solve(latestStates);
-            cmds[1] = {1,0,15,0, 0.8};
-            cmds[2] = {2,0,15,0, 0.8};
+            cmds = m_nmpc->solve(latestStates);
 
         } else if (m_config.controlMode == ControlMode::ATTITUDE_FILE) {
 

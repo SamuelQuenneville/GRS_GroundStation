@@ -39,6 +39,7 @@ void ConsoleInterface::printCommands() {
                       << "  arm               --> Arm all connected system\n"
                       << "  mode [MODE]       --> Set mode for all connected system (MANUAL / GUIDED / XNAV)\n"
                       << "  startController   --> Start the controller\n"
+                      << "  launch            --> Init launch sequence\n"
                       << "  fetchParams [ID]  --> Retrieve all parameter and create a .param file\n"
                       << "  stop              --> Stop the Ground Station\n"
                       << "  exit              --> Terminate the execution\n";
@@ -60,6 +61,9 @@ void ConsoleInterface::handleCommand(const std::string& command) const {
     }else if (command == "startController") {
         LOG_INFO("Starting controller ...");
         m_gcs.startController();
+    } else if (command == "launch") {
+        LOG_INFO("Launching ...");
+        m_gcs.initLaunch();
     } else if (command.starts_with("fetchParams ")) {
         m_gcs.fetchParam(std::stoi(command.substr(12)));
     } else if (command == "stop") {

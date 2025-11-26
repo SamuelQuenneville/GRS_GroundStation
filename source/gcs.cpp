@@ -109,7 +109,11 @@ void GroundControlStation::startController() const {
     m_controlInterface->start();
 }
 
-void GroundControlStation::fetchParam(const int sysId) {
+void GroundControlStation::initLaunch() const {
+    m_controlInterface->initLaunch();
+}
+
+void GroundControlStation::fetchParam(const int sysId) const {
     m_communicationManager->fetchParam(sysId);
 }
 

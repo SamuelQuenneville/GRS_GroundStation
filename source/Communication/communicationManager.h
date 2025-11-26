@@ -71,6 +71,8 @@ private:
     std::map<uint8_t, std::shared_ptr<mavsdk::Param>> m_param;
     std::map<uint8_t, std::shared_ptr<mavsdk::MavlinkPassthrough>> m_passthrough;
 
+    std::map<uint8_t, mavsdk::Vehicle> m_vehicleType;
+
     std::atomic<uint32_t> m_currentMode;
 
     gcsConfig m_config;

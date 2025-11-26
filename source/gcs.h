@@ -29,7 +29,8 @@ public:
     void armAll() const;
     void setModeAll(const std::string& mode) const;
     void startController() const;
-    void fetchParam(int sysId);
+    void initLaunch() const;
+    void fetchParam(int sysId) const;
 
 private:
     gcsConfig m_gcsConfig;
