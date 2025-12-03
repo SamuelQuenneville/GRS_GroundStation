@@ -196,6 +196,10 @@ bool GroundControlStation::m_parseUavCommandsLine(const std::string& line, uavCo
 void GroundControlStation::m_supervisorLoop() {
 
     LOG_INFO("GroundControlStation main loop started.");
+
+    // Enable and strat logging
+    Logger::instance().start(true, "logGcs" + Logger::getDateString());
+
     m_communicationManager->start();
 
     while (m_running) {

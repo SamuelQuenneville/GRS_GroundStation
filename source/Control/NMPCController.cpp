@@ -51,14 +51,11 @@ std::map<uint8_t, uavCommandsFlags> NMPCController::solve(const std::map<uint8_t
 
     m_packParameters(latestStates);
 
-    // Timing
-    const auto t0 = std::chrono::steady_clock::now();
-
     // Solve
-    solver(m_arg.data(), m_res.data(), m_iw.data(), m_w.data(), m_mem);
-
-    const auto t1 = std::chrono::steady_clock::now();
-    m_lastSolveMs = std::chrono::duration<double, std::milli>(t1 - t0).count();
+    {
+        PROFILE_SCOPE_OUT("casadi_solve", &m_lastSolveMs);
+        solver(m_arg.data(), m_res.data(), m_iw.data(), m_w.data(), m_mem);
+    }
 
     // Extract and return u0 for each UAV
     return m_extractControls();

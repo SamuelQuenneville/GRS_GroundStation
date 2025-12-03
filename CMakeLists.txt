@@ -41,11 +41,19 @@ set(GRS_CONTROL
 
 set(GRS_DEFINITION
         source/Definitions/communicationStructures.h
+        source/Definitions/logDefinitions.h
 )
 
 set(GRS_LOG
         source/Log/programLogger.cpp
         source/Log/programLogger.h
+        source/Log/threadSafeQueue.h
+        source/Log/logger.cpp
+        source/Log/logger.h
+)
+
+set(GRS_UTIL
+        source/Util/profilingTimer.h
 )
 
 set(GRS_USERINPUTS
@@ -59,6 +67,7 @@ add_executable(GRS_GroundStation
         ${GRS_CONTROL}
         ${GRS_DEFINITION}
         ${GRS_LOG}
+        ${GRS_UTIL}
         ${GRS_USERINPUTS}
 )
 

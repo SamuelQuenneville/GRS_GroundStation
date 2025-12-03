@@ -12,6 +12,7 @@
 #include "Communication/communicationManager.h"
 #include "Control/controlInterface.h"
 #include "Control/controlDispatcher.h"
+#include "Log/logger.h"
 #include "gcsConfig.h"
 
 class GroundControlStation {

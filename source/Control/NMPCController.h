@@ -16,6 +16,7 @@
 #include <casadi/casadi.hpp>
 
 #include "Definitions/communicationStructures.h"
+#include "Util/profilingTimer.h"
 
 // CasADi-generated solver
 #include "solver.h"
