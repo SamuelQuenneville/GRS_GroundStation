@@ -19,9 +19,6 @@ NMPCController::NMPCController(const solverConfig& config)
 
     m_mem = solver_checkout();
     solver_init_mem(m_mem);
-
-    // TODO maybe provide this path from CLI
-    m_loadTrajectory("refTraj.csv");
 }
 
 NMPCController::~NMPCController() {
@@ -31,6 +28,43 @@ NMPCController::~NMPCController() {
 
 void NMPCController::initLaunch() {
     m_launched = true;
+}
+
+void NMPCController::loadTrajectory(const std::string& file) {
+
+    std::ifstream fileStream(file);
+    if (!fileStream.is_open())
+        throw std::runtime_error("Cannot open trajectory file");
+
+    m_referenceTrajectory.clear();
+
+    std::string line;
+    while (std::getline(fileStream, line)) {
+        if (line.empty()) continue;
+
+        std::stringstream ss(line);
+        std::string field;
+
+        referencePoint pt;
+        pt.statesRef.resize(m_config.nx);
+        pt.controlsRef.resize(m_config.nu);
+
+        // first nx fields : states
+        for (int i = 0; i < m_config.nx; i++) {
+            std::getline(ss, field, ',');
+            pt.statesRef[i] = std::stod(field);
+        }
+
+        // next nu fields : controls
+        for (int i = 0; i < m_config.nu; i++) {
+            std::getline(ss, field, ',');
+            pt.controlsRef[i] = std::stod(field);
+        }
+
+        m_referenceTrajectory.push_back(std::move(pt));
+    }
+
+    LOG_INFO("Trajectory loaded");
 }
 
 std::map<uint8_t, uavCommandsFlags> NMPCController::solve(const std::map<uint8_t, uavStates>& latestStates) {
@@ -63,41 +97,6 @@ std::map<uint8_t, uavCommandsFlags> NMPCController::solve(const std::map<uint8_t
 
 double NMPCController::lastSolveMs() const {
     return m_lastSolveMs;
-}
-
-void NMPCController::m_loadTrajectory(const std::string& path) {
-
-    std::ifstream file(path);
-    if (!file.is_open())
-        throw std::runtime_error("Cannot open trajectory file");
-
-    m_referenceTrajectory.clear();
-
-    std::string line;
-    while (std::getline(file, line)) {
-        if (line.empty()) continue;
-
-        std::stringstream ss(line);
-        std::string field;
-
-        referencePoint pt;
-        pt.statesRef.resize(m_config.nx);
-        pt.controlsRef.resize(m_config.nu);
-
-        // first nx fields : states
-        for (int i = 0; i < m_config.nx; i++) {
-            std::getline(ss, field, ',');
-            pt.statesRef[i] = std::stod(field);
-        }
-
-        // next nu fields : controls
-        for (int i = 0; i < m_config.nu; i++) {
-            std::getline(ss, field, ',');
-            pt.controlsRef[i] = std::stod(field);
-        }
-
-        m_referenceTrajectory.push_back(std::move(pt));
-    }
 }
 
 void NMPCController::m_initalizeSolverIO() {
@@ -256,6 +255,7 @@ void NMPCController::m_packParameters(const std::map<uint8_t, uavStates>& latest
 
     // x_initial (latestStates)
     auto initialStates = m_unpackLatestStates(latestStates);
+    std::cout << initialStates << std::endl;
     m_p.insert(m_p.end(), initialStates.begin(), initialStates.end());
 
 }
@@ -276,8 +276,8 @@ std::map<uint8_t, uavCommandsFlags> NMPCController::m_extractControls() const {
         cmd.commands.sysId = static_cast<uint8_t>(sysId);
 
         cmd.commands.thrust      = static_cast<float>(m_x[u_idx + 0]);
-        cmd.commands.rollDegree  = static_cast<float>(m_x[u_idx + 1]);
-        cmd.commands.pitchDegree = static_cast<float>(m_x[u_idx + 2]);
+        cmd.commands.rollDegree  = static_cast<float>(m_x[u_idx + 1]) * 180.0f / M_PIf;
+        cmd.commands.pitchDegree = static_cast<float>(m_x[u_idx + 2]) * 180.0f / M_PIf;
         cmd.commands.yawDegree   = 0.0;
 
         cmd.F1Command = true;   // Should move?

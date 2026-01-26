@@ -17,6 +17,7 @@
 
 #include "gcsConfig.h"
 #include "Definitions/communicationStructures.h"
+#include "Configuration/configurationParser.h"
 #include "Log/programLogger.h"
 #include "NMPCController.h"
 
@@ -37,6 +38,8 @@ public:
     void setCommandsList(const std::map<uint8_t, std::vector<uavCommandsFlags>>& commandsList);
 
     void initLaunch() const;
+
+    void loadTrajectory(const std::string& file) const;
 
 private:
     void m_controlLoop();

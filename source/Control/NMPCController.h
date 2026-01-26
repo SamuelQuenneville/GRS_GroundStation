@@ -16,26 +16,14 @@
 #include <casadi/casadi.hpp>
 
 #include "Definitions/communicationStructures.h"
+#include "Definitions/controllerStructures.h"
 #include "Util/profilingTimer.h"
 
 // CasADi-generated solver
-#include "solver.h"
+#include "solver_one_grounded.h"
 
 class NMPCController {
 public:
-
-    struct solverConfig {
-        int nx;         // state dimension per UAV
-        int nu;         // control dimension per UAV
-        int np;         // parameter vector length used by the solver
-        int N;          // prediction horizon
-        int numUavs;    // number of UAVs in the solver dynamic model
-        std::vector<double> lbxStates;
-        std::vector<double> ubxStates;
-        std::vector<double> lbxControls;
-        std::vector<double> ubxControls;
-    };
-
     struct referencePoint {
         std::vector<double> statesRef;    // size of m_config.nx
         std::vector<double> controlsRef;  // size of m_config.nu
@@ -45,6 +33,8 @@ public:
     ~NMPCController();
 
     void initLaunch();
+
+    void loadTrajectory(const std::string& file);
 
     // Main entry point: convert states → run solver → return commands
     std::map<uint8_t, uavCommandsFlags> solve(const std::map<uint8_t, uavStates>& latestStates);
@@ -92,8 +82,6 @@ private:
 
     // Timing
     double m_lastSolveMs = -1.0;
-
-    void m_loadTrajectory(const std::string& path);
 
     void m_initalizeSolverIO();
     void m_bindSolverIO();

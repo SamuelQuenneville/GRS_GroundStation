@@ -24,15 +24,9 @@ void ControlInterface::initialize(const gcsConfig& config) {
     m_config = config;
 
     if (m_config.controlMode == ControlMode::MPC) {
-        constexpr double degToRad = M_PI / 180.0;
-        double INF = std::numeric_limits<double>::infinity();
+        YAML::Node node = YAML::LoadFile("inputFilesExamples/configuration.yaml");
+        solverConfig solverConfig = ConfigurationParser::parseSolverConfig(node);
 
-        std::vector<double> lbxStates = {-INF, -INF, -INF, 10.0, -INF, -30.0*degToRad, -40.0*degToRad, -INF, -INF, -INF, 10.0, -INF, -30.0*degToRad, -40.0*degToRad, -INF, -INF, -INF, -INF, -INF, -INF};
-        std::vector<double> ubxStates = { INF,  INF,  0.0, 40.0,  INF,  30.0*degToRad,  40.0*degToRad,  INF,  INF,  INF, 40.0,  INF,  30.0*degToRad,  40.0*degToRad,  INF,  INF,  INF,  INF,  INF,  INF};
-        std::vector<double> lbxControls = { 0.0, -30.0*degToRad, -40.0*degToRad,  0.0, -30.0*degToRad, -40.0*degToRad};
-        std::vector<double> ubxControls = {60.0,  30.0*degToRad,  40.0*degToRad, 60.0,  30.0*degToRad,  40.0*degToRad};
-
-        NMPCController::solverConfig solverConfig{20,6,3,25,2, lbxStates,ubxStates, lbxControls, ubxControls};
         m_nmpc = std::make_unique<NMPCController>(solverConfig);
     }
 }
@@ -69,6 +63,10 @@ void ControlInterface::setCommandsList(const std::map<uint8_t, std::vector<uavCo
 
 void ControlInterface::initLaunch() const {
     m_nmpc->initLaunch();
+}
+
+void ControlInterface::loadTrajectory(const std::string& file) const {
+    m_nmpc->loadTrajectory(file);
 }
 
 void ControlInterface::m_controlLoop() {

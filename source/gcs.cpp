@@ -117,6 +117,15 @@ void GroundControlStation::fetchParam(const int sysId) const {
     m_communicationManager->fetchParam(sysId);
 }
 
+void GroundControlStation::loadTrajectory(const std::string& file) const {
+    if (m_gcsConfig.controlMode == ControlMode::MPC) {
+        LOG_INFO("Loading trajectory ...");
+        m_controlInterface->loadTrajectory(file);
+    } else {
+        LOG_INFO("Control mode MPC is required!");
+    }
+}
+
 void GroundControlStation::m_parseCommandFile(const std::string& file) const {
     std::ifstream fileStream(file);
 

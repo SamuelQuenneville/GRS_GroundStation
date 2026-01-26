@@ -41,6 +41,7 @@ void ConsoleInterface::printCommands() {
                       << "  startController   --> Start the controller\n"
                       << "  launch            --> Init launch sequence\n"
                       << "  fetchParams [ID]  --> Retrieve all parameter and create a .param file\n"
+                      << "  loadTraj [FILE]   --> Load a reference trajectory via a .csv file\n"
                       << "  stop              --> Stop the Ground Station\n"
                       << "  exit              --> Terminate the execution\n";
 }
@@ -66,6 +67,8 @@ void ConsoleInterface::handleCommand(const std::string& command) const {
         m_gcs.initLaunch();
     } else if (command.starts_with("fetchParams ")) {
         m_gcs.fetchParam(std::stoi(command.substr(12)));
+    } else if (command.starts_with("loadTraj ")) {
+        m_gcs.loadTrajectory(command.substr(9));
     } else if (command == "stop") {
         LOG_INFO("Stopping main process...");
         m_gcs.stop();

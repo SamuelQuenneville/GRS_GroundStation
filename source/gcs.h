@@ -32,6 +32,7 @@ public:
     void startController() const;
     void initLaunch() const;
     void fetchParam(int sysId) const;
+    void loadTrajectory(const std::string& file) const;
 
 private:
     gcsConfig m_gcsConfig;
