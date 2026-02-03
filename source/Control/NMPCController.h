@@ -14,10 +14,12 @@
 #include <map>
 #include <cstring>
 #include <casadi/casadi.hpp>
+#include <cassert>
 
 #include "Definitions/communicationStructures.h"
 #include "Definitions/controllerStructures.h"
 #include "Util/profilingTimer.h"
+#include "Mathematics/math.h"
 
 // CasADi-generated solver
 #include "solver_one_grounded.h"
@@ -39,6 +41,8 @@ public:
     // Main entry point: convert states → run solver → return commands
     std::map<uint8_t, uavCommandsFlags> solve(const std::map<uint8_t, uavStates>& latestStates);
     double lastSolveMs() const;
+
+    static void dumpSolverArgsToFile(const std::vector<const casadi_real*>& arg);
 
 private:
     solverConfig m_config;
@@ -92,7 +96,7 @@ private:
     void m_packParameters(const std::map<uint8_t, uavStates>& latestStates);
     std::map<uint8_t, uavCommandsFlags> m_extractControls() const;
 
-    static std::vector<double> m_unpackLatestStates(const std::map<uint8_t, uavStates>& latestStates);
+    std::vector<double> m_unpackLatestStates(const std::map<uint8_t, uavStates>& latestStates) const;
 };
 
 #endif //NMPCCONTROLLER_H

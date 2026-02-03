@@ -45,8 +45,7 @@ void ControlDispatcher::attachCommunicationManager(std::function<void(const std:
     m_sendToComms = std::move(sendFn);
 }
 
-void ControlDispatcher::attachControllerInput(
-    std::function<void(const std::map<uint8_t, uavStates>&)> recvFn) {
+void ControlDispatcher::attachControllerInput(std::function<void(const std::map<uint8_t, uavStates>&)> recvFn) {
     m_sendToController = std::move(recvFn);
 }
 

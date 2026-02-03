@@ -19,6 +19,7 @@
 #include "Definitions/communicationStructures.h"
 #include "Configuration/configurationParser.h"
 #include "Log/programLogger.h"
+#include "navigationFrameManager.h"
 #include "NMPCController.h"
 
 class ControlInterface {
@@ -40,8 +41,12 @@ public:
     void initLaunch() const;
 
     void loadTrajectory(const std::string& file) const;
+    void setOrigin(double latitudeDegrees, double longitudeDegrees, double altitude);
+    void debugConvert(double latitudeDegrees, double longitudeDegrees, double altitude) const;
 
 private:
+    NavigationFrameManager m_navFrameManager;
+
     void m_controlLoop();
 
     void m_initMatlabConnection(const char* ip, uint16_t port);

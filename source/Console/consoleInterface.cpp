@@ -42,6 +42,7 @@ void ConsoleInterface::printCommands() {
                       << "  launch            --> Init launch sequence\n"
                       << "  fetchParams [ID]  --> Retrieve all parameter and create a .param file\n"
                       << "  loadTraj [FILE]   --> Load a reference trajectory via a .csv file\n"
+                      << "  setOrigin [WP]    --> Set the origin for the controller frame\n"
                       << "  stop              --> Stop the Ground Station\n"
                       << "  exit              --> Terminate the execution\n";
 }
@@ -69,6 +70,23 @@ void ConsoleInterface::handleCommand(const std::string& command) const {
         m_gcs.fetchParam(std::stoi(command.substr(12)));
     } else if (command.starts_with("loadTraj ")) {
         m_gcs.loadTrajectory(command.substr(9));
+    } else if (command.starts_with("setOrigin ")) {
+        const std::string args = command.substr(10);
+        double lat, lon, alt;
+
+        if (!parseOrigin(args, lat, lon, alt)) {
+            LOG_INFO("Usage: setOrigin lat, lon, alt  OR  setOrigin lat lon alt");
+        }
+        m_gcs.setOrigin(lat, lon, alt);
+    } else if (command.starts_with("convert ")) {
+        const std::string args = command.substr(8);
+        double lat, lon, alt;
+
+        if (!parseOrigin(args, lat, lon, alt)) {
+            LOG_INFO("Usage: setOrigin lat, lon, alt  OR  setOrigin lat lon alt");
+        }
+
+        m_gcs.debugConvert(lat, lon, alt);
     } else if (command == "stop") {
         LOG_INFO("Stopping main process...");
         m_gcs.stop();
@@ -78,6 +96,34 @@ void ConsoleInterface::handleCommand(const std::string& command) const {
     } else {
         LOG_INFO("Unknown command");
     }
+}
+
+bool ConsoleInterface::parseOrigin(const std::string& input, double& lat, double& lon, double& alt) {
+    std::string s = input;
+
+    // Remove parentheses if present
+    std::erase(s, '(');
+    std::erase(s, ')');
+
+    // Replace commas with spaces
+    std::ranges::replace(s, ',', ' ');
+
+    std::istringstream iss(s);
+
+    if (!(iss >> lat >> lon >> alt))
+        return false;
+
+    // Reject extra junk
+    std::string extra;
+    if (iss >> extra)
+        return false;
+
+    // Validate ranges
+    if (lat < -90.0 || lat > 90.0) return false;
+    if (lon < -180.0 || lon > 180.0) return false;
+    if (!std::isfinite(alt)) return false;
+
+    return true;
 }
 
 void ConsoleInterface::m_listen() {

@@ -25,9 +25,9 @@ mavlink_message_t MavlinkMessageBuilder::buildSetAttitudeTarget(const MavlinkAdd
         targetCompid,
         ATTITUDE_TARGET_TYPEMASK_BODY_ROLL_RATE_IGNORE | ATTITUDE_TARGET_TYPEMASK_BODY_PITCH_RATE_IGNORE | ATTITUDE_TARGET_TYPEMASK_BODY_YAW_RATE_IGNORE,
         q,
-        target.F1Command.value(),
-        target.F2Command.value(),
-        0.0f,
+        target.F1Command.value(),       // should_move (in flight initialization, no launcher)
+        target.F2Command.value(),       // end_sim (reach end of a command file)
+        target.F3Command.value(),       // launch (trigger the launch in SITL)
         target.commands.thrust,
         thrustBody
     );

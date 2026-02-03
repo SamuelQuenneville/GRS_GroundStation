@@ -49,6 +49,9 @@ int main(const int argc, const char * argv[]) {
             config.attitudeFile = arg.substr(arg.find('=') + 1);
             config.controlMode = ControlMode::ATTITUDE_FILE;
 
+        } else if (arg == "--sitl") {
+            config.pixhawk.sitl = true;
+
         } else if (arg == "--listCommand") {
             ConsoleInterface::printCommands();
 
@@ -61,7 +64,8 @@ int main(const int argc, const char * argv[]) {
                       << "  --hlc-freq=[freq]     Controller frequency in Hz\n"
                       << "  --matlab=[ip]:[port]  Enable matlab controller via UDP\n"
                       << "  --commandFile=[file]  Enable control input (RPYT) from file\n"
-                      << "  --listCommand         Show all commands\n";
+                      << "  --listCommand         Show all commands\n"
+                      << "  --sitl                Enable SITL mode\n";
             return 0;
         } else {
             std::cerr << "Unknown option: " << arg << "\n";

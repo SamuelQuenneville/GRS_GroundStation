@@ -25,6 +25,8 @@ public:
     static void printCommands();
     void handleCommand(const std::string& command) const;
 
+    static bool parseOrigin(const std::string& input, double& lat, double& lon, double& alt);
+
 private:
     void m_listen(); // Function that runs in the thread
     std::thread m_inputThread;

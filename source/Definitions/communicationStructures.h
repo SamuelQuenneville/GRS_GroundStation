@@ -65,6 +65,7 @@ struct uavCommandsFlags {
     std::optional<double> timestamp;
     std::optional<bool> F1Command;
     std::optional<bool> F2Command;
+    std::optional<bool> F3Command;
 };
 
 #endif //COMMUNICATIONSTRUCTURES_H

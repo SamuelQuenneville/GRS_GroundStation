@@ -47,6 +47,8 @@ set(GRS_CONTROL
         #source/Control/solver.h
         source/Control/solver_one_grounded.c
         source/Control/solver_one_grounded.h
+        source/Control/navigationFrameManager.cpp
+        source/Control/navigationFrameManager.h
 )
 
 set(GRS_DEFINITION
@@ -56,12 +58,26 @@ set(GRS_DEFINITION
         source/Definitions/controllerStructures.h
 )
 
+set(GRS_GEO
+        source/Geo/geodeticConverter.cpp
+        source/Geo/geodeticConverter.h
+
+)
+
 set(GRS_LOG
         source/Log/programLogger.cpp
         source/Log/programLogger.h
         source/Log/threadSafeQueue.h
         source/Log/logger.cpp
         source/Log/logger.h
+)
+
+set(GRS_MATHEMATICS
+        source/Mathematics/vector.h
+        source/Mathematics/matrix.h
+        source/Mathematics/math.h
+        source/Mathematics/mathUtils.h
+
 )
 
 set(GRS_UTIL
@@ -82,7 +98,9 @@ add_executable(GRS_GroundStation
         ${GRS_CONFIGURATION}
         ${GRS_CONTROL}
         ${GRS_DEFINITION}
+        ${GRS_GEO}
         ${GRS_LOG}
+        ${GRS_MATHEMATICS}
         ${GRS_UTIL}
         ${GRS_USERINPUTS}
 )

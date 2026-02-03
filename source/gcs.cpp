@@ -126,6 +126,14 @@ void GroundControlStation::loadTrajectory(const std::string& file) const {
     }
 }
 
+void GroundControlStation::setOrigin(const double latitudeDegrees, const double longitudeDegrees, const double altitude) const {
+    m_controlInterface->setOrigin(latitudeDegrees, longitudeDegrees, altitude);
+}
+
+void GroundControlStation::debugConvert(const double latitudeDegrees, const double longitudeDegrees, const double altitude) const {
+    m_controlInterface->debugConvert(latitudeDegrees, longitudeDegrees, altitude);
+}
+
 void GroundControlStation::m_parseCommandFile(const std::string& file) const {
     std::ifstream fileStream(file);
 

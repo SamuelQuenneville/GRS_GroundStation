@@ -42,6 +42,7 @@ struct pixhawkConfig {
     std::string remoteIP = "127.0.0.1";
     int tcpPort = 5760;                 // Ardupilot specific
     int tcpPortIncrement = 10;          // Ardupilot specific
+    bool sitl = false;
 };
 
 struct gcsConfig {

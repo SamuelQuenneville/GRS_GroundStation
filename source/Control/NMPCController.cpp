@@ -84,8 +84,10 @@ std::map<uint8_t, uavCommandsFlags> NMPCController::solve(const std::map<uint8_t
     }
 
     m_packParameters(latestStates);
+    m_bindSolverIO();                   // casadi solver() mess with lbx and ubx
 
     // Solve
+    dumpSolverArgsToFile(m_arg);
     {
         PROFILE_SCOPE_OUT("casadi_solve", &m_lastSolveMs);
         solver(m_arg.data(), m_res.data(), m_iw.data(), m_w.data(), m_mem);
@@ -99,12 +101,30 @@ double NMPCController::lastSolveMs() const {
     return m_lastSolveMs;
 }
 
+void NMPCController::dumpSolverArgsToFile(const std::vector<const casadi_real*>& arg) {
+
+    for (size_t i = 0; i < arg.size(); ++i) {
+
+        if (!arg[i]) continue;
+
+        const size_t sz = solver_sparsity_in(i)[0];
+
+        std::ofstream f("mpc_arg" + std::to_string(i) + ".txt", std::ios::out | std::ios::app);
+
+        for (size_t k = 0; k < sz; ++k) {
+            f << arg[i][k];
+            if (k + 1 < sz) f << ' ';
+        }
+        f << '\n';
+    }
+}
+
 void NMPCController::m_initalizeSolverIO() {
     // Inputs
     m_x0.assign(solver_sparsity_in(0)[0], 0.0);
     m_p.assign(solver_sparsity_in(1)[0], 0.0);
-    //m_lbx assign directly
-    //m_ubx assign directly
+    m_lbx.assign(solver_sparsity_in(2)[0], 0.0);
+    m_ubx.assign(solver_sparsity_in(3)[0], 0.0);
     m_lbg.assign(solver_sparsity_in(4)[0], 0.0);
     m_ubg.assign(solver_sparsity_in(5)[0], 0.0);
     m_lam_x0.assign(solver_sparsity_in(6)[0], 0.0);
@@ -145,35 +165,10 @@ void NMPCController::m_bindSolverIO() {
 }
 
 void NMPCController::m_shiftSolution() {
-    // Warm-start: shift the solution and repeat last
+    // TODO Warm-start: shift the solution and repeat last
 
-    // States
-    const size_t sizeStates = m_config.nx * sizeof(casadi_real);
-    for (int k = 0; k < m_config.N; k++) {
-        const int src = (k + 1) * m_config.nx;
-        const int dst = k * m_config.nx;
-        std::memcpy(&m_x0[dst], &m_x[src], sizeStates);
-    }
-
-    // repeat last state
-    const int last_src = m_config.N * m_config.nx;
-    const int last_dst = m_config.N * m_config.nx;
-    std::memcpy(&m_x0[last_dst], &m_x[last_src], sizeStates);
-
-    // Controls
-    const size_t sizeControls = m_config.nu * sizeof(casadi_real);
-    const int uOffset = m_config.nx * (m_config.N + 1);
-
-    for (int k = 0; k < m_config.N - 1; k++) {
-        const int src = uOffset + (k + 1) * m_config.nu;
-        const int dst = uOffset + k * m_config.nu;
-        std::memcpy(&m_x0[dst], &m_x[src], sizeControls);
-    }
-
-    // repeat last control
-    const int last_u_src = uOffset + (m_config.N - 1) * m_config.nu;
-    const int last_u_dst = last_u_src;
-    std::memcpy(&m_x0[last_u_dst], &m_x[last_u_src], sizeControls);
+    // Initial guess is last result, no shifting
+    std::ranges::copy(m_x, m_x0.begin());
 
     // Warm-start: store multipliers for next iteration
     std::ranges::copy(m_lam_x, m_lam_x0.begin());
@@ -182,30 +177,29 @@ void NMPCController::m_shiftSolution() {
 
 void NMPCController::m_packBounds() {
 
-    const int numberOfVariables = (m_config.N + 1) * m_config.nx + m_config.N * m_config.nu;
     m_lbx.clear();
     m_ubx.clear();
-    m_lbx.reserve(numberOfVariables);
-    m_ubx.reserve(numberOfVariables);
 
-    for (size_t k = 0; k <= m_config.N; k++) {
+    for (size_t k = 0; k <= static_cast<size_t>(m_config.N); k++) {
         m_lbx.insert(m_lbx.end(), m_config.lbxStates.begin(), m_config.lbxStates.end());
         m_ubx.insert(m_ubx.end(), m_config.ubxStates.begin(), m_config.ubxStates.end());
 
-        if (k < m_config.N) {
+        if (k < static_cast<size_t>(m_config.N)) {
             m_lbx.insert(m_lbx.end(), m_config.lbxControls.begin(), m_config.lbxControls.end());
             m_ubx.insert(m_ubx.end(), m_config.ubxControls.begin(), m_config.ubxControls.end());
         }
     }
+
+    assert(m_lbx.size() == solver_sparsity_in(2)[0]);
+    assert(m_ubx.size() == solver_sparsity_in(3)[0]);
 }
 
 void NMPCController::m_packInitialGuess() {
 
     m_x0.clear();
-    m_x0.reserve(solver_sparsity_in(0)[0]); // to avoid realloc
 
     // reference over horizon
-    for (int idx = 0; idx <= m_config.N; ++idx) {
+    for (int idx = 0; idx < m_config.N; ++idx) {
 
         const auto& [statesRef, controlsRef] = m_referenceTrajectory[idx];
 
@@ -216,48 +210,48 @@ void NMPCController::m_packInitialGuess() {
         m_x0.insert(m_x0.end(), controlsRef.begin(), controlsRef.end());
     }
 
-    // x_ref N+1
-    const auto& [statesRef, controlsRef] = m_referenceTrajectory[m_config.N+1];
+    // x_ref N
+    const auto& [statesRef, _] = m_referenceTrajectory[m_config.N];
     m_x0.insert(m_x0.end(), statesRef.begin(), statesRef.end());
 
+    assert(m_x0.size() == solver_sparsity_in(0)[0]);
 }
 
 void NMPCController::m_packParameters(const std::map<uint8_t, uavStates>& latestStates) {
 
     m_p.clear();
-    m_p.reserve(solver_sparsity_in(1)[0]); // to avoid realloc
 
     // reference over horizon
     int idx = 0;
-    for (int i = 0; i <= m_config.N; ++i) {
+    for (int i = 0; i < m_config.N; ++i) {
 
         idx = m_idxTraj + i;
-        if (idx >= m_referenceTrajectory.size() - m_config.N) {
-            idx -= 1;
+        if (idx >= static_cast<int>(m_referenceTrajectory.size()) - 1) {
+            idx = static_cast<int>(m_referenceTrajectory.size()) - 1;
             m_endedTraj = true;
         }
 
         const auto& [statesRef, controlsRef] = m_referenceTrajectory[idx];
 
-        // x_ref
+        // x_ref(i)
         m_p.insert(m_p.end(), statesRef.begin(), statesRef.end());
 
-        // u_ref
+        // u_ref(i)
         m_p.insert(m_p.end(), controlsRef.begin(), controlsRef.end());
 
-        // p_ref (WIND)
+        // p_ref(i) (wind)
         m_p.insert(m_p.end(), {0.0, 0.0, 0.0});
     }
 
-    // x_ref N+1
-    const auto& [statesRef, controlsRef] = m_referenceTrajectory[idx+1];
+    // terminal state x_ref(N)
+    const auto& [statesRef, _] = m_referenceTrajectory[idx + 1];
     m_p.insert(m_p.end(), statesRef.begin(), statesRef.end());
 
     // x_initial (latestStates)
     auto initialStates = m_unpackLatestStates(latestStates);
-    std::cout << initialStates << std::endl;
     m_p.insert(m_p.end(), initialStates.begin(), initialStates.end());
 
+    assert(m_p.size() == solver_sparsity_in(1)[0]);
 }
 
 std::map<uint8_t, uavCommandsFlags> NMPCController::m_extractControls() const {
@@ -282,9 +276,10 @@ std::map<uint8_t, uavCommandsFlags> NMPCController::m_extractControls() const {
 
         cmd.F1Command = true;   // Should move?
         cmd.F2Command = false;  // End simulation?
+        cmd.F3Command = false;  // Launch?
 
-        if (!m_launched) {
-            cmd.F1Command = false;
+        if (m_launched) {
+            cmd.F3Command = true;
         }
 
         if (m_endedTraj) {
@@ -295,26 +290,36 @@ std::map<uint8_t, uavCommandsFlags> NMPCController::m_extractControls() const {
         u_idx += m_config.nu;
     }
 
+    LOG_INFO("SOLVED");
     return out;
 }
 
-std::vector<double> NMPCController::m_unpackLatestStates(const std::map<uint8_t, uavStates>& latestStates) {
+std::vector<double> NMPCController::m_unpackLatestStates(const std::map<uint8_t, uavStates>& latestStates) const {
 
-    // Payload is last sysId
-    const size_t numberOfUavs = latestStates.size() - 1;
+    // Payload is last sysId -- look if we are tethered to the ground (no payload)
+    size_t numberOfUavs = latestStates.size() - 1;
+
+    if (numberOfUavs == 0) {
+        numberOfUavs += 1;
+    }
 
     std::vector<double> unpackStates;
 
     for (const auto&[sysId, states] : latestStates) {
         if (sysId <= numberOfUavs) {
+
+            float speed = 12.0f;
+            if (m_launched) {
+                speed = std::sqrt(states.northMeterSecond*states.northMeterSecond + states.eastMeterSecond*states.eastMeterSecond);
+            }
             unpackStates.insert(unpackStates.end(),
                 {states.northMeter,
                    states.eastMeter,
                    states.downMeter,
-                   std::sqrt(states.northMeterSecond*states.northMeterSecond + states.eastMeterSecond*states.eastMeterSecond),
-                   states.yawDegree,
-                   states.rollDegree,
-                   states.pitchDegree});
+                   speed,
+                   grs::degToRad(states.yawDegree),
+                   grs::degToRad(states.rollDegree),
+                   grs::degToRad(states.pitchDegree)});
         } else {
             unpackStates.insert(unpackStates.end(),
                 {states.northMeter,

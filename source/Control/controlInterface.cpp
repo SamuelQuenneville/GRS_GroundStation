@@ -69,6 +69,14 @@ void ControlInterface::loadTrajectory(const std::string& file) const {
     m_nmpc->loadTrajectory(file);
 }
 
+void ControlInterface::setOrigin(const double latitudeDegrees, const double longitudeDegrees, const double altitude) {
+    m_navFrameManager.setOrigin(latitudeDegrees, longitudeDegrees, altitude);
+}
+
+void ControlInterface::debugConvert(const double latitudeDegrees, const double longitudeDegrees, const double altitude) const {
+    m_navFrameManager.debugConvert(latitudeDegrees, longitudeDegrees, altitude);
+}
+
 void ControlInterface::m_controlLoop() {
     int fileIdx = 0;
 
@@ -80,39 +88,48 @@ void ControlInterface::m_controlLoop() {
             latestStates = m_latestStates;
         }
 
-        std::map<uint8_t, uavCommandsFlags>  cmds;
-
-        if (m_config.controlMode == ControlMode::MATLAB) {
-            LOG_DEBUG("ControlInterface::m_controlLoop() --> MATLAB");
-            m_sendDataToMatlab(latestStates);
-            auto output = m_receiveDataFromMatlab();
-
-            for (size_t i = 0; i < output.size(); i++) {
-                cmds[i+1].commands = output[i+1];
-            }
-
-        } else if (m_config.controlMode == ControlMode::MPC) {
-            cmds = m_nmpc->solve(latestStates);
-
-        } else if (m_config.controlMode == ControlMode::ATTITUDE_FILE) {
-
-            if (fileIdx >= m_commandsList[1].size()) {
-                LOG_INFO("Reach end of trajectory!");
-                return;
-            }
-
-            for (size_t i = 0; i < m_commandsList.size(); i++) {
-                cmds[i+1] = m_commandsList[i+1].at(fileIdx);
-            }
-
-            fileIdx += static_cast<int>(m_fileFrequency / m_config.hlcFrequency);
-
-        } else {
-            LOG_ERROR("Error setting controller Mode");
+        if (!m_navFrameManager.isInitialized()) {
+            m_navFrameManager.initializeOffset(latestStates, m_config.pixhawk.sitl);
         }
 
-        if (m_sendCommand) {
-            m_sendCommand(cmds); // push to dispatcher queue
+        if (m_navFrameManager.isInitialized()) {
+            std::map<uint8_t, uavCommandsFlags>  cmds;
+
+            auto navStates = m_navFrameManager.toNavigationFrame(latestStates);
+
+            if (m_config.controlMode == ControlMode::MATLAB) {
+                LOG_DEBUG("ControlInterface::m_controlLoop() --> MATLAB");
+                m_sendDataToMatlab(navStates);
+                auto output = m_receiveDataFromMatlab();
+
+                for (size_t i = 0; i < output.size(); i++) {
+                    cmds[i+1].commands = output[i+1];
+                }
+
+            } else if (m_config.controlMode == ControlMode::MPC) {
+                cmds = m_nmpc->solve(navStates);
+
+            } else if (m_config.controlMode == ControlMode::ATTITUDE_FILE) {
+
+                if (fileIdx >= m_commandsList[1].size()) {
+                    LOG_INFO("Reach end of trajectory!");
+                    return;
+                }
+
+                for (size_t i = 0; i < m_commandsList.size(); i++) {
+                    cmds[i+1] = m_commandsList[i+1].at(fileIdx);
+                }
+
+                fileIdx += static_cast<int>(m_fileFrequency / m_config.hlcFrequency);
+
+            } else {
+                LOG_ERROR("Error setting controller Mode");
+            }
+
+            if (m_sendCommand) {
+                m_sendCommand(cmds); // push to dispatcher queue
+            }
+
         }
 
         std::this_thread::sleep_for(std::chrono::milliseconds(static_cast<int>(1000.0 / m_config.hlcFrequency)));
