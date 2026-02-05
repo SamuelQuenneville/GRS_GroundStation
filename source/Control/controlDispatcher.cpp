@@ -15,6 +15,7 @@ ControlDispatcher::~ControlDispatcher() {
 }
 
 void ControlDispatcher::start() {
+    LOG_INFO("Starting control dispatcher");
     m_running = true;
     m_thread = std::thread(&ControlDispatcher::m_dispatchLoop, this);
 }
@@ -60,7 +61,8 @@ void ControlDispatcher::m_dispatchLoop() {
         m_commandQueue.pop();
         lock.unlock();
 
-        if (m_sendToComms)
+        if (m_sendToComms) {
             m_sendToComms(cmds);
+        }
     }
 }

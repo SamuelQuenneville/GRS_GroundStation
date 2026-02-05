@@ -273,8 +273,10 @@ void CommunicationManager::setHomeToCurrentPosition() {
 }
 
 void CommunicationManager::setUavCommands(const std::map<uint8_t, uavCommandsFlags>& uavCommands) {
-    std::lock_guard lock(m_statesMutex);
-    m_uavCommands = uavCommands;
+    {
+        std::lock_guard lock(m_statesMutex);
+        m_uavCommands = uavCommands;
+    }
 
     m_sendAttitudeTarget();
 }
@@ -568,8 +570,11 @@ void CommunicationManager::m_sendAttitudeTarget() {
         }
 
         // Send via MavlinkPassthrough (non-blocking)
-        const auto result = m_passthrough[sysId]->queue_message([&, cmd](const MavlinkAddress address, uint8_t channel) {
-            return MavlinkMessageBuilder::buildSetAttitudeTarget(address, channel, m_passthrough[sysId]->get_target_sysid(), m_passthrough[sysId]->get_target_compid(), cmd);
+        const auto targetSysId  = m_passthrough[sysId]->get_target_sysid();
+        const auto targetCompId = m_passthrough[sysId]->get_target_compid();
+
+        const auto result = m_passthrough[sysId]->queue_message([cmd, targetSysId, targetCompId](const MavlinkAddress address, uint8_t channel) {
+            return MavlinkMessageBuilder::buildSetAttitudeTarget(address, channel, targetSysId, targetCompId, cmd);
         });
 
         if (result != mavsdk::MavlinkPassthrough::Result::Success) {

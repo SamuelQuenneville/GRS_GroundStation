@@ -87,36 +87,18 @@ std::map<uint8_t, uavCommandsFlags> NMPCController::solve(const std::map<uint8_t
     m_bindSolverIO();                   // casadi solver() mess with lbx and ubx
 
     // Solve
-    dumpSolverArgsToFile(m_arg);
     {
         PROFILE_SCOPE_OUT("casadi_solve", &m_lastSolveMs);
         solver(m_arg.data(), m_res.data(), m_iw.data(), m_w.data(), m_mem);
     }
 
     // Extract and return u0 for each UAV
-    return m_extractControls();
+    auto controls = m_extractControls();
+    return controls;
 }
 
 double NMPCController::lastSolveMs() const {
     return m_lastSolveMs;
-}
-
-void NMPCController::dumpSolverArgsToFile(const std::vector<const casadi_real*>& arg) {
-
-    for (size_t i = 0; i < arg.size(); ++i) {
-
-        if (!arg[i]) continue;
-
-        const size_t sz = solver_sparsity_in(i)[0];
-
-        std::ofstream f("mpc_arg" + std::to_string(i) + ".txt", std::ios::out | std::ios::app);
-
-        for (size_t k = 0; k < sz; ++k) {
-            f << arg[i][k];
-            if (k + 1 < sz) f << ' ';
-        }
-        f << '\n';
-    }
 }
 
 void NMPCController::m_initalizeSolverIO() {
@@ -290,7 +272,6 @@ std::map<uint8_t, uavCommandsFlags> NMPCController::m_extractControls() const {
         u_idx += m_config.nu;
     }
 
-    LOG_INFO("SOLVED");
     return out;
 }
 

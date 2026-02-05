@@ -218,6 +218,7 @@ void GroundControlStation::m_supervisorLoop() {
     Logger::instance().start(true, "logGcs" + Logger::getDateString());
 
     m_communicationManager->start();
+    m_controlDispatcher->start();
 
     while (m_running) {
         // Monitor system state / heartbeat / stats
@@ -228,5 +229,6 @@ void GroundControlStation::m_supervisorLoop() {
 
     LOG_INFO("Supervisor loop stopping...");
     m_communicationManager->stop();
+    m_controlDispatcher->stop();
     m_controlInterface->stop();
 }

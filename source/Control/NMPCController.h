@@ -42,8 +42,6 @@ public:
     std::map<uint8_t, uavCommandsFlags> solve(const std::map<uint8_t, uavStates>& latestStates);
     double lastSolveMs() const;
 
-    static void dumpSolverArgsToFile(const std::vector<const casadi_real*>& arg);
-
 private:
     solverConfig m_config;
     std::vector<referencePoint> m_referenceTrajectory;

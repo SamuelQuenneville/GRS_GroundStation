@@ -20,6 +20,7 @@
 #include <functional>
 
 #include "Definitions/communicationStructures.h"
+#include "Log/programLogger.h"
 
 class ControlDispatcher {
 public:
