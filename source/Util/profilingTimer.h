@@ -18,10 +18,11 @@
 
 class ProfilingTimer {
 public:
-    explicit ProfilingTimer(std::string name, double* outMs = nullptr)
+    explicit ProfilingTimer(std::string name, double* outMs = nullptr, bool print = false)
         : m_name(std::move(name))
         , m_start(std::chrono::steady_clock::now())
         , m_out(outMs)
+        , m_print(print)
     {}
 
     ~ProfilingTimer() {
@@ -33,17 +34,19 @@ public:
         if (m_out)
             *m_out = ms;
 
-        LOG_INFO("[PROFILE] " + m_name + " took " + std::to_string(ms) + " ms");
+        if (m_print)
+            LOG_INFO("[PROFILE] " + m_name + " took " + std::to_string(ms) + " ms");
     }
 
 private:
     std::string m_name;
     std::chrono::steady_clock::time_point m_start;
     double* m_out;
+    bool m_print;
 };
 
 #define PROFILE_SCOPE(name) ProfilingTimer timer##__LINE__(name)
-#define PROFILE_SCOPE_OUT(name, outptr) ProfilingTimer timer##__LINE__(name, outptr)
+#define PROFILE_SCOPE_OUT(name, outptr, print) ProfilingTimer timer##__LINE__(name, outptr, print)
 
 
 #endif //PROFILINGTIMER_H

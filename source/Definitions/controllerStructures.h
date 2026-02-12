@@ -19,6 +19,7 @@ struct solverConfig {
     int np;         // parameter vector length used by the solver
     int N;          // prediction horizon
     int numUavs;    // number of UAVs in the solver dynamic model
+    std::vector<double> weight;
     std::vector<double> lbxStates;
     std::vector<double> ubxStates;
     std::vector<double> lbxControls;

@@ -13,8 +13,13 @@ NMPCController::NMPCController(const solverConfig& config)
     , m_iw(solver_SZ_IW)
     , m_w(solver_SZ_W)
 {
+    m_initialStates.resize(m_config.nx);
+
     m_initalizeSolverIO();
     m_packBounds();
+
+    m_arg.resize(solver_n_in());
+    m_res.resize(solver_n_out());
     m_bindSolverIO();
 
     m_mem = solver_checkout();
@@ -84,13 +89,41 @@ std::map<uint8_t, uavCommandsFlags> NMPCController::solve(const std::map<uint8_t
     }
 
     m_packParameters(latestStates);
-    m_bindSolverIO();                   // casadi solver() mess with lbx and ubx
+
+    /*
+    std::ostringstream msg_x0;
+    msg_x0 << std::fixed << std::setprecision(4);
+    for (auto&& x : m_x0) {
+        msg_x0 << x << ",";
+    }
+    Logger::instance().log(LogType::MPC_ARG_X0, msg_x0.str());
+
+    std::ostringstream msg_p;
+    msg_p << std::fixed << std::setprecision(4);
+    for (auto&& x : m_p) {
+        msg_p << x << ",";
+    }
+    Logger::instance().log(LogType::MPC_ARG_P, msg_p.str());
+    */
+
+    m_bindSolverIO();
 
     // Solve
     {
-        PROFILE_SCOPE_OUT("casadi_solve", &m_lastSolveMs);
-        solver(m_arg.data(), m_res.data(), m_iw.data(), m_w.data(), m_mem);
+        PROFILE_SCOPE_OUT("casadi_solve", &m_lastSolveMs, false);
+        const int flag = solver(m_arg.data(), m_res.data(), m_iw.data(), m_w.data(), m_mem);
+
+        const auto converged = m_solutionIsValid(flag);
     }
+
+    /*
+    std::ostringstream msg_x;
+    msg_x << std::fixed << std::setprecision(4);
+    for (auto&& x : m_x) {
+        msg_x << x << ",";
+    }
+    Logger::instance().log(LogType::MPC_RES_X, msg_x.str());
+    */
 
     // Extract and return u0 for each UAV
     auto controls = m_extractControls();
@@ -122,9 +155,6 @@ void NMPCController::m_initalizeSolverIO() {
 }
 
 void NMPCController::m_bindSolverIO() {
-    m_arg.resize(solver_n_in());
-    m_res.resize(solver_n_out());
-
     // Inputs
     // 0: x0, 1: p, 2: lbx, 3: ubx, 4: lbg, 5: ubg, 6: lam_x0, 7: lam_g0
     m_arg[0] = m_x0.data();
@@ -159,26 +189,31 @@ void NMPCController::m_shiftSolution() {
 
 void NMPCController::m_packBounds() {
 
-    m_lbx.clear();
-    m_ubx.clear();
+    size_t offset = 0;
 
-    for (size_t k = 0; k <= static_cast<size_t>(m_config.N); k++) {
-        m_lbx.insert(m_lbx.end(), m_config.lbxStates.begin(), m_config.lbxStates.end());
-        m_ubx.insert(m_ubx.end(), m_config.ubxStates.begin(), m_config.ubxStates.end());
+    for (size_t k = 0; k <= static_cast<size_t>(m_config.N); ++k) {
+
+        std::ranges::copy(m_config.lbxStates, m_lbx.begin() + static_cast<std::ptrdiff_t>(offset));
+        std::ranges::copy(m_config.ubxStates, m_ubx.begin() + static_cast<std::ptrdiff_t>(offset));
+
+        offset += m_config.lbxStates.size();
 
         if (k < static_cast<size_t>(m_config.N)) {
-            m_lbx.insert(m_lbx.end(), m_config.lbxControls.begin(), m_config.lbxControls.end());
-            m_ubx.insert(m_ubx.end(), m_config.ubxControls.begin(), m_config.ubxControls.end());
+            std::ranges::copy(m_config.lbxControls, m_lbx.begin() + static_cast<std::ptrdiff_t>(offset));
+            std::ranges::copy(m_config.ubxControls, m_ubx.begin() + static_cast<std::ptrdiff_t>(offset));
+
+            offset += m_config.lbxControls.size();
         }
     }
 
+    assert(offset == m_lbx.size());
     assert(m_lbx.size() == solver_sparsity_in(2)[0]);
     assert(m_ubx.size() == solver_sparsity_in(3)[0]);
 }
 
 void NMPCController::m_packInitialGuess() {
 
-    m_x0.clear();
+    size_t offset = 0;
 
     // reference over horizon
     for (int idx = 0; idx < m_config.N; ++idx) {
@@ -186,25 +221,29 @@ void NMPCController::m_packInitialGuess() {
         const auto& [statesRef, controlsRef] = m_referenceTrajectory[idx];
 
         // x_ref
-        m_x0.insert(m_x0.end(), statesRef.begin(), statesRef.end());
+        std::ranges::copy(statesRef, m_x0.begin() + static_cast<std::ptrdiff_t>(offset));
+        offset += statesRef.size();
 
         // u_ref
-        m_x0.insert(m_x0.end(), controlsRef.begin(), controlsRef.end());
+        std::ranges::copy(controlsRef, m_x0.begin() + static_cast<std::ptrdiff_t>(offset));
+        offset += controlsRef.size();
     }
 
     // x_ref N
     const auto& [statesRef, _] = m_referenceTrajectory[m_config.N];
-    m_x0.insert(m_x0.end(), statesRef.begin(), statesRef.end());
+    std::ranges::copy(statesRef, m_x0.begin() + static_cast<std::ptrdiff_t>(offset));
+    offset += statesRef.size();
 
+    assert(offset == m_x0.size());
     assert(m_x0.size() == solver_sparsity_in(0)[0]);
 }
 
 void NMPCController::m_packParameters(const std::map<uint8_t, uavStates>& latestStates) {
 
-    m_p.clear();
+    size_t offset = 0;
+    int idx = 0;
 
     // reference over horizon
-    int idx = 0;
     for (int i = 0; i < m_config.N; ++i) {
 
         idx = m_idxTraj + i;
@@ -216,23 +255,34 @@ void NMPCController::m_packParameters(const std::map<uint8_t, uavStates>& latest
         const auto& [statesRef, controlsRef] = m_referenceTrajectory[idx];
 
         // x_ref(i)
-        m_p.insert(m_p.end(), statesRef.begin(), statesRef.end());
+        std::ranges::copy(statesRef, m_p.begin() + static_cast<std::ptrdiff_t>(offset));
+        offset += statesRef.size();
 
         // u_ref(i)
-        m_p.insert(m_p.end(), controlsRef.begin(), controlsRef.end());
+        std::ranges::copy(controlsRef, m_p.begin() + static_cast<std::ptrdiff_t>(offset));
+        offset += controlsRef.size();
 
         // p_ref(i) (wind)
-        m_p.insert(m_p.end(), {0.0, 0.0, 0.0});
+        m_p.at(offset++) = 0.0;
+        m_p.at(offset++) = 0.0;
+        m_p.at(offset++) = 0.0;
     }
 
     // terminal state x_ref(N)
     const auto& [statesRef, _] = m_referenceTrajectory[idx + 1];
-    m_p.insert(m_p.end(), statesRef.begin(), statesRef.end());
+    std::ranges::copy(statesRef, m_p.begin() + static_cast<std::ptrdiff_t>(offset));
+    offset += statesRef.size();
 
     // x_initial (latestStates)
-    auto initialStates = m_unpackLatestStates(latestStates);
-    m_p.insert(m_p.end(), initialStates.begin(), initialStates.end());
+    m_unpackLatestStates(latestStates, m_initialStates);
+    std::ranges::copy(m_initialStates, m_p.begin() + static_cast<std::ptrdiff_t>(offset));
+    offset += m_initialStates.size();
 
+    // cost function weight
+    std::ranges::copy(m_config.weight, m_p.begin() + static_cast<std::ptrdiff_t>(offset));
+    offset += m_config.weight.size();
+
+    assert(offset == m_p.size());
     assert(m_p.size() == solver_sparsity_in(1)[0]);
 }
 
@@ -240,20 +290,18 @@ std::map<uint8_t, uavCommandsFlags> NMPCController::m_extractControls() const {
 
     std::map<uint8_t, uavCommandsFlags> out;
 
-    // offset = expected states
-    const int offset_u0 = m_config.nx * (m_config.N + 1);
-
     // Extract u0 for each UAV in order
-    int u_idx = offset_u0;
     for (int sysId = 1; sysId <= m_config.numUavs; ++sysId) {
         uavCommandsFlags cmd;
+
+        const int offset = m_config.nx + (m_config.nu / m_config.numUavs) * (sysId - 1);
 
         // Controls per UAV are [T, roll, pitch], yaw is always 0
         cmd.commands.sysId = static_cast<uint8_t>(sysId);
 
-        cmd.commands.thrust      = static_cast<float>(m_x[u_idx + 0]);
-        cmd.commands.rollDegree  = static_cast<float>(m_x[u_idx + 1]) * 180.0f / M_PIf;
-        cmd.commands.pitchDegree = static_cast<float>(m_x[u_idx + 2]) * 180.0f / M_PIf;
+        cmd.commands.thrust      = static_cast<float>(m_x[offset + 0]);
+        cmd.commands.rollDegree  = grs::radToDeg(static_cast<float>(m_x[offset + 1]));
+        cmd.commands.pitchDegree = grs::radToDeg(static_cast<float>(m_x[offset + 2]));
         cmd.commands.yawDegree   = 0.0;
 
         cmd.F1Command = true;   // Should move?
@@ -269,13 +317,85 @@ std::map<uint8_t, uavCommandsFlags> NMPCController::m_extractControls() const {
         }
 
         out[static_cast<uint8_t>(sysId)] = cmd;
-        u_idx += m_config.nu;
+
+        std::ostringstream msg;
+        msg << std::fixed << std::setprecision(4) << Logger::instance().nowMilliseconds() << "," << m_lastSolveMs << ",";
+        msg << cmd.commands.thrust << "," << cmd.commands.rollDegree << "," << cmd.commands.pitchDegree << "," << cmd.commands.yawDegree;
+
+        if (m_violation) {
+            msg << ", INVALID SOL";
+        }
+        Logger::instance().log(LogType::CONTROLS, msg.str());
     }
 
     return out;
 }
 
-std::vector<double> NMPCController::m_unpackLatestStates(const std::map<uint8_t, uavStates>& latestStates) const {
+bool NMPCController::m_solutionIsValid(const int flag) {
+    if (flag != 0)
+        return false;
+
+    constexpr double feas_tol = 1e-5;
+
+    // Check constraints
+    double max_violation = 0.0;
+
+    for (int i = 0; i < m_g.size(); ++i) {
+        double v_low  = m_lbg[i] - m_g[i];
+        double v_high = m_g[i] - m_ubg[i];
+        double violation = std::max({0.0, v_low, v_high});
+        max_violation = std::max(max_violation, violation);
+    }
+
+    if (max_violation > feas_tol) {
+        m_violation = true;
+        return false;
+    }
+
+    // Check decision variables
+    for (int i = 0; i < m_config.nx; ++i)
+        if (!std::isfinite(m_x[i])) {
+            m_violation = true;
+            return false;
+        }
+
+    // Check objective
+    if (!std::isfinite(m_f[0])) {
+        m_violation = true;
+        return false;
+    }
+
+    return true;
+}
+
+double NMPCController::m_unwrapYaw(const uint8_t sysId, const double yawRadWrapped) {
+
+    auto& s = m_yawStates[sysId];
+
+    if (!s.initialized) {
+        s.prev = yawRadWrapped;
+        s.unwrapped = yawRadWrapped;
+        s.initialized = true;
+        return s.unwrapped;
+    }
+
+    double delta = yawRadWrapped - s.prev;
+
+    // Wrap delta to [-pi, pi]
+    if (delta > M_PI)
+        delta -= 2.0 * M_PI;
+    else if (delta < -M_PI)
+        delta += 2.0 * M_PI;
+
+    s.unwrapped += delta;
+    s.prev = yawRadWrapped;
+
+    return s.unwrapped;
+}
+
+void NMPCController::m_unpackLatestStates(const std::map<uint8_t, uavStates>& latestStates, std::vector<double>& unpackStates) {
+
+    size_t offset = 0;
 
     // Payload is last sysId -- look if we are tethered to the ground (no payload)
     size_t numberOfUavs = latestStates.size() - 1;
@@ -284,33 +404,41 @@ std::vector<double> NMPCController::m_unpackLatestStates(const std::map<uint8_t,
         numberOfUavs += 1;
     }
 
-    std::vector<double> unpackStates;
-
     for (const auto&[sysId, states] : latestStates) {
         if (sysId <= numberOfUavs) {
 
-            float speed = 12.0f;
-            if (m_launched) {
-                speed = std::sqrt(states.northMeterSecond*states.northMeterSecond + states.eastMeterSecond*states.eastMeterSecond);
+            double speed = std::hypot(states.northMeterSecond, states.eastMeterSecond);
+            if (speed < 12.0) {
+                speed = 12.0;
             }
-            unpackStates.insert(unpackStates.end(),
-                {states.northMeter,
-                   states.eastMeter,
-                   states.downMeter,
-                   speed,
-                   grs::degToRad(states.yawDegree),
-                   grs::degToRad(states.rollDegree),
-                   grs::degToRad(states.pitchDegree)});
+
+            const double yawContinuous = m_unwrapYaw(sysId, grs::degToRad(states.yawDegree));
+
+            unpackStates.at(offset++) = states.northMeter;
+            unpackStates.at(offset++) = states.eastMeter;
+            unpackStates.at(offset++) = states.downMeter;
+            unpackStates.at(offset++) = speed;
+            unpackStates.at(offset++) = yawContinuous;
+            unpackStates.at(offset++) = grs::degToRad(states.rollDegree);
+            unpackStates.at(offset++) = grs::degToRad(states.pitchDegree);
+
         } else {
-            unpackStates.insert(unpackStates.end(),
-                {states.northMeter,
-                   states.eastMeter,
-                   states.downMeter,
-                   states.northMeterSecond,
-                   states.eastMeterSecond,
-                   states.downMeterSecond});
+            // Payload
+            unpackStates.at(offset++) = states.northMeter;
+            unpackStates.at(offset++) = states.eastMeter;
+            unpackStates.at(offset++) = states.downMeter;
+            unpackStates.at(offset++) = states.northMeterSecond;
+            unpackStates.at(offset++) = states.eastMeterSecond;
+            unpackStates.at(offset++) = states.downMeterSecond;
         }
     }
 
-    return unpackStates;
+    assert(offset == unpackStates.size());
+
+    std::ostringstream msg;
+    msg << std::fixed << std::setprecision(4) << Logger::instance().nowMilliseconds() << ",";
+    for (auto&& x : unpackStates) {
+        msg << x << ",";
+    }
+    Logger::instance().log(LogType::STATES, msg.str());
 }

@@ -35,11 +35,14 @@ void ControlDispatcher::pushCommand(const std::map<uint8_t, uavCommandsFlags>& c
 }
 
 void ControlDispatcher::updateTelemetry(const std::map<uint8_t, uavStates>& states) {
-    std::lock_guard lock(m_stateMutex);
-    m_latestStates = states;
+    {
+        std::lock_guard lock(m_stateMutex);
+        m_latestStates = states;
+    }
 
-    if (m_sendToController)
+    if (m_sendToController) {
         m_sendToController(m_latestStates);
+    }
 }
 
 void ControlDispatcher::attachCommunicationManager(std::function<void(const std::map<uint8_t, uavCommandsFlags>&)> sendFn) {

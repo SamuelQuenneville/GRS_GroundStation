@@ -109,6 +109,10 @@ void ControlInterface::m_controlLoop() {
             } else if (m_config.controlMode == ControlMode::MPC) {
                 cmds = m_nmpc->solve(navStates);
 
+                for (auto& [sysId, states] : cmds) {
+                    states.commands.thrust = static_cast<float>(thrust2rpm(navStates[sysId].airspeedMeterSecond, states.commands.thrust));
+                }
+
             } else if (m_config.controlMode == ControlMode::ATTITUDE_FILE) {
 
                 if (fileIdx >= m_commandsList[1].size()) {

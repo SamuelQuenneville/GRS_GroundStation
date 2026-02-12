@@ -33,6 +33,7 @@ namespace YAML {
                 rhs.np          = node["NP"].as<int>();
                 rhs.N           = node["N"].as<int>();
                 rhs.numUavs     = node["NUM_UAVS"].as<int>();
+                rhs.weight      = node["WEIGHT"].as<std::vector<double>>();
                 rhs.lbxStates   = node["LBX_STATES"].as<std::vector<double>>();
                 rhs.ubxStates   = node["UBX_STATES"].as<std::vector<double>>();
                 rhs.lbxControls = node["LBX_CONTROLS"].as<std::vector<double>>();

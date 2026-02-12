@@ -20,15 +20,22 @@
 #include "Definitions/controllerStructures.h"
 #include "Util/profilingTimer.h"
 #include "Mathematics/math.h"
+#include "Log/logger.h"
 
 // CasADi-generated solver
-#include "solver_one_grounded.h"
+#include "solver_param_weight.h"
 
 class NMPCController {
 public:
     struct referencePoint {
         std::vector<double> statesRef;    // size of m_config.nx
         std::vector<double> controlsRef;  // size of m_config.nu
+    };
+
+    struct unwrapState {
+        bool initialized = false;
+        double prev = 0.0;
+        double unwrapped = 0.0;
     };
 
     explicit NMPCController(const solverConfig& config);
@@ -46,12 +53,17 @@ private:
     solverConfig m_config;
     std::vector<referencePoint> m_referenceTrajectory;
 
+    std::vector<double> m_initialStates;
+    std::unordered_map<uint8_t, unwrapState> m_yawStates;
+
     bool m_launched = false;
     bool m_endedTraj = false;
     int m_idxTraj = 0;
 
     // Solver memory handle
     int m_mem = -1;
+
+    bool m_violation = false;
 
     // Solver C API pointers
     std::vector<const casadi_real*> m_arg;  // Input pointers
@@ -94,7 +106,11 @@ private:
     void m_packParameters(const std::map<uint8_t, uavStates>& latestStates);
     std::map<uint8_t, uavCommandsFlags> m_extractControls() const;
 
-    std::vector<double> m_unpackLatestStates(const std::map<uint8_t, uavStates>& latestStates) const;
+    bool m_solutionIsValid(int flag);
+
+    double m_unwrapYaw(uint8_t sysId, double yawRadWrapped);
+
+    void m_unpackLatestStates(const std::map<uint8_t, uavStates>& latestStates, std::vector<double>& unpackStates);
 };
 
 #endif //NMPCCONTROLLER_H

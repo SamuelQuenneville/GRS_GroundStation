@@ -36,9 +36,11 @@ mavlink_message_t MavlinkMessageBuilder::buildSetAttitudeTarget(const MavlinkAdd
 }
 
 void MavlinkMessageBuilder::m_eulerToQuaternion(const double rollDeg, const double pitchDeg, const double yawDeg, float q[4]) {
-    const double rollRad_2   = rollDeg * M_PI_2 / 180.0;
-    const double pitchRad_2  = pitchDeg * M_PI_2 / 180.0;
-    const double yawRad_2    = yawDeg * M_PI_2 / 180.0;
+    constexpr double degToRad_2 = M_PI_2 / 180.0;
+
+    const double rollRad_2   = rollDeg * degToRad_2;
+    const double pitchRad_2  = pitchDeg * degToRad_2;
+    const double yawRad_2    = yawDeg * degToRad_2;
 
     const double cos_phi_2   = std::cos(rollRad_2);
     const double sin_phi_2   = std::sin(rollRad_2);

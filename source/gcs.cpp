@@ -214,7 +214,7 @@ void GroundControlStation::m_supervisorLoop() {
 
     LOG_INFO("GroundControlStation main loop started.");
 
-    // Enable and strat logging
+    // Enable and start logging
     Logger::instance().start(true, "logGcs" + Logger::getDateString());
 
     m_communicationManager->start();

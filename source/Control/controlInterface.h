@@ -19,6 +19,7 @@
 #include "Definitions/communicationStructures.h"
 #include "Configuration/configurationParser.h"
 #include "Log/programLogger.h"
+#include "Powertrain/powertrain.h"
 #include "navigationFrameManager.h"
 #include "NMPCController.h"
 

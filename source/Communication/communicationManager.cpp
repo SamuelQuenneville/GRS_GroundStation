@@ -370,8 +370,9 @@ void CommunicationManager::m_onTelemetryUpdate() {
         }
     }
 
-    if (m_telemetryCallback)
+    if (m_telemetryCallback) {
         m_telemetryCallback(snapshot);
+    }
 }
 
 void CommunicationManager::m_handleCommandAck(const mavlink_message_t& message) {
@@ -499,6 +500,11 @@ void CommunicationManager::m_subscribeFlightMode(const std::shared_ptr<mavsdk::T
 
 void CommunicationManager::m_subscribeAttitude(const std::shared_ptr<mavsdk::Telemetry>& telemetry, uint8_t sysId, subscriptionHandles& handles) {
 
+    const mavsdk::Telemetry::Result setRateResult = telemetry->set_rate_attitude_euler(25.0);
+    if (setRateResult != mavsdk::Telemetry::Result::Success) {
+        LOG_ERROR("Failed to set rate attitude_euler");
+    }
+
     handles.attitudeHandle = telemetry->subscribe_attitude_euler([this, sysId](const mavsdk::Telemetry::EulerAngle& attitude) {
         m_aggregators[sysId]->updateAttitude(attitude.roll_deg, attitude.pitch_deg, attitude.yaw_deg);
 
@@ -512,6 +518,11 @@ void CommunicationManager::m_subscribeAttitude(const std::shared_ptr<mavsdk::Tel
 }
 
 void CommunicationManager::m_subscribePositionVelocity(const std::shared_ptr<mavsdk::Telemetry>& telemetry, uint8_t sysId, subscriptionHandles& handles) {
+
+    const mavsdk::Telemetry::Result setRateResult = telemetry->set_rate_position_velocity_ned(25.0);
+    if (setRateResult != mavsdk::Telemetry::Result::Success) {
+        LOG_ERROR("Failed to set rate position_velocity_ned");
+    }
 
     handles.positionVelocityNedHandle = telemetry->subscribe_position_velocity_ned([this, sysId](const mavsdk::Telemetry::PositionVelocityNed& positionVelocityNed) {
         m_aggregators[sysId]->updatePosition(positionVelocityNed.position.north_m, positionVelocityNed.position.east_m, positionVelocityNed.position.down_m);

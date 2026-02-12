@@ -45,8 +45,10 @@ set(GRS_CONTROL
         source/Control/NMPCController.h
         #source/Control/solver.c
         #source/Control/solver.h
-        source/Control/solver_one_grounded.c
-        source/Control/solver_one_grounded.h
+        #source/Control/solver_one_grounded.c
+        #source/Control/solver_one_grounded.h
+        source/Control/solver_param_weight.c
+        source/Control/solver_param_weight.h
         source/Control/navigationFrameManager.cpp
         source/Control/navigationFrameManager.h
 )
@@ -80,6 +82,11 @@ set(GRS_MATHEMATICS
 
 )
 
+set(GRS_POWERTRAIN
+        source/Powertrain/powertrain.cpp
+        source/Powertrain/powertrain.h
+)
+
 set(GRS_UTIL
         source/Util/profilingTimer.h
 )
@@ -101,6 +108,7 @@ add_executable(GRS_GroundStation
         ${GRS_GEO}
         ${GRS_LOG}
         ${GRS_MATHEMATICS}
+        ${GRS_POWERTRAIN}
         ${GRS_UTIL}
         ${GRS_USERINPUTS}
 )

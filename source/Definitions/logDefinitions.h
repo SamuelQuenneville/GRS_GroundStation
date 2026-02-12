@@ -12,10 +12,13 @@
 #pragma once
 
 enum class LogType {
-    EVENTS,
-    MPC_STATS,
-    MPC_X0,
-    MPC_X
+    MPC_ARG_X0,
+    MPC_ARG_P,
+    MPC_ARG_LBX,
+    MPC_ARG_UBX,
+    MPC_RES_X,
+    STATES,
+    CONTROLS
 };
 
 struct LogItem {

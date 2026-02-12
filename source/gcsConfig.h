@@ -48,8 +48,8 @@ struct pixhawkConfig {
 struct gcsConfig {
     bool verbose = false;
     int numUavs = 1;
-    double telemetry_publish_hz = 10.0;
-    double hlcFrequency = 40.0;
+    double telemetry_publish_hz = -1.0;
+    double hlcFrequency = 25.0;
     pixhawkConfig pixhawk;
     std::optional<std::pair<std::string, uint16_t>> matlab;
     std::optional<std::string> attitudeFile;

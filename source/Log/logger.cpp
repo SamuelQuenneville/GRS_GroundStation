@@ -8,6 +8,8 @@
 
 #include "logger.h"
 
+#include "programLogger.h"
+
 Logger& Logger::instance() {
     static Logger inst;
     return inst;
@@ -23,12 +25,20 @@ void Logger::start(const bool enabled, const std::string& logDirectory) {
 
     std::filesystem::create_directories(logDirectory);
 
-    m_files[LogType::EVENTS].open(logDirectory + "/events.csv");
-    m_files[LogType::MPC_STATS].open(logDirectory + "/mpc_stats.csv");
-    m_files[LogType::MPC_X0].open(logDirectory + "/mpc_x0.csv");
-    m_files[LogType::MPC_X].open(logDirectory + "/mpc_x.csv");
+    m_files[LogType::MPC_ARG_X0].open(logDirectory + "/mpc_arg_x0.csv");
+    m_files[LogType::MPC_ARG_P].open(logDirectory + "/mpc_arg_p.csv");
+    m_files[LogType::MPC_ARG_LBX].open(logDirectory + "/mpc_arg_lbx.csv");
+    m_files[LogType::MPC_ARG_UBX].open(logDirectory + "/mpc_arg_ubx.csv");
+    m_files[LogType::MPC_RES_X].open(logDirectory + "/mpc_res_x.csv");
 
-    m_writeHeaders();
+    m_files[LogType::STATES].open(logDirectory + "/states.csv");
+    m_files[LogType::CONTROLS].open(logDirectory + "/controls.csv");
+
+    for (auto& [_, file] : m_files) {
+        file.setf(std::ios::unitbuf);
+    }
+
+    //m_writeHeaders();
 
     m_running = true;
     m_startTime = std::chrono::steady_clock::now();
@@ -77,10 +87,9 @@ std::string Logger::getDateString() {
 }
 
 void Logger::m_writeHeaders() {
-    m_files[LogType::EVENTS]    << "time,event\n";
-    m_files[LogType::MPC_STATS] << "time,\n";
-    m_files[LogType::MPC_X0]    << "time,\n";
-    m_files[LogType::MPC_X]     << "time,\n";
+    m_files[LogType::MPC_ARG_X0] << "time,\n";
+    m_files[LogType::MPC_ARG_P]  << "time,\n";
+    m_files[LogType::MPC_RES_X]  << "time,\n";
 }
 
 void Logger::m_writerLoop() {
