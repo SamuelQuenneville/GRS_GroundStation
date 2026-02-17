@@ -57,29 +57,29 @@ void NavigationFrameManager::debugConvert(const double latitudeDegrees, const do
     std::cout << north << ", " << east << ", " << down << std::endl;
 }
 
-bool NavigationFrameManager::toNavigationFrame(std::map<uint8_t, uavStates>& states) const {
+std::map<uint8_t, uavStates> NavigationFrameManager::toNavigationFrame(std::map<uint8_t, uavStates>& states) const {
+
+    std::map<uint8_t, uavStates> statesOut{};
 
     if (!m_initialized) {
         LOG_ERROR("NavigationFrame is not initialized");
-        return false;
+        return statesOut;
     }
 
-    for (auto& [uavId, state] : states) {
+    for (const auto& [uavId, state] : states) {
 
-        auto it = m_uavFrameOffsets.find(uavId);
-        if (it == m_uavFrameOffsets.end()) {
-            LOG_ERROR("Missing offset for UAV");
-            continue;
-        }
+        uavStates navState = state;
 
         // Apply offset
-        grs::Vec3d pos(state.northMeter, state.eastMeter, state.downMeter);
-        pos += pos + it->second;
+        grs::Vec3d posEkfNed(state.northMeter, state.eastMeter, state.downMeter);
+        grs::Vec3d posNavNed = posEkfNed + m_uavFrameOffsets.at(uavId);
 
-        state.northMeter = static_cast<float>(pos[0]);
-        state.eastMeter  = static_cast<float>(pos[1]);
-        state.downMeter  = static_cast<float>(pos[2]);
+        navState.northMeter = static_cast<float>(posNavNed[0]);
+        navState.eastMeter  = static_cast<float>(posNavNed[1]);
+        navState.downMeter  = static_cast<float>(posNavNed[2]);
+
+        statesOut[uavId] = navState;
     }
 
-    return true;
+    return statesOut;
 }
