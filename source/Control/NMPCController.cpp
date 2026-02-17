@@ -15,7 +15,7 @@ NMPCController::NMPCController(const solverConfig& config)
 {
     m_initialStates.resize(m_config.nx);
 
-    m_initalizeSolverIO();
+    m_initializeSolverIO();
     m_packBounds();
 
     m_arg.resize(solver_n_in());
@@ -89,23 +89,6 @@ std::map<uint8_t, uavCommandsFlags> NMPCController::solve(const std::map<uint8_t
     }
 
     m_packParameters(latestStates);
-
-    /*
-    std::ostringstream msg_x0;
-    msg_x0 << std::fixed << std::setprecision(4);
-    for (auto&& x : m_x0) {
-        msg_x0 << x << ",";
-    }
-    Logger::instance().log(LogType::MPC_ARG_X0, msg_x0.str());
-
-    std::ostringstream msg_p;
-    msg_p << std::fixed << std::setprecision(4);
-    for (auto&& x : m_p) {
-        msg_p << x << ",";
-    }
-    Logger::instance().log(LogType::MPC_ARG_P, msg_p.str());
-    */
-
     m_bindSolverIO();
 
     // Solve
@@ -116,15 +99,6 @@ std::map<uint8_t, uavCommandsFlags> NMPCController::solve(const std::map<uint8_t
         const auto converged = m_solutionIsValid(flag);
     }
 
-    /*
-    std::ostringstream msg_x;
-    msg_x << std::fixed << std::setprecision(4);
-    for (auto&& x : m_x) {
-        msg_x << x << ",";
-    }
-    Logger::instance().log(LogType::MPC_RES_X, msg_x.str());
-    */
-
     // Extract and return u0 for each UAV
     auto controls = m_extractControls();
     return controls;
@@ -134,7 +108,7 @@ double NMPCController::lastSolveMs() const {
     return m_lastSolveMs;
 }
 
-void NMPCController::m_initalizeSolverIO() {
+void NMPCController::m_initializeSolverIO() {
     // Inputs
     m_x0.assign(solver_sparsity_in(0)[0], 0.0);
     m_p.assign(solver_sparsity_in(1)[0], 0.0);

@@ -42,7 +42,7 @@ void GeodeticConverter::initializeReference(const double latitudeDegrees, const 
     geodeticToEcef(latitudeDegrees, longitudeDegrees, altitude, m_ecefRefX, m_ecefRefY, m_ecefRefZ);
 
     // Compute ECEF to NED and NED to ECEF matrices
-    const double phiP = std::atan2(m_ecefRefZ, std::sqrt(std::pow(m_ecefRefX, 2) + std::pow(m_ecefRefY, 2)));
+    const double phiP = std::atan2(m_ecefRefZ, std::sqrt(m_ecefRefX * m_ecefRefX + m_ecefRefY * m_ecefRefY));
 
     m_ecefToNed = m_nedToEcefRotation(phiP, m_longitudeRadiansRef);
     m_nedToEcef = m_nedToEcefRotation(m_latitudeRadiansRef, m_longitudeRadiansRef).transpose();

@@ -97,7 +97,7 @@ private:
     // Timing
     double m_lastSolveMs = -1.0;
 
-    void m_initalizeSolverIO();
+    void m_initializeSolverIO();
     void m_bindSolverIO();
 
     void m_shiftSolution();

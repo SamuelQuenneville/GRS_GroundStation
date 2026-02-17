@@ -8,7 +8,7 @@
 
 #include "navigationFrameManager.h"
 
-void NavigationFrameManager::setOrigin(const double& latitudeDegrees, const double& longitudeDegrees, const double& altitude) {
+void NavigationFrameManager::setOrigin(const double latitudeDegrees, const double longitudeDegrees, const double altitude) {
     m_geodeticConverter.initializeReference(latitudeDegrees, longitudeDegrees, altitude);
 }
 
@@ -57,29 +57,29 @@ void NavigationFrameManager::debugConvert(const double latitudeDegrees, const do
     std::cout << north << ", " << east << ", " << down << std::endl;
 }
 
-std::map<uint8_t, uavStates> NavigationFrameManager::toNavigationFrame(std::map<uint8_t, uavStates>& states) const {
-
-    std::map<uint8_t, uavStates> statesOut{};
+bool NavigationFrameManager::toNavigationFrame(std::map<uint8_t, uavStates>& states) const {
 
     if (!m_initialized) {
         LOG_ERROR("NavigationFrame is not initialized");
-        return statesOut;
+        return false;
     }
 
-    for (const auto& [uavId, state] : states) {
+    for (auto& [uavId, state] : states) {
 
-        uavStates navState = state;
+        auto it = m_uavFrameOffsets.find(uavId);
+        if (it == m_uavFrameOffsets.end()) {
+            LOG_ERROR("Missing offset for UAV");
+            continue;
+        }
 
         // Apply offset
-        grs::Vec3d posEkfNed(state.northMeter, state.eastMeter, state.downMeter);
-        grs::Vec3d posNavNed = posEkfNed + m_uavFrameOffsets.at(uavId);
+        grs::Vec3d pos(state.northMeter, state.eastMeter, state.downMeter);
+        pos += pos + it->second;
 
-        navState.northMeter = static_cast<float>(posNavNed[0]);
-        navState.eastMeter  = static_cast<float>(posNavNed[1]);
-        navState.downMeter  = static_cast<float>(posNavNed[2]);
-
-        statesOut[uavId] = navState;
+        state.northMeter = static_cast<float>(pos[0]);
+        state.eastMeter  = static_cast<float>(pos[1]);
+        state.downMeter  = static_cast<float>(pos[2]);
     }
 
-    return statesOut;
+    return true;
 }

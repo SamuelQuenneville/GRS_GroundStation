@@ -95,11 +95,11 @@ void ControlInterface::m_controlLoop() {
         if (m_navFrameManager.isInitialized()) {
             std::map<uint8_t, uavCommandsFlags>  cmds;
 
-            auto navStates = m_navFrameManager.toNavigationFrame(latestStates);
+            m_navFrameManager.toNavigationFrame(latestStates);
 
             if (m_config.controlMode == ControlMode::MATLAB) {
                 LOG_DEBUG("ControlInterface::m_controlLoop() --> MATLAB");
-                m_sendDataToMatlab(navStates);
+                m_sendDataToMatlab(latestStates);
                 auto output = m_receiveDataFromMatlab();
 
                 for (size_t i = 0; i < output.size(); i++) {
@@ -107,10 +107,10 @@ void ControlInterface::m_controlLoop() {
                 }
 
             } else if (m_config.controlMode == ControlMode::MPC) {
-                cmds = m_nmpc->solve(navStates);
+                cmds = m_nmpc->solve(latestStates);
 
                 for (auto& [sysId, states] : cmds) {
-                    states.commands.thrust = static_cast<float>(thrust2rpm(navStates[sysId].airspeedMeterSecond, states.commands.thrust));
+                    states.commands.thrust = static_cast<float>(thrust2rpm(latestStates[sysId].airspeedMeterSecond, states.commands.thrust));
                 }
 
             } else if (m_config.controlMode == ControlMode::ATTITUDE_FILE) {

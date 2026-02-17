@@ -23,9 +23,9 @@ public:
 
     bool isInitialized() const;
 
-    void setOrigin(const double& latitudeDegrees, const double& longitudeDegrees, const double& altitude);
+    void setOrigin(double latitudeDegrees, double longitudeDegrees, double altitude);
     void initializeOffset(std::map<uint8_t, uavStates>& states, bool sitl);
-    std::map<uint8_t, uavStates> toNavigationFrame(std::map<uint8_t, uavStates>& states) const;
+    bool toNavigationFrame(std::map<uint8_t, uavStates>& states) const;
 
     void debugConvert(double latitudeDegrees, double longitudeDegrees, double altitude) const;
 
