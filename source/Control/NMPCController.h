@@ -27,11 +27,6 @@
 
 class NMPCController {
 public:
-    struct referencePoint {
-        std::vector<double> statesRef;    // size of m_config.nx
-        std::vector<double> controlsRef;  // size of m_config.nu
-    };
-
     struct unwrapState {
         bool initialized = false;
         double prev = 0.0;
@@ -51,7 +46,9 @@ public:
 
 private:
     solverConfig m_config;
-    std::vector<referencePoint> m_referenceTrajectory;
+
+    std::vector<double> m_referenceTrajectory;
+    size_t m_refStride; // nx+nu
 
     std::vector<double> m_initialStates;
     std::unordered_map<uint8_t, unwrapState> m_yawStates;

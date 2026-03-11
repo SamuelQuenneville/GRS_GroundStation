@@ -13,6 +13,8 @@ NMPCController::NMPCController(const solverConfig& config)
     , m_iw(solver_SZ_IW)
     , m_w(solver_SZ_W)
 {
+    m_refStride = m_config.nx + m_config.nu;
+
     m_initialStates.resize(m_config.nx);
 
     m_initializeSolverIO();
@@ -50,23 +52,11 @@ void NMPCController::loadTrajectory(const std::string& file) {
         std::stringstream ss(line);
         std::string field;
 
-        referencePoint pt;
-        pt.statesRef.resize(m_config.nx);
-        pt.controlsRef.resize(m_config.nu);
-
         // first nx fields : states
-        for (int i = 0; i < m_config.nx; i++) {
+        for (int i = 0; i < m_refStride; i++) {
             std::getline(ss, field, ',');
-            pt.statesRef[i] = std::stod(field);
+            m_referenceTrajectory.push_back(std::stod(field));
         }
-
-        // next nu fields : controls
-        for (int i = 0; i < m_config.nu; i++) {
-            std::getline(ss, field, ',');
-            pt.controlsRef[i] = std::stod(field);
-        }
-
-        m_referenceTrajectory.push_back(std::move(pt));
     }
 
     LOG_INFO("Trajectory loaded");
@@ -187,73 +177,45 @@ void NMPCController::m_packBounds() {
 
 void NMPCController::m_packInitialGuess() {
 
-    size_t offset = 0;
+    // N * (nx+nu) + xN
+    // ref: [x0 u0 x1 u1 ... xN uN]
+    const size_t count = m_config.N * m_refStride + m_config.nx;
+    const size_t offsetRef = m_idxTraj * m_refStride;
 
-    // reference over horizon
-    for (int idx = 0; idx < m_config.N; ++idx) {
+    std::memcpy(m_x0.data(), m_referenceTrajectory.data() + offsetRef, count * sizeof(double));
 
-        const auto& [statesRef, controlsRef] = m_referenceTrajectory[idx];
-
-        // x_ref
-        std::ranges::copy(statesRef, m_x0.begin() + static_cast<std::ptrdiff_t>(offset));
-        offset += statesRef.size();
-
-        // u_ref
-        std::ranges::copy(controlsRef, m_x0.begin() + static_cast<std::ptrdiff_t>(offset));
-        offset += controlsRef.size();
-    }
-
-    // x_ref N
-    const auto& [statesRef, _] = m_referenceTrajectory[m_config.N];
-    std::ranges::copy(statesRef, m_x0.begin() + static_cast<std::ptrdiff_t>(offset));
-    offset += statesRef.size();
-
-    assert(offset == m_x0.size());
     assert(m_x0.size() == solver_sparsity_in(0)[0]);
 }
 
 void NMPCController::m_packParameters(const std::map<uint8_t, uavStates>& latestStates) {
 
     size_t offset = 0;
-    int idx = 0;
 
-    // reference over horizon
-    for (int i = 0; i < m_config.N; ++i) {
+    const size_t nx = m_config.nx;
+    const size_t stride = m_refStride;
+    const size_t N = m_config.N;
 
-        idx = m_idxTraj + i;
-        if (idx >= static_cast<int>(m_referenceTrajectory.size()) - 1) {
-            idx = static_cast<int>(m_referenceTrajectory.size()) - 1;
-            m_endedTraj = true;
-        }
+    double* p = m_p.data();
 
-        const auto& [statesRef, controlsRef] = m_referenceTrajectory[idx];
-
-        // x_ref(i)
-        std::ranges::copy(statesRef, m_p.begin() + static_cast<std::ptrdiff_t>(offset));
-        offset += statesRef.size();
-
-        // u_ref(i)
-        std::ranges::copy(controlsRef, m_p.begin() + static_cast<std::ptrdiff_t>(offset));
-        offset += controlsRef.size();
-
-        // p_ref(i) (wind)
-        m_p.at(offset++) = 0.0;
-        m_p.at(offset++) = 0.0;
-        m_p.at(offset++) = 0.0;
-    }
-
-    // terminal state x_ref(N)
-    const auto& [statesRef, _] = m_referenceTrajectory[idx + 1];
-    std::ranges::copy(statesRef, m_p.begin() + static_cast<std::ptrdiff_t>(offset));
-    offset += statesRef.size();
-
-    // x_initial (latestStates)
+    // x_initial
     m_unpackLatestStates(latestStates, m_initialStates);
-    std::ranges::copy(m_initialStates, m_p.begin() + static_cast<std::ptrdiff_t>(offset));
-    offset += m_initialStates.size();
+    std::memcpy(p + offset, m_initialStates.data(), nx * sizeof(double));
+    offset += nx;
+
+    const size_t count = N * stride + nx;
+    const size_t offsetRef = m_idxTraj * stride;
+
+    // copy [x0 u0 ... xN-1 uN-1 xN]
+    std::memcpy(p + offset, m_referenceTrajectory.data() + offsetRef, count * sizeof(double));
+    offset += count;
+
+    // p_ref (wind)
+    double wind[3] = {0.0, 0.0, 0.0}; // TODO Wind could come from an estimator later on
+    std::memcpy(p + offset, wind, sizeof(wind));
+    offset += 3;
 
     // cost function weight
-    std::ranges::copy(m_config.weight, m_p.begin() + static_cast<std::ptrdiff_t>(offset));
+    std::memcpy(p + offset, m_config.weight.data(), m_config.weight.size() * sizeof(double));
     offset += m_config.weight.size();
 
     assert(offset == m_p.size());
