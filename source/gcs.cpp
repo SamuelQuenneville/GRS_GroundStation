@@ -207,6 +207,11 @@ bool GroundControlStation::m_parseUavCommandsLine(const std::string& line, uavCo
     }
     commands.F2Command = static_cast<bool>(std::stoi(token));
 
+    if (!std::getline(lineStream, token, ',')) {
+        return false;
+    }
+    commands.F3Command = static_cast<bool>(std::stoi(token));
+
     return true;
 }
 
