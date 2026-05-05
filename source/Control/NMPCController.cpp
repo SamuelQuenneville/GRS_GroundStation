@@ -81,6 +81,15 @@ std::map<uint8_t, uavCommandsFlags> NMPCController::solve(const std::map<uint8_t
     m_packParameters(latestStates);
     m_bindSolverIO();
 
+
+    std::ostringstream msg;
+    msg << std::fixed << std::setprecision(4);
+    for (auto&& x : m_x0) {
+        msg << x << ",";
+    }
+    Logger::instance().log(LogType::MPC_ARG_X0, msg.str());
+
+
     // Solve
     {
         PROFILE_SCOPE_OUT("casadi_solve", &m_lastSolveMs, false);
@@ -88,6 +97,15 @@ std::map<uint8_t, uavCommandsFlags> NMPCController::solve(const std::map<uint8_t
 
         const auto converged = m_solutionIsValid(flag);
     }
+
+
+    std::ostringstream msg2;
+    msg2 << std::fixed << std::setprecision(4);
+    for (auto&& x : m_x) {
+        msg2 << x << ",";
+    }
+    Logger::instance().log(LogType::MPC_RES_X, msg2.str());
+
 
     // Extract and return u0 for each UAV
     auto controls = m_extractControls();
@@ -343,9 +361,12 @@ void NMPCController::m_unpackLatestStates(const std::map<uint8_t, uavStates>& la
     for (const auto&[sysId, states] : latestStates) {
         if (sysId <= numberOfUavs) {
 
-            double speed = std::hypot(states.northMeterSecond, states.eastMeterSecond);
+            double speed = std::sqrt(states.northMeterSecond*states.northMeterSecond + states.eastMeterSecond*states.eastMeterSecond + states.downMeterSecond*states.downMeterSecond);
+            double gamma = std::asin(-states.downMeterSecond / speed);
+
             if (speed < 12.0) {
                 speed = 12.0;
+                gamma = 0.093;
             }
 
             const double yawContinuous = m_unwrapYaw(sysId, grs::degToRad(states.yawDegree));
@@ -357,6 +378,10 @@ void NMPCController::m_unpackLatestStates(const std::map<uint8_t, uavStates>& la
             unpackStates.at(offset++) = yawContinuous;
             unpackStates.at(offset++) = grs::degToRad(states.rollDegree);
             unpackStates.at(offset++) = grs::degToRad(states.pitchDegree);
+
+            if (m_config.nx == 8) {
+               unpackStates.at(offset++) = gamma;
+            }
 
         } else {
             // Payload

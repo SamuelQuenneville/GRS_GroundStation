@@ -45,8 +45,10 @@ set(GRS_CONTROL
         source/Control/NMPCController.h
         #source/Control/solver.c
         #source/Control/solver.h
-        source/Control/solver_param_weight.c
-        source/Control/solver_param_weight.h
+        source/Control/solver_gamma.c
+        source/Control/solver_gamma.h
+        #source/Control/solver_param_weight.c
+        #source/Control/solver_param_weight.h
         source/Control/navigationFrameManager.cpp
         source/Control/navigationFrameManager.h
 )

@@ -5,15 +5,21 @@
 #
 #
 SolverConfiguration:
-  NX: 7
+  NX: 8
   NU: 3
   NP: 3
   N: 30
   NUM_UAVS: 1
 #            x,   y,   z,    V,  yaw, roll, pitch, T, roll, pitch,
-  WEIGHT: [0.1, 0.1, 10.0, 0.05, 0.01,  0.1,   0.1, 1,  100,   100, 1, 1, 1, 0.5, 0.1, 10, 10]
-  LBX_STATES: [-.inf, -.inf, -.inf, 10.0, -.inf, -0.5236, -0.6981]
-  UBX_STATES: [ .inf,  .inf,   0.0, 40.0,  .inf,  0.5236,  0.6981]
+#  WEIGHT: [0.1, 0.1, 10.0, 0.05, 0.01,  0.1,   0.1, 1,  100,   100, 1, 1, 1, 0.5, 0.1, 10, 10]
+#  LBX_STATES: [-.inf, -.inf, -.inf, 10.0, -.inf, -0.5236, -0.6981]
+#  UBX_STATES: [ .inf,  .inf,   0.0, 40.0,  .inf,  0.5236,  0.6981]
+#  LBX_CONTROLS: [ 0.0, -0.5236, -0.6981]
+#  UBX_CONTROLS: [60.0,  0.5236,  0.6981]
+
+#             x,    y,   z,   V, yaw,  roll, pitch, gamma |    T, roll, pitch   |   Qf_val
+  WEIGHT: [0.0, 0.0, 1.0, 10.0, 0, 40.0, 40.0, 20.0,   0.1, 10.0, 10.0,   0.0, 0.0, 20.0, 200.0, 0.0, 800.0, 800.0, 400.0,  2.5, 100.0, 100.0]
+  LBX_STATES: [-.inf, -.inf, -.inf, 10.0, -.inf, -0.5236, -0.6981, -0.6981]
+  UBX_STATES: [ .inf,  .inf,   0.0, 40.0,  .inf,  0.5236,  0.6981,  0.6981]
   LBX_CONTROLS: [ 0.0, -0.5236, -0.6981]
   UBX_CONTROLS: [60.0,  0.5236,  0.6981]
-#
