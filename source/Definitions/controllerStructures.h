@@ -24,6 +24,10 @@ struct solverConfig {
     std::vector<double> ubxStates;
     std::vector<double> lbxControls;
     std::vector<double> ubxControls;
+    std::vector<double> scalesStates;
+    std::vector<double> scalesControls;
+    std::vector<double> invScalesStates;
+    std::vector<double> invScalesControls;
 };
 
 #endif //CONTROLLERSTRUCTURES_H

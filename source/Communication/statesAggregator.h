@@ -12,7 +12,6 @@
 #pragma once
 
 #include <mutex>
-#include <chrono>
 
 #include "Definitions/communicationStructures.h"
 
@@ -27,12 +26,13 @@ public:
     void updateGlobalPosition(double lat, double lon, double alt);
 
     uavStates getSnapshot() const;
-    std::chrono::steady_clock::time_point lastUpdate() const;
+    aggregatorRates getRates() const;
 
 private:
     mutable std::mutex m_mutex;
     uavStates m_state{};
-    std::chrono::steady_clock::time_point m_lastUpdate;
+
+    aggregatorRates m_rates{};
 };
 
 #endif //STATESAGGREGATOR_H

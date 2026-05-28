@@ -31,6 +31,7 @@ public:
     void log(LogType type, const std::string& line);
 
     uint64_t nowMilliseconds() const;
+    static uint64_t nowWallTimeMs();
     static std::string getDateString();
 
 private:

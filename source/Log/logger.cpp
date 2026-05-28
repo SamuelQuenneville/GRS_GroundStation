@@ -74,6 +74,11 @@ uint64_t Logger::nowMilliseconds() const {
     return std::chrono::duration_cast<std::chrono::milliseconds>(now - m_startTime).count();
 }
 
+uint64_t Logger::nowWallTimeMs() {
+    const auto now = std::chrono::system_clock::now();
+    return std::chrono::duration_cast<std::chrono::milliseconds>(now.time_since_epoch()).count();
+}
+
 std::string Logger::getDateString() {
     time_t rawTime;
     char buffer[80];

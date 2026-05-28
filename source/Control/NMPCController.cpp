@@ -14,6 +14,7 @@ NMPCController::NMPCController(const solverConfig& config)
     , m_w(solver_SZ_W)
 {
     m_refStride = m_config.nx + m_config.nu;
+    m_endIdxTraj = m_numTrajectoryPoints - m_config.N;
 
     m_initialStates.resize(m_config.nx);
 
@@ -35,6 +36,7 @@ NMPCController::~NMPCController() {
 
 void NMPCController::initLaunch() {
     m_launched = true;
+    m_timeAtLaunched = std::chrono::steady_clock::now();
 }
 
 void NMPCController::loadTrajectory(const std::string& file) {
@@ -59,12 +61,16 @@ void NMPCController::loadTrajectory(const std::string& file) {
         }
     }
 
+    m_numTrajectoryPoints = m_referenceTrajectory.size() / m_refStride;
+    std::cout << m_numTrajectoryPoints << std::endl;
     LOG_INFO("Trajectory loaded");
 }
 
 std::map<uint8_t, uavCommandsFlags> NMPCController::solve(const std::map<uint8_t, uavStates>& latestStates) {
 
     std::lock_guard lock(m_solveMutex);
+
+    m_unpackLatestStates(latestStates, m_initialStates);
 
     // Shift solution or pack initial guess
     if (m_lastSolveMs <= 0.0) {
@@ -73,21 +79,31 @@ std::map<uint8_t, uavCommandsFlags> NMPCController::solve(const std::map<uint8_t
         m_shiftSolution();
     }
 
-    // If the aircraft were launched we move along the ref traj
     if (m_launched) {
-        m_idxTraj += 1;
+        size_t idx = m_lastIdxTraj;
+        double bestCost = m_computeReferenceCost(idx);
+
+        // only move forward
+        while (idx + 1 < m_endIdxTraj) {
+            const double nextCost = m_computeReferenceCost(idx + 1);
+
+            // stop once cost increases
+            if (nextCost > bestCost)
+                break;
+
+            bestCost = nextCost;
+            ++idx;
+        }
+        m_pendingSteps = idx - m_lastIdxTraj;
+        m_lastIdxTraj = idx;
     }
 
-    m_packParameters(latestStates);
+    if (m_lastIdxTraj == m_endIdxTraj) {
+        m_endedTraj = true;
+    }
+
+    m_packParameters();
     m_bindSolverIO();
-
-
-    std::ostringstream msg;
-    msg << std::fixed << std::setprecision(4);
-    for (auto&& x : m_x0) {
-        msg << x << ",";
-    }
-    Logger::instance().log(LogType::MPC_ARG_X0, msg.str());
 
 
     // Solve
@@ -98,17 +114,10 @@ std::map<uint8_t, uavCommandsFlags> NMPCController::solve(const std::map<uint8_t
         const auto converged = m_solutionIsValid(flag);
     }
 
-
-    std::ostringstream msg2;
-    msg2 << std::fixed << std::setprecision(4);
-    for (auto&& x : m_x) {
-        msg2 << x << ",";
-    }
-    Logger::instance().log(LogType::MPC_RES_X, msg2.str());
-
-
     // Extract and return u0 for each UAV
     auto controls = m_extractControls();
+
+    m_trackingNumber += 1;
     return controls;
 }
 
@@ -158,33 +167,102 @@ void NMPCController::m_bindSolverIO() {
     m_res[5] = m_lam_p.data();
 }
 
+double NMPCController::m_computeReferenceCost(const size_t idx) const {
+    const size_t refOffset = idx * m_refStride;
+
+    double cost = 0.0;
+
+    const double refNorth = m_referenceTrajectory[refOffset + 0];
+    const double refEast = m_referenceTrajectory[refOffset + 1];
+
+    const double dn = m_initialStates[0] - refNorth;
+    const double de = m_initialStates[1]  - refEast;
+
+    cost += dn*dn + de*de;
+
+    return cost;
+}
+
 void NMPCController::m_shiftSolution() {
-    // TODO Warm-start: shift the solution and repeat last
 
-    // Initial guess is last result, no shifting
-    std::ranges::copy(m_x, m_x0.begin());
+    const size_t nx     = m_config.nx;
+    const size_t nu     = m_config.nu;
+    const size_t N      = m_config.N;
+    const size_t stride = nx + nu;
 
-    // Warm-start: store multipliers for next iteration
-    std::ranges::copy(m_lam_x, m_lam_x0.begin());
-    std::ranges::copy(m_lam_g, m_lam_g0.begin());
+    const size_t shift = m_pendingSteps;
+
+    // -------------------------------------------------
+    // 1. Shift all complete stages
+    // -------------------------------------------------
+    for (size_t k = 0; k < N - shift; ++k) {
+        const size_t dst = k * stride;
+        const size_t src = (k + shift) * stride;
+
+        std::copy_n(m_x.begin() + src, stride, m_x0.begin() + dst);
+    }
+
+    // -------------------------------------------------
+    // 2. Repeat last available stage
+    // -------------------------------------------------
+    const size_t lastValidStage = N - shift;
+
+    for (size_t k = N - shift; k < N; ++k) {
+        const size_t dst = k * stride;
+        const size_t src = lastValidStage * stride;
+
+        std::copy_n(m_x.begin() + src, stride, m_x0.begin() + dst);
+    }
+
+    // -------------------------------------------------
+    // 3. Copy terminal state x_N
+    // -------------------------------------------------
+    const size_t xN_src = N * stride;
+    const size_t xN_dst = N * stride;
+
+    std::copy_n(m_x.begin() + xN_src, nx, m_x0.begin() + xN_dst);
+
+    // -------------------------------------------------
+    // 4. Re-anchor initial state with measurement
+    // -------------------------------------------------
+    for (size_t i = 0; i < nx; ++i) {
+        m_x0[i] = m_initialStates[i] * m_config.invScalesStates[i];
+    }
+
+    std::ranges::fill(m_lam_x0, 0.0);
+    std::ranges::fill(m_lam_g0, 0.0);
 }
 
 void NMPCController::m_packBounds() {
+
+    std::vector<double> lbxStates(m_config.nx);
+    std::vector<double> ubxStates(m_config.nx);
+    for (size_t i = 0; i < m_config.nx; ++i) {
+        lbxStates[i] = m_config.lbxStates[i] * m_config.invScalesStates[i];
+        ubxStates[i] = m_config.ubxStates[i] * m_config.invScalesStates[i];
+    }
+
+    std::vector<double> lbxControls(m_config.nu);
+    std::vector<double> ubxControls(m_config.nu);
+    for (size_t i = 0; i < m_config.nu; ++i) {
+        lbxControls[i] = m_config.lbxControls[i] * m_config.invScalesControls[i];
+        ubxControls[i] = m_config.ubxControls[i] * m_config.invScalesControls[i];
+    }
 
     size_t offset = 0;
 
     for (size_t k = 0; k <= static_cast<size_t>(m_config.N); ++k) {
 
-        std::ranges::copy(m_config.lbxStates, m_lbx.begin() + static_cast<std::ptrdiff_t>(offset));
-        std::ranges::copy(m_config.ubxStates, m_ubx.begin() + static_cast<std::ptrdiff_t>(offset));
+        std::ranges::copy(lbxStates, m_lbx.begin() + static_cast<std::ptrdiff_t>(offset));
+        std::ranges::copy(ubxStates, m_ubx.begin() + static_cast<std::ptrdiff_t>(offset));
 
-        offset += m_config.lbxStates.size();
+        offset += lbxStates.size();
 
         if (k < static_cast<size_t>(m_config.N)) {
-            std::ranges::copy(m_config.lbxControls, m_lbx.begin() + static_cast<std::ptrdiff_t>(offset));
-            std::ranges::copy(m_config.ubxControls, m_ubx.begin() + static_cast<std::ptrdiff_t>(offset));
+            std::ranges::copy(lbxControls, m_lbx.begin() + static_cast<std::ptrdiff_t>(offset));
+            std::ranges::copy(ubxControls, m_ubx.begin() + static_cast<std::ptrdiff_t>(offset));
 
-            offset += m_config.lbxControls.size();
+            offset += lbxControls.size();
         }
     }
 
@@ -198,14 +276,30 @@ void NMPCController::m_packInitialGuess() {
     // N * (nx+nu) + xN
     // ref: [x0 u0 x1 u1 ... xN uN]
     const size_t count = m_config.N * m_refStride + m_config.nx;
-    const size_t offsetRef = m_idxTraj * m_refStride;
+    const size_t offsetRef = m_lastIdxTraj * m_refStride;
 
     std::memcpy(m_x0.data(), m_referenceTrajectory.data() + offsetRef, count * sizeof(double));
+
+    std::ranges::copy(m_initialStates, m_x0.begin());
+
+    for (size_t k = 0; k < m_config.N + 1; ++k)
+    {
+        const size_t xOffset = k * m_refStride;
+        for (size_t i = 0; i < m_config.nx; ++i) {
+            m_x0[xOffset + i] *= m_config.invScalesStates[i];
+        }
+
+        const size_t uOffset = k * m_refStride + m_config.nx;
+        for (size_t i = 0; i < m_config.nu; ++i) {
+            m_x0[uOffset + i] *= m_config.invScalesControls[i];
+        }
+    }
+
 
     assert(m_x0.size() == solver_sparsity_in(0)[0]);
 }
 
-void NMPCController::m_packParameters(const std::map<uint8_t, uavStates>& latestStates) {
+void NMPCController::m_packParameters() {
 
     size_t offset = 0;
 
@@ -216,12 +310,11 @@ void NMPCController::m_packParameters(const std::map<uint8_t, uavStates>& latest
     double* p = m_p.data();
 
     // x_initial
-    m_unpackLatestStates(latestStates, m_initialStates);
     std::memcpy(p + offset, m_initialStates.data(), nx * sizeof(double));
     offset += nx;
 
     const size_t count = N * stride + nx;
-    const size_t offsetRef = m_idxTraj * stride;
+    const size_t offsetRef = m_lastIdxTraj * stride;
 
     // copy [x0 u0 ... xN-1 uN-1 xN]
     std::memcpy(p + offset, m_referenceTrajectory.data() + offsetRef, count * sizeof(double));
@@ -253,10 +346,17 @@ std::map<uint8_t, uavCommandsFlags> NMPCController::m_extractControls() const {
         // Controls per UAV are [T, roll, pitch], yaw is always 0
         cmd.commands.sysId = static_cast<uint8_t>(sysId);
 
-        cmd.commands.thrust      = static_cast<float>(m_x[offset + 0]);
-        cmd.commands.rollDegree  = grs::radToDeg(static_cast<float>(m_x[offset + 1]));
-        cmd.commands.pitchDegree = grs::radToDeg(static_cast<float>(m_x[offset + 2]));
-        cmd.commands.yawDegree   = 0.0;
+        if (m_violation) {
+            cmd.commands.thrust      = 14.0;
+            cmd.commands.rollDegree  = 10.0;
+            cmd.commands.pitchDegree = 4.0;
+            cmd.commands.yawDegree   = 0.0;
+        } else {
+            cmd.commands.thrust      = static_cast<float>(m_x[offset + 0] * m_config.scalesControls[0]);
+            cmd.commands.rollDegree  = grs::radToDeg(static_cast<float>(m_x[offset + 1]));
+            cmd.commands.pitchDegree = grs::radToDeg(static_cast<float>(m_x[offset + 2]));
+            cmd.commands.yawDegree   = 0.0;
+        }
 
         cmd.F1Command = true;   // Should move?
         cmd.F2Command = false;  // End simulation?
@@ -273,8 +373,8 @@ std::map<uint8_t, uavCommandsFlags> NMPCController::m_extractControls() const {
         out[static_cast<uint8_t>(sysId)] = cmd;
 
         std::ostringstream msg;
-        msg << std::fixed << std::setprecision(4) << Logger::instance().nowMilliseconds() << "," << m_lastSolveMs << ",";
-        msg << cmd.commands.thrust << "," << cmd.commands.rollDegree << "," << cmd.commands.pitchDegree << "," << cmd.commands.yawDegree;
+        msg << std::fixed << std::setprecision(4) << m_trackingNumber << "," << Logger::instance().nowMilliseconds() << "," << Logger::nowWallTimeMs() << "," << m_lastSolveMs << ",";
+        msg << cmd.commands.thrust << "," << cmd.commands.rollDegree << "," << cmd.commands.pitchDegree << "," << cmd.commands.yawDegree << "," << m_lastIdxTraj;
 
         if (m_violation) {
             msg << ", INVALID SOL";
@@ -289,7 +389,7 @@ bool NMPCController::m_solutionIsValid(const int flag) {
     if (flag != 0)
         return false;
 
-    constexpr double feas_tol = 1e-5;
+    constexpr double feas_tol = 5e-4;
 
     // Check constraints
     double max_violation = 0.0;
@@ -362,26 +462,38 @@ void NMPCController::m_unpackLatestStates(const std::map<uint8_t, uavStates>& la
         if (sysId <= numberOfUavs) {
 
             double speed = std::sqrt(states.northMeterSecond*states.northMeterSecond + states.eastMeterSecond*states.eastMeterSecond + states.downMeterSecond*states.downMeterSecond);
-            double gamma = std::asin(-states.downMeterSecond / speed);
 
-            if (speed < 12.0) {
-                speed = 12.0;
-                gamma = 0.093;
+            double north = states.northMeter;
+            double east = states.eastMeter;
+            double down = states.downMeter;
+
+            double vNorth = states.northMeterSecond;
+            double vEast = states.eastMeterSecond;
+            double vDown = states.downMeterSecond;
+
+            if (speed > 13.0) {
+                m_inFlight = true;
             }
 
-            const double yawContinuous = m_unwrapYaw(sysId, grs::degToRad(states.yawDegree));
+            if (!m_launched || !m_inFlight) {
+                north = 29.9681;
+                east = 0.0;
+                down = -1.382;
 
-            unpackStates.at(offset++) = states.northMeter;
-            unpackStates.at(offset++) = states.eastMeter;
-            unpackStates.at(offset++) = states.downMeter;
-            unpackStates.at(offset++) = speed;
-            unpackStates.at(offset++) = yawContinuous;
+                vNorth = -0.05;
+                vEast = -11.94;
+                vDown = -1.115;
+            }
+
+            unpackStates.at(offset++) = north;
+            unpackStates.at(offset++) = east;
+            unpackStates.at(offset++) = down;
+            unpackStates.at(offset++) = vNorth;
+            unpackStates.at(offset++) = vEast;
+            unpackStates.at(offset++) = vDown;
             unpackStates.at(offset++) = grs::degToRad(states.rollDegree);
             unpackStates.at(offset++) = grs::degToRad(states.pitchDegree);
 
-            if (m_config.nx == 8) {
-               unpackStates.at(offset++) = gamma;
-            }
 
         } else {
             // Payload
@@ -397,7 +509,7 @@ void NMPCController::m_unpackLatestStates(const std::map<uint8_t, uavStates>& la
     assert(offset == unpackStates.size());
 
     std::ostringstream msg;
-    msg << std::fixed << std::setprecision(4) << Logger::instance().nowMilliseconds() << ",";
+    msg << std::fixed << std::setprecision(4) << m_trackingNumber << "," << Logger::instance().nowMilliseconds() << "," << Logger::nowWallTimeMs() << ",";
     for (auto&& x : unpackStates) {
         msg << x << ",";
     }

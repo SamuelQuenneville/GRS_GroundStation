@@ -13,7 +13,6 @@
 
 #include <map>
 #include <cstring>
-#include <casadi/casadi.hpp>
 #include <cassert>
 
 #include "Definitions/communicationStructures.h"
@@ -23,7 +22,7 @@
 #include "Log/logger.h"
 
 // CasADi-generated solver
-#include "solver_gamma.h"
+#include "solver.h"
 
 class NMPCController {
 public:
@@ -54,8 +53,17 @@ private:
     std::unordered_map<uint8_t, unwrapState> m_yawStates;
 
     bool m_launched = false;
+    bool m_inFlight = false;
     bool m_endedTraj = false;
-    int m_idxTraj = 0;
+    std::chrono::steady_clock::time_point m_timeAtLaunched;
+
+    size_t m_lastIdxTraj = 0;
+    size_t m_endIdxTraj = 0;
+    size_t m_numTrajectoryPoints = 0;
+
+    size_t m_pendingSteps = 0;
+
+    size_t m_trackingNumber = 0;
 
     // Solver memory handle
     int m_mem = -1;
@@ -97,10 +105,12 @@ private:
     void m_initializeSolverIO();
     void m_bindSolverIO();
 
+    double m_computeReferenceCost(size_t idx) const;
+
     void m_shiftSolution();
     void m_packBounds();
     void m_packInitialGuess();
-    void m_packParameters(const std::map<uint8_t, uavStates>& latestStates);
+    void m_packParameters();
     std::map<uint8_t, uavCommandsFlags> m_extractControls() const;
 
     bool m_solutionIsValid(int flag);

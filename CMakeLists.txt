@@ -2,6 +2,38 @@ cmake_minimum_required(VERSION 3.5)
 project(GRS_GroundStation)
 
 set(CMAKE_CXX_STANDARD 20)
+set(CMAKE_C_STANDARD 99)
+
+# Default to Release build
+if(NOT CMAKE_BUILD_TYPE)
+    set(CMAKE_BUILD_TYPE Release)
+endif()
+
+# Enable Link Time Optimization
+set(CMAKE_INTERPROCEDURAL_OPTIMIZATION TRUE)
+
+# Global optimization flags
+set(CMAKE_CXX_FLAGS_RELEASE
+        "${CMAKE_CXX_FLAGS_RELEASE} \
+    -O3 \
+    -march=native \
+    -mtune=native \
+    -ffast-math \
+    -fno-math-errno \
+    -funsafe-math-optimizations \
+    -DNDEBUG"
+)
+
+set(CMAKE_C_FLAGS_RELEASE
+        "${CMAKE_C_FLAGS_RELEASE} \
+    -O3 \
+    -march=native \
+    -mtune=native \
+    -ffast-math \
+    -fno-math-errno \
+    -funsafe-math-optimizations \
+    -DNDEBUG"
+)
 
 include(FetchContent)
 
@@ -43,12 +75,6 @@ set(GRS_CONTROL
         source/Control/controlDispatcher.h
         source/Control/NMPCController.cpp
         source/Control/NMPCController.h
-        #source/Control/solver.c
-        #source/Control/solver.h
-        source/Control/solver_gamma.c
-        source/Control/solver_gamma.h
-        #source/Control/solver_param_weight.c
-        #source/Control/solver_param_weight.h
         source/Control/navigationFrameManager.cpp
         source/Control/navigationFrameManager.h
 )
@@ -113,6 +139,28 @@ add_executable(GRS_GroundStation
         ${GRS_USERINPUTS}
 )
 
+find_library(BLASFEO_LIB blasfeo PATHS ${CASADI_DIR} REQUIRED)
+find_library(FATROP_LIB fatrop PATHS ${CASADI_DIR} REQUIRED)
+
+add_library(nmpc_solver STATIC
+        source/Control/solver.c
+        source/Control/solver.h
+)
+
+target_compile_options(nmpc_solver PRIVATE
+        -O3
+        -march=native
+        -mtune=native
+        -ffast-math
+        -funroll-loops
+)
+
+target_link_libraries(nmpc_solver PRIVATE
+        ${FATROP_LIB}
+        ${BLASFEO_LIB}
+        casadi::casadi
+)
+
 # Include libraries
 # YAML
 FetchContent_Declare(
@@ -130,13 +178,8 @@ endif()
 
 target_include_directories(GRS_GroundStation PUBLIC source)
 
-find_library(BLASFEO_LIB blasfeo PATHS ${CASADI_DIR} REQUIRED)
-find_library(FATROP_LIB fatrop PATHS ${CASADI_DIR} REQUIRED)
-
 target_link_libraries(GRS_GroundStation
+        nmpc_solver
         yaml-cpp::yaml-cpp
         MAVSDK::mavsdk
-        ${BLASFEO_LIB}
-        ${FATROP_LIB}
-        casadi::casadi
 )

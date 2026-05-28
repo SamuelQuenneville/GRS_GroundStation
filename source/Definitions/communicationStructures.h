@@ -13,6 +13,7 @@
 
 #include <mavsdk/mavsdk.h>
 #include <mavsdk/plugins/telemetry/telemetry.h>
+#include <chrono>
 
 struct subscriptionHandles {
     mavsdk::Telemetry::HealthHandle                      healthHandle;
@@ -66,6 +67,19 @@ struct uavCommandsFlags {
     std::optional<bool> F1Command;
     std::optional<bool> F2Command;
     std::optional<bool> F3Command;
+};
+
+struct aggregatorRates {
+    std::chrono::steady_clock::time_point lastAttitude;
+    std::chrono::steady_clock::time_point lastPosition;
+    std::chrono::steady_clock::time_point lastVelocity;
+    std::chrono::steady_clock::time_point lastAirspeed;
+    std::chrono::steady_clock::time_point lastGlobalPosition;
+    double rateAttitude = 0.0;
+    double ratePosition = 0.0;
+    double rateVelocity = 0.0;
+    double rateAirspeed = 0.0;
+    double rateGlobalPosition = 0.0;
 };
 
 #endif //COMMUNICATIONSTRUCTURES_H
