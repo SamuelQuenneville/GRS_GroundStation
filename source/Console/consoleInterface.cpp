@@ -34,17 +34,20 @@ void ConsoleInterface::stop() {
 
 void ConsoleInterface::printCommands() {
     std::cout << "Commands: [commands]\n"
-                      << "  start             --> Start the Ground Station\n"
-                      << "  connect           --> Connect to all UAVs\n"
-                      << "  arm               --> Arm all connected system\n"
-                      << "  mode [MODE]       --> Set mode for all connected system (MANUAL / GUIDED / XNAV)\n"
-                      << "  startController   --> Start the controller\n"
-                      << "  launch            --> Init launch sequence\n"
-                      << "  fetchParams [ID]  --> Retrieve all parameter and create a .param file\n"
-                      << "  loadTraj [FILE]   --> Load a reference trajectory via a .csv file\n"
-                      << "  setOrigin [WP]    --> Set the origin for the controller frame\n"
-                      << "  stop              --> Stop the Ground Station\n"
-                      << "  exit              --> Terminate the execution\n";
+                      << "  start                 --> Start the Ground Station\n"
+                      << "  connect               --> Connect to all UAVs\n"
+                      << "  arm                   --> Arm all connected system\n"
+                      << "  mode [MODE]           --> Set mode for all connected system (MANUAL / GUIDED / XNAV)\n"
+                      << "  startController       --> Start the controller\n"
+                      << "  launch                --> Init launch sequence\n"
+                      << "  fetchParams [ID]      --> Retrieve all parameter and create a .param file\n"
+                      << "  loadTraj [FILE]       --> Load a reference trajectory via a .csv file\n"
+                      << "  setOrigin [WP]        --> Set the origin for the controller frame\n"
+                      << "  listRtkPorts          --> List detected u-blox USB serial devices\n"
+                      << "  startRtk [DEV] [BAUD] --> Start RTK base GPS (DEV='auto' to auto-detect), forward corrections to all UAVs (BAUD=0 to auto-detect)\n"
+                      << "  stopRtk               --> Stop the RTK base GPS\n"
+                      << "  stop                  --> Stop the Ground Station\n"
+                      << "  exit                  --> Terminate the execution\n";
 }
 
 void ConsoleInterface::handleCommand(const std::string& command) const {
@@ -87,6 +90,30 @@ void ConsoleInterface::handleCommand(const std::string& command) const {
         }
 
         m_gcs.debugConvert(lat, lon, alt);
+    } else if (command == "listRtkPorts") {
+        const auto ports = RtkBaseStation::scanAvailablePorts();
+        if (ports.empty()) {
+            LOG_INFO("No u-blox USB serial devices found");
+        } else {
+            for (const auto& port : ports) {
+                LOG_INFO("Found: " + port);
+            }
+        }
+    } else if (command.starts_with("startRtk ")) {
+        std::istringstream iss(command.substr(9));
+        std::string device;
+        unsigned baudrate = 0;
+        iss >> device >> baudrate;
+
+        if (device.empty()) {
+            LOG_INFO("Usage: startRtk [DEVICE] [BAUD]  e.g. startRtk /dev/ttyACM0 0");
+        } else {
+            LOG_INFO("Starting RTK base station on " + device + "...");
+            m_gcs.startRtkBase(device, baudrate);
+        }
+    } else if (command == "stopRtk") {
+        LOG_INFO("Stopping RTK base station...");
+        m_gcs.stopRtkBase();
     } else if (command == "stop") {
         LOG_INFO("Stopping main process...");
         m_gcs.stop();

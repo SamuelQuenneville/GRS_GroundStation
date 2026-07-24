@@ -15,6 +15,8 @@
 #include <mavsdk/plugins/action/action.h>
 #include <mavsdk/plugins/param/param.h>
 #include <mavsdk/plugins/mavlink_passthrough/mavlink_passthrough.h>
+#include <mavsdk/plugins/rtk/rtk.h>
+#include <mavsdk/base64.h>
 
 #include <mavsdk/mavlink/common/mavlink_msg_param_set.h>
 
@@ -60,6 +62,8 @@ public:
     void setHomeToCurrentPosition();
     void setUavCommands(const std::map<uint8_t, uavCommandsFlags>& uavCommands);
 
+    void sendRtcmData(const std::vector<uint8_t> &data);
+
 private:
     int m_numberOfUavs = 0;
 
@@ -70,6 +74,7 @@ private:
     std::map<uint8_t, std::shared_ptr<mavsdk::Action>> m_action;
     std::map<uint8_t, std::shared_ptr<mavsdk::Param>> m_param;
     std::map<uint8_t, std::shared_ptr<mavsdk::MavlinkPassthrough>> m_passthrough;
+    std::map<uint8_t, std::shared_ptr<mavsdk::Rtk>> m_rtk;
 
     std::map<uint8_t, mavsdk::Vehicle> m_vehicleType;
 

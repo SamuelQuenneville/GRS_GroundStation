@@ -46,6 +46,32 @@ set(CMAKE_PREFIX_PATH "${CASADI_DIR}" ${CMAKE_PREFIX_PATH})
 find_package(MAVSDK REQUIRED)
 find_package(casadi CONFIG REQUIRED)
 
+# RTK support (u-blox F9P base station) via PX4-GPSDrivers.
+# Populated the same way as yaml-cpp below, but its own CMakeLists.txt only
+# builds a standalone test executable we don't want, so we pull in the
+# specific source files we need (gps_helper, ubx, rtcm) directly instead of
+# add_subdirectory().
+FetchContent_Declare(
+        px4_gpsdrivers
+        GIT_REPOSITORY https://github.com/PX4/PX4-GPSDrivers.git
+        GIT_TAG main
+)
+FetchContent_GetProperties(px4_gpsdrivers)
+
+if(NOT px4_gpsdrivers_POPULATED)
+    message(STATUS "Fetching PX4-GPSDrivers...")
+    FetchContent_Populate(px4_gpsdrivers)
+endif()
+
+set(GRS_GPSDRIVERS
+        ${px4_gpsdrivers_SOURCE_DIR}/src/gps_helper.cpp
+        ${px4_gpsdrivers_SOURCE_DIR}/src/gps_helper.h
+        ${px4_gpsdrivers_SOURCE_DIR}/src/ubx.cpp
+        ${px4_gpsdrivers_SOURCE_DIR}/src/ubx.h
+        ${px4_gpsdrivers_SOURCE_DIR}/src/rtcm.cpp
+        ${px4_gpsdrivers_SOURCE_DIR}/src/rtcm.h
+)
+
 set(GRS_SOURCE
         source/main.cpp
         source/gcs.cpp
@@ -60,6 +86,8 @@ set(GRS_COMMUNICATION
         source/Communication/statesAggregator.h
         source/Communication/mavlinkMessageBuilder.cpp
         source/Communication/mavlinkMessageBuilder.h
+        source/Communication/rtkBaseStation.cpp
+        source/Communication/rtkBaseStation.h
 )
 
 set(GRS_CONFIGURATION
@@ -84,6 +112,7 @@ set(GRS_DEFINITION
         source/Definitions/logDefinitions.h
         source/Definitions/yamlCustomStructure.h
         source/Definitions/controllerStructures.h
+        source/Definitions/gpsDefinitions.h
 )
 
 set(GRS_GEO
@@ -120,6 +149,7 @@ set(GRS_UTIL
 set(GRS_USERINPUTS
         source/Console/consoleInterface.cpp
         source/Console/consoleInterface.h
+        source/Definitions/gpsDefinitions.h
 )
 
 # Copy the Meshes used for the demo into the build directory
@@ -137,6 +167,7 @@ add_executable(GRS_GroundStation
         ${GRS_POWERTRAIN}
         ${GRS_UTIL}
         ${GRS_USERINPUTS}
+        ${GRS_GPSDRIVERS}
 )
 
 find_library(BLASFEO_LIB blasfeo PATHS ${CASADI_DIR} REQUIRED)
@@ -177,6 +208,13 @@ if(NOT yaml-cpp_POPULATED)
 endif()
 
 target_include_directories(GRS_GroundStation PUBLIC source)
+target_include_directories(GRS_GroundStation PRIVATE ${px4_gpsdrivers_SOURCE_DIR}/src)
+
+# PX4-GPSDrivers requires the consuming project to supply its own definitions.h
+# (sensor_gps_s, satellite_info_s, sensor_gnss_relative_s, and
+# the GPS_INFO/GPS_WARN/GPS_ERR logging macros). Resolved relative to the "source" include dir added above,
+# so this points at source/Definitions/gpsDefinitions.h.
+target_compile_definitions(GRS_GroundStation PRIVATE GPS_DEFINITIONS_HEADER="Definitions/gpsDefinitions.h")
 
 target_link_libraries(GRS_GroundStation
         nmpc_solver

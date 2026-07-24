@@ -134,6 +134,39 @@ void GroundControlStation::debugConvert(const double latitudeDegrees, const doub
     m_controlInterface->debugConvert(latitudeDegrees, longitudeDegrees, altitude);
 }
 
+void GroundControlStation::startRtkBase(const std::string& device, const unsigned baudrate) {
+    std::string resolvedDevice = device;
+
+    if (device == "auto") {
+        resolvedDevice = RtkBaseStation::findFirstMatchingPort();
+        if (resolvedDevice.empty()) {
+            LOG_ERROR("RTK base station: no u-blox USB serial device found");
+            return;
+        }
+        LOG_INFO("RTK base station: auto-detected " + resolvedDevice);
+    }
+
+    if (!m_rtkBaseStation) {
+        m_rtkBaseStation = std::make_unique<RtkBaseStation>();
+    }
+
+    const bool started = m_rtkBaseStation->start(
+        resolvedDevice, baudrate,
+        [this](const std::vector<uint8_t>& rtcmData) {
+            m_communicationManager->sendRtcmData(rtcmData);
+        });
+
+    if (!started) {
+        LOG_ERROR("Failed to start RTK base station on " + resolvedDevice);
+    }
+}
+
+void GroundControlStation::stopRtkBase() const {
+    if (m_rtkBaseStation) {
+        m_rtkBaseStation->stop();
+    }
+}
+
 void GroundControlStation::m_parseCommandFile(const std::string& file) const {
     std::ifstream fileStream(file);
 
@@ -215,7 +248,7 @@ bool GroundControlStation::m_parseUavCommandsLine(const std::string& line, uavCo
     return true;
 }
 
-void GroundControlStation::m_supervisorLoop() {
+void GroundControlStation::m_supervisorLoop() const {
 
     LOG_INFO("GroundControlStation main loop started.");
 

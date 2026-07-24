@@ -212,6 +212,7 @@ bool CommunicationManager::addLink(const std::string& connection) {
             m_action[sysId]      = std::make_shared<mavsdk::Action>(system);
             m_param[sysId]       = std::make_shared<mavsdk::Param>(system);
             m_passthrough[sysId] = std::make_shared<mavsdk::MavlinkPassthrough>(system);
+            m_rtk[sysId]         = std::make_shared<mavsdk::Rtk>(system);
 
             m_subscribeMavlink(sysId);
 
@@ -279,6 +280,29 @@ void CommunicationManager::setUavCommands(const std::map<uint8_t, uavCommandsFla
     }
 
     m_sendAttitudeTarget();
+}
+
+void CommunicationManager::sendRtcmData(const std::vector<uint8_t>& data) {
+    std::lock_guard lock(m_linkMutex);
+
+    if (m_rtk.empty()) {
+        LOG_WARNING("sendRtcmData called but no UAV is connected yet");
+        return;
+    }
+
+    // mavsdk::base64_encode() takes a non-const std::vector<uint8_t>&, so we
+    // need a mutable copy even though sendRtcmData() itself takes const&.
+    std::vector<uint8_t> encodableData = data;
+
+    mavsdk::Rtk::RtcmData rtcmData;
+    rtcmData.data_base64 = mavsdk::base64_encode(encodableData);
+
+    for (const auto& [sysId, rtk] : m_rtk) {
+        const auto result = rtk->send_rtcm_data(rtcmData);
+        if (result != mavsdk::Rtk::Result::Success) {
+            LOG_WARNING("Failed to send RTCM data to sysId = " + std::to_string(sysId));
+        }
+    }
 }
 
 void CommunicationManager::m_subscribeMavlink(const uint8_t sysId) {
