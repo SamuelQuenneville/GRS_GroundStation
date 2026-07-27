@@ -80,49 +80,7 @@ RtkBaseStation::~RtkBaseStation() {
     stop();
 }
 
-int RtkBaseStation::m_callbackEntry(const GPSCallbackType type, void* data1, const int data2, void* user) {
-    return static_cast<RtkBaseStation*>(user)->m_callback(type, data1, data2);
-}
-
-int RtkBaseStation::m_callback(const GPSCallbackType type, void* data1, const int data2) const {
-    switch (type) {
-        case GPSCallbackType::readDeviceData:
-            return static_cast<int>(m_serialPort.read(static_cast<uint8_t*>(data1), data2));
-
-        case GPSCallbackType::writeDeviceData:
-            return static_cast<int>(m_serialPort.write(static_cast<const uint8_t*>(data1), data2));
-
-        case GPSCallbackType::setBaudrate:
-            return m_serialPort.setBaudrate(data2) ? 0 : 1;
-
-        case GPSCallbackType::gotRTCMMessage: {
-            const auto* bytes = static_cast<const uint8_t*>(data1);
-            if (m_rtcmCallback) {
-                m_rtcmCallback(std::vector<uint8_t>(bytes, bytes + data2));
-            }
-            return 0;
-        }
-
-        case GPSCallbackType::surveyInStatus: {
-            const auto* status = static_cast<SurveyInStatus*>(data1);
-            LOG_INFO("RTK base survey-in: flags=" + std::to_string(status->flags)
-                + " accuracy=" + std::to_string(1e-3 * static_cast<double>(status->mean_accuracy)) + "m"
-                + " duration=" + std::to_string(status->duration) + "s");
-            return 0;
-        }
-
-        default:
-            return 0;
-    }
-}
-
-bool RtkBaseStation::start(
-    const std::string& device,
-    unsigned baudrate,
-    const RtcmCallback& callback,
-    const float surveyInMinimumMeters,
-    const unsigned surveyInDurationSeconds)
-{
+bool RtkBaseStation::start(const std::string& device, unsigned baudrate, const RtcmCallback& callback, const float surveyInMinimumMeters, const unsigned surveyInDurationSeconds) {
     if (m_running.load()) {
         LOG_WARNING("RtkBaseStation already running");
         return false;
@@ -149,14 +107,11 @@ bool RtkBaseStation::start(
     m_driver = std::make_unique<GPSDriverUBX>(
         GPSDriverUBX::Interface::UART,
         &RtkBaseStation::m_callbackEntry, this,
-        &m_gpsPos, &m_satInfo,
-        settings);
+        &m_gpsPos, &m_satInfo, settings);
 
     // Distance the F9P must be confident of its own position within before
     // it starts broadcasting corrections, and how long it surveys for.
-    m_driver->setSurveyInSpecs(
-        static_cast<int>(surveyInMinimumMeters * 10000), // driver expects 0.1mm units
-        static_cast<int>(surveyInDurationSeconds));
+    m_driver->setSurveyInSpecs(static_cast<int>(surveyInMinimumMeters * 10000),static_cast<int>(surveyInDurationSeconds)); // driver expects 0.1mm units
 
     GPSHelper::GPSConfig gpsConfig{};
     gpsConfig.output_mode = GPSHelper::OutputMode::RTCM;
@@ -226,7 +181,7 @@ std::vector<std::string> RtkBaseStation::scanAvailablePorts(const std::string& v
         }
 
         std::error_code ec;
-        std::filesystem::path devicePath = std::filesystem::canonical(entry.path() / "device", ec);
+        const std::filesystem::path devicePath = std::filesystem::canonical(entry.path() / "device", ec);
         if (ec) continue;
 
         // ttyACM*/ttyUSB* "device" symlinks point at the USB *interface*
@@ -245,11 +200,47 @@ std::vector<std::string> RtkBaseStation::scanAvailablePorts(const std::string& v
         }
     }
 
-    std::sort(matches.begin(), matches.end());
+    std::ranges::sort(matches);
     return matches;
 }
 
 std::string RtkBaseStation::findFirstMatchingPort(const std::string& vendorIdHex) {
     const auto ports = scanAvailablePorts(vendorIdHex);
     return ports.empty() ? std::string{} : ports.front();
+}
+
+int RtkBaseStation::m_callbackEntry(const GPSCallbackType type, void* data1, const int data2, void* user) {
+    return static_cast<RtkBaseStation*>(user)->m_callback(type, data1, data2);
+}
+
+int RtkBaseStation::m_callback(const GPSCallbackType type, void* data1, const int data2) const {
+    switch (type) {
+        case GPSCallbackType::readDeviceData:
+            return static_cast<int>(m_serialPort.read(static_cast<uint8_t*>(data1), data2));
+
+        case GPSCallbackType::writeDeviceData:
+            return static_cast<int>(m_serialPort.write(static_cast<const uint8_t*>(data1), data2));
+
+        case GPSCallbackType::setBaudrate:
+            return m_serialPort.setBaudrate(data2) ? 0 : 1;
+
+        case GPSCallbackType::gotRTCMMessage: {
+            const auto* bytes = static_cast<const uint8_t*>(data1);
+            if (m_rtcmCallback) {
+                m_rtcmCallback(std::vector<uint8_t>(bytes, bytes + data2));
+            }
+            return 0;
+        }
+
+        case GPSCallbackType::surveyInStatus: {
+            const auto* status = static_cast<SurveyInStatus*>(data1);
+            LOG_INFO("RTK base survey-in: flags=" + std::to_string(status->flags)
+                + " accuracy=" + std::to_string(1e-3 * static_cast<double>(status->mean_accuracy)) + "m"
+                + " duration=" + std::to_string(status->duration) + "s");
+            return 0;
+        }
+
+        default:
+            return 0;
+    }
 }

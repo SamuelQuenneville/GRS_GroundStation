@@ -13,19 +13,14 @@
 #include <cstdint>
 #include <functional>
 #include <memory>
-#include <string>
 #include <thread>
 #include <vector>
 
 #include <fcntl.h>
 #include <termios.h>
 #include <unistd.h>
-#include <cerrno>
-#include <cstring>
 #include <algorithm>
-#include <cctype>
 #include <filesystem>
-#include <fstream>
 
 #include "gps_helper.h"
 #include "ubx.h"

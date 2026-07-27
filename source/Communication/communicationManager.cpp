@@ -608,7 +608,7 @@ void CommunicationManager::m_sendAttitudeTarget() {
         const auto targetSysId  = m_passthrough[sysId]->get_target_sysid();
         const auto targetCompId = m_passthrough[sysId]->get_target_compid();
 
-        const auto result = m_passthrough[sysId]->queue_message([cmd, targetSysId, targetCompId](const MavlinkAddress address, uint8_t channel) {
+        const auto result = m_passthrough[sysId]->queue_message([cmd, targetSysId, targetCompId](const MavlinkAddress address, const uint8_t channel) {
             return MavlinkMessageBuilder::buildSetAttitudeTarget(address, channel, targetSysId, targetCompId, cmd);
         });
 
