@@ -46,6 +46,11 @@ void ConsoleInterface::printCommands() {
                       << "  listRtkPorts          --> List detected u-blox USB serial devices\n"
                       << "  startRtk [DEV] [BAUD] --> Start RTK base GPS (DEV='auto' to auto-detect), forward corrections to all UAVs (BAUD=0 to auto-detect)\n"
                       << "  stopRtk               --> Stop the RTK base GPS\n"
+                      << "  catapultConnect       --> Connect to both catapult ESP32s\n"
+                      << "  catapultArm           --> Arm both catapults (requires connect first)\n"
+                      << "  catapultFire [MS]     --> Fire both catapults after a synchronized countdown (default 500ms)\n"
+                      << "  catapultAbort         --> Cancel countdown / disarm both catapults immediately\n"
+                      << "  catapultDisarm        --> Disarm both catapults\n"
                       << "  stop                  --> Stop the Ground Station\n"
                       << "  exit                  --> Terminate the execution\n";
 }
@@ -114,6 +119,17 @@ void ConsoleInterface::handleCommand(const std::string& command) const {
     } else if (command == "stopRtk") {
         LOG_INFO("Stopping RTK base station...");
         m_gcs.stopRtkBase();
+    } else if (command == "catapultConnect") {
+        m_gcs.catapultConnect();
+    } else if (command == "catapultArm") {
+        m_gcs.catapultArm();
+    } else if (command.starts_with("catapultFire")) {
+        const std::string arg = command.size() > 12 ? command.substr(13) : "";
+        m_gcs.catapultFire(arg.empty() ? 500 : static_cast<uint32_t>(std::stoul(arg)));
+    } else if (command == "catapultAbort") {
+        m_gcs.catapultAbort();
+    } else if (command == "catapultDisarm") {
+        m_gcs.catapultDisarm();
     } else if (command == "stop") {
         LOG_INFO("Stopping main process...");
         m_gcs.stop();

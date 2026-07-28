@@ -14,6 +14,8 @@
 #include <optional>
 #include <map>
 
+#include "Definitions/catapultProtocol.h"
+
 enum class ControlMode {
     MPC,
     MATLAB,
@@ -45,6 +47,12 @@ struct pixhawkConfig {
     bool sitl = false;
 };
 
+struct catapultEndpointConfig {
+    uint8_t id;
+    std::string ip;
+    uint16_t port = CATAPULT_PORT;
+};
+
 struct gcsConfig {
     bool verbose = false;
     int numUavs = 1;
@@ -55,6 +63,7 @@ struct gcsConfig {
     std::optional<std::string> attitudeFile;
     std::optional<std::string> rcFile;
     ControlMode controlMode = ControlMode::MPC;
+    std::vector<catapultEndpointConfig> catapults;
 };
 
 #endif //GCSCONFIG_H

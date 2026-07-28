@@ -88,6 +88,8 @@ set(GRS_COMMUNICATION
         source/Communication/mavlinkMessageBuilder.h
         source/Communication/rtkBaseStation.cpp
         source/Communication/rtkBaseStation.h
+        source/Communication/catapultLauncher.cpp
+        source/Communication/catapultLauncher.h
 )
 
 set(GRS_CONFIGURATION
@@ -113,6 +115,7 @@ set(GRS_DEFINITION
         source/Definitions/yamlCustomStructure.h
         source/Definitions/controllerStructures.h
         source/Definitions/gpsDefinitions.h
+        source/Definitions/catapultProtocol.h
 )
 
 set(GRS_GEO

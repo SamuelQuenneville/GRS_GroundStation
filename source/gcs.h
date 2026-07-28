@@ -11,6 +11,7 @@
 
 #include "Communication/communicationManager.h"
 #include "Communication/rtkBaseStation.h"
+#include "Communication/catapultLauncher.h"
 #include "Control/controlInterface.h"
 #include "Control/controlDispatcher.h"
 #include "Log/logger.h"
@@ -42,6 +43,12 @@ public:
     void startRtkBase(const std::string& device, unsigned baudrate);
     void stopRtkBase() const;
 
+    void catapultConnect() const;
+    void catapultArm() const;
+    void catapultFire(uint32_t countdownMs = 500) const;
+    void catapultAbort() const;
+    void catapultDisarm() const;
+
 private:
     gcsConfig m_gcsConfig;
 
@@ -49,6 +56,7 @@ private:
     std::unique_ptr<ControlDispatcher>    m_controlDispatcher;
     std::unique_ptr<ControlInterface>     m_controlInterface;
     std::unique_ptr<RtkBaseStation>       m_rtkBaseStation;
+    std::unique_ptr<CatapultLauncher> m_catapultLauncher;
 
     void m_parseCommandFile(const std::string& file) const;
     static bool m_parseUavCommandsLine(const std::string& line, uavCommandsFlags& commands);

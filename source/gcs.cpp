@@ -31,6 +31,11 @@ GroundControlStation::GroundControlStation()
     m_controlInterface->setCommandCallback([this](const std::map<uint8_t, uavCommandsFlags>& cmds) {
         m_controlDispatcher->pushCommand(cmds);
     });
+
+    m_catapultLauncher = std::make_unique<CatapultLauncher>();
+    m_catapultLauncher->setStatusCallback([](const uint8_t id, CatapultState state, const uint32_t bits) {
+        LOG_INFO("Catapult " + std::to_string(id) + " -> state=" + std::to_string(static_cast<int>(state)) + " bits=0x" + std::to_string(bits));
+    });
 }
 
 GroundControlStation::~GroundControlStation() {
@@ -57,6 +62,13 @@ void GroundControlStation::initialize(const gcsConfig& config)
         m_parseCommandFile(config.attitudeFile.value());
     }
 
+    if (!config.catapults.empty()) {
+        std::vector<CatapultEndpoint> endpoints;
+        for (const auto&[id, ip, port] : config.catapults) {
+            endpoints.push_back({id, ip, port});
+        }
+        m_catapultLauncher->configure(endpoints);
+    }
 }
 
 void GroundControlStation::start() {
@@ -165,6 +177,28 @@ void GroundControlStation::stopRtkBase() const {
     if (m_rtkBaseStation) {
         m_rtkBaseStation->stop();
     }
+}
+
+void GroundControlStation::catapultConnect() const {
+    if (!m_catapultLauncher->connectAll()) {
+        LOG_ERROR("Not all catapults connected — check IPs/Wi-Fi before arming.");
+    }
+}
+
+void GroundControlStation::catapultArm() const {
+    m_catapultLauncher->armAll();
+}
+
+void GroundControlStation::catapultFire(const uint32_t countdownMs) const {
+    m_catapultLauncher->fireAll(countdownMs);
+}
+
+void GroundControlStation::catapultAbort() const {
+    m_catapultLauncher->abortAll();
+}
+
+void GroundControlStation::catapultDisarm() const {
+    m_catapultLauncher->disarmAll();
 }
 
 void GroundControlStation::m_parseCommandFile(const std::string& file) const {
