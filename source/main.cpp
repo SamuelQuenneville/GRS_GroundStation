@@ -73,6 +73,13 @@ int main(const int argc, const char * argv[]) {
         }
     }
 
+    // ---- Launcher ----
+    const catapultEndpointConfig launcher1{1,"192.168.4.101"};
+    const catapultEndpointConfig launcher2{2,"192.168.4.102"};
+    const std::vector<catapultEndpointConfig> launcher{launcher1, launcher2};
+
+    config.catapults = launcher;
+
     // ---- Initialize app ----
     GroundControlStation gcs;
     gcs.initialize(config);
