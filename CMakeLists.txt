@@ -109,6 +109,15 @@ set(GRS_CONTROL
         source/Control/navigationFrameManager.h
 )
 
+set(GRS_DASHBOARD
+        source/Dashboard/httplib.h
+        source/Dashboard/dashboardServer.cpp
+        source/Dashboard/dashboardServer.h
+        source/Dashboard/dashboardTypes.h
+        source/Dashboard/jsonWriter.h
+
+)
+
 set(GRS_DEFINITION
         source/Definitions/communicationStructures.h
         source/Definitions/logDefinitions.h
@@ -155,14 +164,19 @@ set(GRS_USERINPUTS
         source/Definitions/gpsDefinitions.h
 )
 
-# Copy the Meshes used for the demo into the build directory
+# Copy input files
 file(COPY "inputFilesExamples/" DESTINATION "${CMAKE_CURRENT_BINARY_DIR}/inputFilesExamples/")
+
+# Copy dashboard web files
+file(COPY "dashboard/" DESTINATION "${CMAKE_CURRENT_BINARY_DIR}/dashboard/")
+
 
 add_executable(GRS_GroundStation
         ${GRS_SOURCE}
         ${GRS_COMMUNICATION}
         ${GRS_CONFIGURATION}
         ${GRS_CONTROL}
+        ${GRS_DASHBOARD}
         ${GRS_DEFINITION}
         ${GRS_GEO}
         ${GRS_LOG}

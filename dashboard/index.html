@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GRS Ground Station</title>
+    <link rel="stylesheet" href="css/theme.css">
+</head>
+<body>
+
+<header class="topbar">
+    <div class="brand">
+        <span class="brand-mark">◆</span>
+        <span class="brand-name">GRS</span>
+        <span class="brand-sep">/</span>
+        <span class="brand-page">DASHBOARD</span>
+    </div>
+
+    <div class="topbar-status">
+        <div class="pill pill-ok">
+            <span class="dot"></span>
+            <span id="uav-count">0 UAVs Connected</span>
+        </div>
+    </div>
+
+    <div class="clock" id="clock">--:--:--</div>
+</header>
+
+<main class="dashboard-layout">
+
+    <section>
+        <div id="uav-grid" class="uav-grid">
+            <!-- UAV panels injected here by js/app.js -->
+        </div>
+    </section>
+
+    <section>
+        <div id="payload-panel" class="payload-panel">
+            <!-- Payload panel injected here by js/app.js -->
+        </div>
+    </section>
+
+</main>
+
+<template id="uav-panel-template">
+    <section class="uav-panel">
+        <div class="uav-header">
+            <span class="status-dot"></span>
+            <h2 class="uav-name">UAV-XX</h2>
+            <span class="badge badge-conn">--</span>
+            <span class="badge badge-arm">--</span>
+        </div>
+
+        <div class="stat-grid">
+            <div class="stat-card" data-field="airspeed">
+                <div class="stat-label">TAS <span class="stat-unit">m/s</span></div>
+                <div class="stat-value">--</div>
+            </div>
+            <div class="stat-card" data-field="groundspeed">
+                <div class="stat-label">GS <span class="stat-unit">m/s</span></div>
+                <div class="stat-value">--</div>
+            </div>
+            <div class="stat-card" data-field="altitude">
+                <div class="stat-label">Alt <span class="stat-unit">m</span></div>
+                <div class="stat-value">--</div>
+            </div>
+            <div class="stat-card" data-field="roll">
+                <div class="stat-label">Roll <span class="stat-unit">°</span></div>
+                <div class="stat-value">--</div>
+            </div>
+            <div class="stat-card" data-field="pitch">
+                <div class="stat-label">Pitch <span class="stat-unit">°</span></div>
+                <div class="stat-value">--</div>
+            </div>
+            <div class="stat-card" data-field="rpm">
+                <div class="stat-label">RPM</div>
+                <div class="stat-value">--</div>
+            </div>
+            <div class="stat-card" data-field="cl">
+                <div class="stat-label">CL</div>
+                <div class="stat-value">--</div>
+            </div>
+            <div class="stat-card" data-field="battery">
+                <div class="stat-label">Battery <span class="stat-unit">%</span></div>
+                <div class="stat-value">--</div>
+            </div>
+            <div class="stat-card" data-field="gpsHdop">
+                <div class="stat-label">GPS Hdop</div>
+                <div class="stat-value">--</div>
+            </div>
+        </div>
+
+        <div class="panel-columns">
+            <div class="info-card">
+                <h3>Status</h3>
+                <ul class="info-list">
+                    <li><span>Mode</span><span data-field="mode">--</span></li>
+                    <li><span>GPS Fix</span><span data-field="gpsFix">--</span></li>
+                    <li><span>Satellites</span><span data-field="satellites">--</span></li>
+                    <li><span>RC Signal</span><span data-field="rcSignal">--</span></li>
+                    <li><span>Link Quality</span><span data-field="linkQuality">--</span></li>
+                    <li><span>Last Update</span><span data-field="lastUpdate">--</span></li>
+                </ul>
+            </div>
+
+            <div class="info-card">
+                <h3>System Health</h3>
+                <ul class="info-list">
+                    <li><span>IMU</span><span class="health-ok" data-field="health-imu">OK</span></li>
+                    <li><span>Barometer</span><span class="health-ok" data-field="health-baro">OK</span></li>
+                    <li><span>Compass</span><span class="health-ok" data-field="health-compass">OK</span></li>
+                    <li><span>GPS</span><span class="health-ok" data-field="health-gps">OK</span></li>
+                    <li><span>Battery</span><span class="health-ok" data-field="health-battery">OK</span></li>
+                    <li><span>RC</span><span class="health-ok" data-field="health-rc">OK</span></li>
+                </ul>
+            </div>
+        </div>
+
+        <div class="launcher-card">
+            <h3>Launcher</h3>
+            <ul class="info-list">
+                <li><span>Connected</span><span class="status-no" data-field="launcher-connected">NO</span></li>
+                <li><span>Locked</span><span class="status-no" data-field="launcher-locked">NO</span></li>
+                <li><span>Armed</span><span class="status-no" data-field="launcher-armed">NO</span></li>
+                <li><span>Launched</span><span class="status-no" data-field="launcher-launched">NO</span></li>
+            </ul>
+        </div>
+    </section>
+</template>
+
+<template id="payload-panel-template">
+    <section class="uav-panel">
+        <div class="uav-header">
+            <span class="status-dot"></span>
+            <h2 class="uav-name">PAYLOAD</h2>
+            <span class="badge badge-conn">--</span>
+            <span class="badge badge-arm">--</span>
+        </div>
+
+        <div class="stat-grid-payload">
+            <div class="stat-card" data-field="groundspeed">
+                <div class="stat-label">GS <span class="stat-unit">m/s</span></div>
+                <div class="stat-value">--</div>
+            </div>
+            <div class="stat-card" data-field="altitude">
+                <div class="stat-label">Alt <span class="stat-unit">m</span></div>
+                <div class="stat-value">--</div>
+            </div>
+            <div class="stat-card" data-field="battery">
+                <div class="stat-label">Battery <span class="stat-unit">%</span></div>
+                <div class="stat-value">--</div>
+            </div>
+            <div class="stat-card" data-field="gpsHdop">
+                <div class="stat-label">GPS Hdop</div>
+                <div class="stat-value">--</div>
+            </div>
+            <div class="stat-card" data-field="empty">
+                <div class="stat-label">--</div>
+                <div class="stat-value">--</div>
+            </div>
+            <div class="stat-card" data-field="empty">
+                <div class="stat-label">--</div>
+                <div class="stat-value">--</div>
+            </div>
+        </div>
+
+        <div class="panel-columns">
+            <div class="info-card">
+                <h3>Status</h3>
+                <ul class="info-list">
+                    <li><span>Mode</span><span data-field="mode">--</span></li>
+                    <li><span>GPS Fix</span><span data-field="gpsFix">--</span></li>
+                    <li><span>Satellites</span><span data-field="satellites">--</span></li>
+                    <li><span>Link Quality</span><span data-field="linkQuality">--</span></li>
+                    <li><span>Last Update</span><span data-field="lastUpdate">--</span></li>
+                </ul>
+            </div>
+
+            <div class="info-card">
+                <h3>System Health</h3>
+                <ul class="info-list health-list">
+                    <li><span>IMU</span><span class="health-ok" data-field="health-imu">OK</span></li>
+                    <li><span>Barometer</span><span class="health-ok" data-field="health-baro">OK</span></li>
+                    <li><span>Compass</span><span class="health-ok" data-field="health-compass">OK</span></li>
+                    <li><span>GPS</span><span class="health-ok" data-field="health-gps">OK</span></li>
+                    <li><span>Battery</span><span class="health-ok" data-field="health-battery">OK</span></li>
+                </ul>
+            </div>
+        </div>
+    </section>
+</template>
+
+<script src="js/app.js"></script>
+</body>
+</html>

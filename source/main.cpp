@@ -9,6 +9,7 @@
 #include <condition_variable>
 
 #include "Console/consoleInterface.h"
+#include "Dashboard/dashboardServer.h"
 #include "gcsConfig.h"
 
 // Global synchronization for clean shutdown
@@ -72,6 +73,11 @@ int main(const int argc, const char * argv[]) {
             return 1;
         }
     }
+
+    // Dashboard
+    DashboardServer dashboard;
+    dashboard.start();
+    std::system("chromium --app=http://localhost:8080 >/dev/null 2>&1 &");
 
     // ---- Launcher ----
     const catapultEndpointConfig launcher1{1,"192.168.4.101"};
