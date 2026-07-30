@@ -10,6 +10,7 @@
 
 #include "Console/consoleInterface.h"
 #include "Dashboard/dashboardServer.h"
+#include "Dashboard/browserLauncher.h"
 #include "gcsConfig.h"
 
 // Global synchronization for clean shutdown
@@ -75,9 +76,14 @@ int main(const int argc, const char * argv[]) {
     }
 
     // Dashboard
-    DashboardServer dashboard;
+    DashboardServer dashboard(8080, "./dashboard");
     dashboard.start();
-    std::system("chromium --app=http://localhost:8080 >/dev/null 2>&1 &");
+
+    auto result = BrowserLauncher::launch("http://localhost:8080");
+
+    if (!result.success) {
+        std::cerr << "Failed to launch browser: " << result.error.message() << std::endl;
+    }
 
     // ---- Launcher ----
     const catapultEndpointConfig launcher1{1,"192.168.4.101"};

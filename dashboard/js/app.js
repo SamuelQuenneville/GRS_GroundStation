@@ -219,7 +219,11 @@ function connect() {
     socket.addEventListener("message", (event) => {
         try {
             const data = JSON.parse(event.data);
-            applyUpdate(data);
+            if (data.type === "payload") {
+                updatePayload(data);
+            } else {
+                applyUpdate(data);
+            }
         } catch (err) {
             console.error("Bad message from GCS backend:", err);
         }
