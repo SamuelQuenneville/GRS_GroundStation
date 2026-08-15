@@ -49,8 +49,8 @@ struct pixhawkConfig {
 
 struct catapultEndpointConfig {
     uint8_t id;
-    std::string ip;
     uint16_t port = CATAPULT_PORT;
+    std::string expectedIp;
 };
 
 struct gcsConfig {

@@ -86,8 +86,8 @@ int main(const int argc, const char * argv[]) {
     }
 
     // ---- Launcher ----
-    const catapultEndpointConfig launcher1{1,"192.168.4.101"};
-    const catapultEndpointConfig launcher2{2,"192.168.4.102"};
+    const catapultEndpointConfig launcher1{1, CATAPULT_PORT,     "192.168.50.20"};
+    const catapultEndpointConfig launcher2{2, CATAPULT_PORT + 1, "192.168.50.21"};
     const std::vector<catapultEndpointConfig> launcher{launcher1, launcher2};
 
     config.catapults = launcher;

@@ -38,82 +38,43 @@ void CatapultLauncher::configure(const std::vector<CatapultEndpoint>& endpoints)
     disconnectAll();
     m_links.clear();
 
-    for (const auto&[id, ip, port] : endpoints) {
+    for (const auto&[id, port, expectedIp] : endpoints) {
         auto link = std::make_unique<Link>();
         link->id = id;
-        link->ip = ip;
         link->port = port;
+        link->expectedIp = expectedIp;
         m_links.push_back(std::move(link));
     }
 }
 
-bool CatapultLauncher::m_connectLink(Link& link, const int timeoutMs) {
+bool CatapultLauncher::m_bindAndListen(Link& link) {
     const int fd = socket(AF_INET, SOCK_STREAM, 0);
     if (fd < 0) {
         LOG_ERROR("Catapult " + std::to_string(link.id) + ": socket() failed");
         return false;
     }
 
-    // Non-blocking connect with a timeout, so a dead/unreachable catapult
-    // doesn't stall connectAll() for the OS default TCP timeout (~2 min).
-    const int flags = fcntl(fd, F_GETFL, 0);
-    fcntl(fd, F_SETFL, flags | O_NONBLOCK);
+    constexpr int reuse = 1;
+    setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &reuse, sizeof(reuse));
 
     sockaddr_in addr{};
     addr.sin_family = AF_INET;
+    addr.sin_addr.s_addr = INADDR_ANY;
     addr.sin_port = htons(link.port);
-    if (inet_pton(AF_INET, link.ip.c_str(), &addr.sin_addr) != 1) {
-        LOG_ERROR("Catapult " + std::to_string(link.id) + ": invalid IP " + link.ip);
+
+    if (bind(fd, reinterpret_cast<sockaddr*>(&addr), sizeof(addr)) < 0) {
+        LOG_ERROR("Catapult " + std::to_string(link.id) + ": bind() failed on port " + std::to_string(link.port));
         close(fd);
         return false;
     }
 
-    const int result = connect(fd, reinterpret_cast<sockaddr*>(&addr), sizeof(addr));
-    if (result < 0 && errno != EINPROGRESS) {
-        LOG_ERROR("Catapult " + std::to_string(link.id) + ": connect() failed");
+    if (listen(fd, 1) < 0) {
+        LOG_ERROR("Catapult " + std::to_string(link.id) + ": listen() failed on port " + std::to_string(link.port));
         close(fd);
         return false;
     }
 
-    if (result != 0) {
-        fd_set writeSet;
-        FD_ZERO(&writeSet);
-        FD_SET(fd, &writeSet);
-        timeval tv{};
-        tv.tv_sec = timeoutMs / 1000;
-        tv.tv_usec = (timeoutMs % 1000) * 1000;
-
-        const int selectResult = select(fd + 1, nullptr, &writeSet, nullptr, &tv);
-        if (selectResult <= 0) {
-            LOG_ERROR("Catapult " + std::to_string(link.id) + ": connect() timed out");
-            close(fd);
-            return false;
-        }
-
-        int soError = 0;
-        socklen_t len = sizeof(soError);
-        getsockopt(fd, SOL_SOCKET, SO_ERROR, &soError, &len);
-        if (soError != 0) {
-            LOG_ERROR("Catapult " + std::to_string(link.id) + ": connect() reported error " + std::to_string(soError));
-            close(fd);
-            return false;
-        }
-    }
-
-    // Back to blocking mode for the rx thread; disable Nagle so FIRE_AT goes
-    // out immediately instead of waiting to coalesce with other traffic --
-    // that coalescing delay is exactly the kind of jitter we're trying to avoid.
-    fcntl(fd, F_SETFL, flags);
-    constexpr int one = 1;
-    setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, &one, sizeof(one));
-
-    // Recv timeout so the rx loop can periodically check `running` and exit cleanly.
-    timeval rcvTimeout{};
-    rcvTimeout.tv_sec = 0;
-    rcvTimeout.tv_usec = 200000; // 200 ms
-    setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &rcvTimeout, sizeof(rcvTimeout));
-
-    link.fd = fd;
+    link.listenFd = fd;
     return true;
 }
 
@@ -124,21 +85,35 @@ bool CatapultLauncher::connectAll(const int timeoutMs) {
         Link& link = *linkPtr;
         m_setState(link, CatapultState::Connecting);
 
-        if (!m_connectLink(link, timeoutMs)) {
+        if (!m_bindAndListen(link)) {
             m_setState(link, CatapultState::Fault);
             allOk = false;
             continue;
         }
 
-        {
-            std::lock_guard<std::mutex> lock(link.heartbeatMutex);
-            link.lastHeartbeat = std::chrono::steady_clock::now();
+        link.running = true;
+        link.linkThread = std::thread(&CatapultLauncher::m_linkLoop, this, std::ref(link));
+        LOG_INFO("Catapult " + std::to_string(link.id) + ": listening on port " + std::to_string(link.port));
+    }
+
+    // Give each link up to timeoutMs (shared budget, not per-link) to accept
+    // its first connection so connectAll() reports a meaningful result.
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(timeoutMs);
+    for (auto& linkPtr : m_links) {
+        Link& link = *linkPtr;
+        if (link.listenFd < 0) continue; // already marked Fault above
+
+        while (link.fd < 0 && std::chrono::steady_clock::now() < deadline) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(50));
         }
 
-        link.running = true;
-        link.rxThread = std::thread(&CatapultLauncher::m_rxLoop, this, std::ref(link));
-        m_setState(link, CatapultState::Connected);
-        LOG_INFO("Catapult " + std::to_string(link.id) + ": connected to " + link.ip + ":" + std::to_string(link.port));
+        if (link.fd < 0) {
+            LOG_ERROR("Catapult " + std::to_string(link.id) + ": no connection within timeout (port "
+                      + std::to_string(link.port) + ") -- will keep listening in the background");
+            allOk = false;
+        } else {
+            LOG_INFO("Catapult " + std::to_string(link.id) + ": connected from " + link.peerIp);
+        }
     }
 
     if (!m_watchdogRunning) {
@@ -158,8 +133,12 @@ void CatapultLauncher::disconnectAll() {
             close(link.fd);
             link.fd = -1;
         }
-        if (link.rxThread.joinable()) {
-            link.rxThread.join();
+        if (link.listenFd >= 0) {
+            close(link.listenFd);
+            link.listenFd = -1;
+        }
+        if (link.linkThread.joinable()) {
+            link.linkThread.join();
         }
         m_setState(link, CatapultState::Disconnected);
     }
@@ -184,24 +163,77 @@ bool CatapultLauncher::m_waitForAck(Link& link, const uint16_t seq, const Catapu
     return got;
 }
 
-void CatapultLauncher::m_rxLoop(Link& link) const {
+// Runs for the lifetime of the link: waits for a connection, services it
+// until it drops, then goes back to waiting -- so a launcher that reboots
+// or briefly loses Wi-Fi reconnects without needing connectAll() again.
+void CatapultLauncher::m_linkLoop(Link& link) {
     CatapultPacket pkt{};
     size_t haveBytes = 0;
     auto* buf = reinterpret_cast<uint8_t*>(&pkt);
 
     while (link.running) {
+        if (link.fd < 0) {
+            fd_set readSet;
+            FD_ZERO(&readSet);
+            FD_SET(link.listenFd, &readSet);
+            timeval tv{};
+            tv.tv_sec = 0;
+            tv.tv_usec = 200000; // 200 ms poll so we can recheck `running`
+
+            const int selectResult = select(link.listenFd + 1, &readSet, nullptr, nullptr, &tv);
+            if (selectResult <= 0) continue;
+
+            sockaddr_in peerAddr{};
+            socklen_t peerLen = sizeof(peerAddr);
+            const int clientFd = accept(link.listenFd, reinterpret_cast<sockaddr*>(&peerAddr), &peerLen);
+            if (clientFd < 0) continue;
+
+            char ipStr[INET_ADDRSTRLEN] = {0};
+            inet_ntop(AF_INET, &peerAddr.sin_addr, ipStr, sizeof(ipStr));
+
+            if (!link.expectedIp.empty() && link.expectedIp != ipStr) {
+                LOG_WARNING("Catapult " + std::to_string(link.id) + ": rejected connection from "
+                            + ipStr + " (expected " + link.expectedIp + ")");
+                close(clientFd);
+                continue;
+            }
+
+            constexpr int one = 1;
+            setsockopt(clientFd, IPPROTO_TCP, TCP_NODELAY, &one, sizeof(one));
+
+            timeval rcvTimeout{};
+            rcvTimeout.tv_sec = 0;
+            rcvTimeout.tv_usec = 200000;
+            setsockopt(clientFd, SOL_SOCKET, SO_RCVTIMEO, &rcvTimeout, sizeof(rcvTimeout));
+
+            haveBytes = 0;
+            link.peerIp = ipStr;
+            {
+                std::lock_guard<std::mutex> lock(link.heartbeatMutex);
+                link.lastHeartbeat = std::chrono::steady_clock::now();
+            }
+            link.fd = clientFd;
+            m_setState(link, CatapultState::Connected);
+            LOG_INFO("Catapult " + std::to_string(link.id) + ": connected from " + ipStr);
+            continue;
+        }
+
         const ssize_t n = recv(link.fd, buf + haveBytes, sizeof(pkt) - haveBytes, 0);
 
         if (n < 0) {
             if (errno == EAGAIN || errno == EWOULDBLOCK) continue; // recv timeout, just re-check `running`
             LOG_ERROR("Catapult " + std::to_string(link.id) + ": recv() error");
+            close(link.fd);
+            link.fd = -1;
             m_setState(link, CatapultState::Fault);
-            break;
+            continue;
         }
         if (n == 0) {
             LOG_WARNING("Catapult " + std::to_string(link.id) + ": connection closed by peer");
+            close(link.fd);
+            link.fd = -1;
             m_setState(link, CatapultState::Fault);
-            break;
+            continue;
         }
 
         haveBytes += static_cast<size_t>(n);
@@ -252,6 +284,11 @@ void CatapultLauncher::m_rxLoop(Link& link) const {
                 break;
         }
     }
+
+    if (link.fd >= 0) {
+        close(link.fd);
+        link.fd = -1;
+    }
 }
 
 void CatapultLauncher::m_setState(Link& link, const CatapultState state) const {
@@ -276,7 +313,7 @@ bool CatapultLauncher::armAll(const int timeoutMs) {
         seqs.push_back(seq);
         m_setState(link, CatapultState::Arming);
         if (!m_sendPacket(link, catapultMakePacket(MSG_ARM, seq, 0))) {
-            LOG_ERROR("Catapult " + std::to_string(link.id) + ": failed to send ARM");
+            LOG_ERROR("Catapult " + std::to_string(link.id) + ": failed to send ARM (not connected?)");
         }
     }
 
@@ -402,7 +439,7 @@ void CatapultLauncher::m_watchdogLoop() {
         for (auto& linkPtr : m_links) {
             Link& link = *linkPtr;
             const CatapultState state = link.state.load();
-            if (state == CatapultState::Disconnected || state == CatapultState::Fault) continue;
+            if (state == CatapultState::Disconnected || state == CatapultState::Fault || link.fd < 0) continue;
 
             // Idle keepalive: lets the board's own GCS-liveness watchdog reset even
             // when we're not actively arming/firing, so it never self-disarms just

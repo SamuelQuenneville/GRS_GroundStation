@@ -28,6 +28,7 @@
 #include <fcntl.h>
 #include <netinet/in.h>
 #include <netinet/tcp.h>
+#include <sys/select.h>
 #include <sys/socket.h>
 #include <unistd.h>
 
@@ -47,16 +48,17 @@ enum class CatapultState {
 
 struct CatapultEndpoint {
     uint8_t id;
-    std::string ip;
     uint16_t port = CATAPULT_PORT;
+    std::string expectedIp;
 };
 
-// Controls N launch catapults (nominally 2) each carrying an ESP32 reachable
-// over Wi-Fi/TCP. Firing simultaneity is achieved by sending every catapult a
-// FIRE_AT(countdownMs) command back-to-back and letting each board fire off
-// its own local hardware timer after the countdown elapses -- this only
-// depends on one-way network jitter between the GCS and each board, not on
-// round-trip time or on the two boards sharing a clock.
+// Controls N launch catapults (nominally 2), each an ESP32 that dials IN to
+// this GCS over Wi-Fi/TCP (one listen port per catapult see
+// CatapultEndpoint). Firing simultaneity is achieved by sending every
+// catapult a FIRE_AT(countdownMs) command back-to-back and letting each
+// board fire off its own local hardware timer after the countdown elapses
+// this only depends on one-way network jitter between the GCS and each
+// board, not on round-trip time or on the two boards sharing a clock.
 //
 // Safety model: catapults only fire after an explicit two-step ARM -> FIRE.
 // armAll() requires every catapult to ack "cocked + armed" before returning
@@ -75,6 +77,10 @@ public:
 
     void configure(const std::vector<CatapultEndpoint>& endpoints);
 
+    // Opens a listen socket per catapult and waits up to timeoutMs for each
+    // one's first connection. A launcher that connects later (e.g. it was
+    // still booting) will still be picked up in the background, this only
+    // affects what connectAll() itself reports as success/failure.
     bool connectAll(int timeoutMs = 3000);
     void disconnectAll();
 
@@ -103,15 +109,18 @@ public:
 private:
     struct Link {
         uint8_t id = 0;
-        std::string ip;
         uint16_t port = CATAPULT_PORT;
-        int fd = -1;
+        std::string expectedIp;
+
+        int listenFd = -1;
+        int fd = -1;              // -1 until a launcher has connected
+        std::string peerIp;       // set once a client connects
 
         std::atomic<CatapultState> state{CatapultState::Disconnected};
         std::atomic<uint32_t> lastStatusBits{0};
         std::atomic<uint16_t> seq{0};
 
-        std::thread rxThread;
+        std::thread linkThread;
         std::atomic<bool> running{false};
 
         std::mutex heartbeatMutex;
@@ -131,8 +140,8 @@ private:
     std::thread m_watchdogThread;
     std::atomic<bool> m_watchdogRunning{false};
 
-    static bool m_connectLink(Link& link, int timeoutMs);
-    void m_rxLoop(Link& link) const;
+    static bool m_bindAndListen(Link& link);
+    void m_linkLoop(Link& link); // accepts, then services one connection, repeats
     static bool m_sendPacket(const Link& link, const CatapultPacket& pkt);
 
     static bool m_waitForAck(Link& link, uint16_t seq, CatapultMsgType expectedType, int timeoutMs, CatapultPacket& out);
