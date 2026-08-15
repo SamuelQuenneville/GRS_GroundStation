@@ -18,6 +18,20 @@ GroundControlStation::GroundControlStation()
     // Link communication → dispatcher → controller
     m_communicationManager->setTelemetryCallback([this](const std::map<uint8_t, uavStates>& states) {
         m_controlDispatcher->updateTelemetry(states);
+
+        if (!m_dashboardServer) return;
+
+        for (const auto& [sysId, state] : states) {
+            UavTelemetrySnapshot snap;
+            snap.id          = "UAV-" + std::to_string(sysId);
+            snap.airspeed    = state.airspeedMeterSecond;
+            snap.groundspeed = std::hypot(state.northMeterSecond, state.eastMeterSecond);
+            snap.altitude    = state.altitudeAmslMeter;
+            snap.roll        = state.rollDegree;
+            snap.pitch       = state.pitchDegree;
+
+            m_dashboardServer->updateTelemetry(snap);
+        }
     });
 
     m_controlDispatcher->attachCommunicationManager([this](const std::map<uint8_t, uavCommandsFlags>& cmds) {
@@ -69,6 +83,10 @@ void GroundControlStation::initialize(const gcsConfig& config)
         }
         m_catapultLauncher->configure(endpoints);
     }
+}
+
+void GroundControlStation::setDashboard(DashboardServer* dashboard) {
+    m_dashboardServer = dashboard;
 }
 
 void GroundControlStation::start() {

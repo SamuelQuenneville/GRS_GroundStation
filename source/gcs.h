@@ -9,6 +9,7 @@
 #ifndef GCS_H
 #define GCS_H
 
+#include "Dashboard/dashboardServer.h"
 #include "Communication/communicationManager.h"
 #include "Communication/rtkBaseStation.h"
 #include "Communication/catapultLauncher.h"
@@ -24,6 +25,8 @@ public:
     ~GroundControlStation();
 
     void initialize(const gcsConfig& config);
+
+    void setDashboard(DashboardServer* dashboard);
 
     void start();
     void stop();
@@ -51,6 +54,8 @@ public:
 
 private:
     gcsConfig m_gcsConfig;
+
+    DashboardServer* m_dashboardServer = nullptr;
 
     std::unique_ptr<CommunicationManager> m_communicationManager;
     std::unique_ptr<ControlDispatcher>    m_controlDispatcher;

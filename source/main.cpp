@@ -75,7 +75,7 @@ int main(const int argc, const char * argv[]) {
         }
     }
 
-    // Dashboard
+    // ---- Dashboard ----
     DashboardServer dashboard(8080, "./dashboard");
     dashboard.start();
 
@@ -94,6 +94,7 @@ int main(const int argc, const char * argv[]) {
 
     // ---- Initialize app ----
     GroundControlStation gcs;
+    gcs.setDashboard(&dashboard);
     gcs.initialize(config);
 
     // ---- Launch console thread ----

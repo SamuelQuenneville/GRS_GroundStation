@@ -45,7 +45,7 @@
  * or edit `applyUpdate()` below to match whatever schema you send instead.
  */
 
-const WS_URL = "ws://localhost:8080";
+const WS_URL = "ws://localhost:8080/ws";
 
 const uavGrid = document.getElementById("uav-grid");
 const payloadContainer = document.getElementById("payload-panel");

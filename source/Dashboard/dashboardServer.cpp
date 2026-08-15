@@ -46,7 +46,7 @@ void DashboardServer::start() {
     // its own thread. Binds to loopback only: this dashboard has no
     // authentication, so it shouldn't be reachable from other machines.
     // Point this at "0.0.0.0" instead if you want LAN access.
-    m_serverThread = std::thread([this]() { m_httpServer->listen("127.0.0.1", m_port); });
+    m_serverThread = std::thread([this]() { m_httpServer->listen("localhost", m_port); });
 
     m_broadcastThread = std::thread(&DashboardServer::m_broadcastLoop, this);
 }
