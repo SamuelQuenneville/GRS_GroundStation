@@ -30,9 +30,10 @@ enum CatapultMsgType : uint8_t {
     MSG_ABORT       = 0x08, // GCS -> catapult, cancels a pending countdown, disarms
     MSG_ABORT_ACK   = 0x09, // catapult -> GCS
     MSG_FAULT       = 0x0A, // catapult -> GCS, unsolicited, param = status bitmask
-    MSG_PING        = 0x0B  // GCS -> catapult, idle keepalive (no ack expected). Any
+    MSG_PING        = 0x0B, // GCS -> catapult, idle keepalive (no ack expected). Any
                              // message from the GCS -- this one included -- resets the
                              // catapult's own "GCS went away" watchdog.
+    MSG_FIRE_AT_ACK = 0x0C
 };
 
 // Bits used in the `param` field for HEARTBEAT / *_ACK / FAULT messages.

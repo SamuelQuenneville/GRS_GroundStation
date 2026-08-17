@@ -108,8 +108,7 @@ bool CatapultLauncher::connectAll(const int timeoutMs) {
         }
 
         if (link.fd < 0) {
-            LOG_ERROR("Catapult " + std::to_string(link.id) + ": no connection within timeout (port "
-                      + std::to_string(link.port) + ") -- will keep listening in the background");
+            LOG_ERROR("Catapult " + std::to_string(link.id) + ": no connection within timeout (port " + std::to_string(link.port) + ") -- will keep listening in the background");
             allOk = false;
         } else {
             LOG_INFO("Catapult " + std::to_string(link.id) + ": connected from " + link.peerIp);
@@ -124,7 +123,7 @@ bool CatapultLauncher::connectAll(const int timeoutMs) {
     return allOk;
 }
 
-void CatapultLauncher::disconnectAll() {
+void CatapultLauncher::disconnectAll() const {
     for (auto& linkPtr : m_links) {
         Link& link = *linkPtr;
         link.running = false;
@@ -153,10 +152,9 @@ bool CatapultLauncher::m_sendPacket(const Link& link, const CatapultPacket& pkt)
 bool CatapultLauncher::m_waitForAck(Link& link, const uint16_t seq, const CatapultMsgType expectedType, const int timeoutMs, CatapultPacket& out) {
     std::unique_lock<std::mutex> lock(link.ackMutex);
     const bool got = link.ackCv.wait_for(lock, std::chrono::milliseconds(timeoutMs), [&] {
-        return link.lastAck.has_value()
-            && link.lastAck->seq == seq
-            && link.lastAck->type == static_cast<uint8_t>(expectedType);
+        return link.lastAck.has_value() && link.lastAck->seq == seq && link.lastAck->type == static_cast<uint8_t>(expectedType);
     });
+
     if (got) {
         out = *link.lastAck;
     }
@@ -164,9 +162,9 @@ bool CatapultLauncher::m_waitForAck(Link& link, const uint16_t seq, const Catapu
 }
 
 // Runs for the lifetime of the link: waits for a connection, services it
-// until it drops, then goes back to waiting -- so a launcher that reboots
+// until it drops, then goes back to waiting, so a launcher that reboots
 // or briefly loses Wi-Fi reconnects without needing connectAll() again.
-void CatapultLauncher::m_linkLoop(Link& link) {
+void CatapultLauncher::m_linkLoop(Link& link) const {
     CatapultPacket pkt{};
     size_t haveBytes = 0;
     auto* buf = reinterpret_cast<uint8_t*>(&pkt);
@@ -192,8 +190,7 @@ void CatapultLauncher::m_linkLoop(Link& link) {
             inet_ntop(AF_INET, &peerAddr.sin_addr, ipStr, sizeof(ipStr));
 
             if (!link.expectedIp.empty() && link.expectedIp != ipStr) {
-                LOG_WARNING("Catapult " + std::to_string(link.id) + ": rejected connection from "
-                            + ipStr + " (expected " + link.expectedIp + ")");
+                LOG_WARNING("Catapult " + std::to_string(link.id) + ": rejected connection from " + ipStr + " (expected " + link.expectedIp + ")");
                 close(clientFd);
                 continue;
             }
@@ -240,7 +237,7 @@ void CatapultLauncher::m_linkLoop(Link& link) {
         if (haveBytes < sizeof(pkt)) continue;
 
         if (!catapultValidatePacket(pkt)) {
-            // Lost framing sync -- shift one byte and keep looking for the magic byte.
+            // Lost framing sync, shift one byte and keep looking for the magic byte.
             std::memmove(buf, buf + 1, sizeof(pkt) - 1);
             haveBytes = sizeof(pkt) - 1;
             continue;
@@ -258,8 +255,7 @@ void CatapultLauncher::m_linkLoop(Link& link) {
 
             case MSG_FAULT:
                 link.lastStatusBits = pkt.param;
-                LOG_ERROR("Catapult " + std::to_string(link.id) + ": reported fault, status=0x"
-                          + std::to_string(pkt.param));
+                LOG_ERROR("Catapult " + std::to_string(link.id) + ": reported fault, status=0x" + std::to_string(pkt.param));
                 m_setState(link, CatapultState::Fault);
                 break;
 
@@ -279,8 +275,7 @@ void CatapultLauncher::m_linkLoop(Link& link) {
             }
 
             default:
-                LOG_WARNING("Catapult " + std::to_string(link.id) + ": unexpected message type "
-                            + std::to_string(pkt.type));
+                LOG_WARNING("Catapult " + std::to_string(link.id) + ": unexpected message type " + std::to_string(pkt.type));
                 break;
         }
     }
@@ -299,7 +294,7 @@ void CatapultLauncher::m_setState(Link& link, const CatapultState state) const {
     }
 }
 
-bool CatapultLauncher::armAll(const int timeoutMs) {
+bool CatapultLauncher::armAll(const int timeoutMs) const {
     if (m_links.empty()) return false;
 
     std::vector<uint16_t> seqs;
@@ -342,7 +337,7 @@ bool CatapultLauncher::armAll(const int timeoutMs) {
     return true;
 }
 
-void CatapultLauncher::disarmAll() {
+void CatapultLauncher::disarmAll() const {
     for (auto& linkPtr : m_links) {
         Link& link = *linkPtr;
         if (link.fd < 0) continue;
@@ -355,10 +350,16 @@ void CatapultLauncher::disarmAll() {
     }
 }
 
-bool CatapultLauncher::fireAll(const uint32_t countdownMs, const int ackTimeoutMs) {
+bool CatapultLauncher::fireAll(const uint32_t countdownMs, const int acceptTimeoutMs, const int releaseGraceMs) const {
     if (!allArmed()) {
         LOG_ERROR("fireAll() refused: not every catapult is armed.");
         return false;
+    }
+
+    if (static_cast<uint32_t>(acceptTimeoutMs) >= countdownMs) {
+        LOG_WARNING("fireAll(): acceptTimeoutMs (" + std::to_string(acceptTimeoutMs)
+                    + "ms) is not comfortably shorter than countdownMs (" + std::to_string(countdownMs)
+                    + "ms) -- there may be little to no time left to actually abort before release.");
     }
 
     std::vector<uint16_t> seqs;
@@ -369,6 +370,7 @@ bool CatapultLauncher::fireAll(const uint32_t countdownMs, const int ackTimeoutM
     // releases on its own, so simultaneity only depends on how tight this
     // loop is (microseconds) plus one-way network jitter (asymmetric, but
     // typically << countdownMs on a local Wi-Fi AP).
+    const auto sentAt = std::chrono::steady_clock::now();
     for (auto& linkPtr : m_links) {
         Link& link = *linkPtr;
         const uint16_t seq = ++link.seq;
@@ -377,16 +379,48 @@ bool CatapultLauncher::fireAll(const uint32_t countdownMs, const int ackTimeoutM
         m_setState(link, CatapultState::Countdown);
     }
 
-    bool allFired = true;
+    // Phase 1: the actual abort window: every catapult re-checks armed +
+    // interlocks right when FIRE_AT arrives and acks immediately, well
+    // before its local countdown elapses. If anyone doesn't confirm within
+    // acceptTimeoutMs, there's still time left in the countdown to cancel
+    // everyone before anything releases.
+    bool allAccepted = true;
     for (size_t i = 0; i < m_links.size(); ++i) {
         Link& link = *m_links[i];
         CatapultPacket ack{};
-        const bool ok = m_waitForAck(link, seqs[i], MSG_FIRE_ACK, ackTimeoutMs, ack);
+        const bool ok = m_waitForAck(link, seqs[i], MSG_FIRE_AT_ACK, acceptTimeoutMs, ack);
+
+        if (!ok || !(ack.param & STATUS_COUNTDOWN)) {
+            LOG_ERROR("Catapult " + std::to_string(link.id) + ": did not confirm FIRE_AT in time.");
+            allAccepted = false;
+            continue;
+        }
+        LOG_INFO("Catapult " + std::to_string(link.id) + ": confirmed FIRE_AT, counting down.");
+    }
+
+    if (!allAccepted) {
+        LOG_ERROR("Not every catapult confirmed the fire command -- aborting all before release.");
+        abortAll();
+        return false;
+    }
+
+    LOG_INFO("All catapults confirmed FIRE_AT -- releasing in " + std::to_string(countdownMs) + " ms.");
+
+    // Phase 2: best-effort only, does NOT gate the return value. By this
+    // point every catapult has already committed to firing; an abort can no
+    // longer reliably stop them together, so there's nothing left to act on
+    // here except logging what actually happened.
+    const auto elapsedMs = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - sentAt).count();
+    const int remainingMs = std::max<int>(0, static_cast<int>(countdownMs) - static_cast<int>(elapsedMs));
+    const int releaseWaitMs = remainingMs + releaseGraceMs;
+
+    for (size_t i = 0; i < m_links.size(); ++i) {
+        Link& link = *m_links[i];
+        CatapultPacket ack{};
+        const bool ok = m_waitForAck(link, seqs[i], MSG_FIRE_ACK, releaseWaitMs, ack);
 
         if (!ok) {
-            LOG_ERROR("Catapult " + std::to_string(link.id) + ": no FIRE_ACK received -- did it actually release?");
-            m_setState(link, CatapultState::Fault);
-            allFired = false;
+            LOG_WARNING("Catapult " + std::to_string(link.id) + ": accepted FIRE_AT but no release confirmation received (diagnostic-only, it likely still fired).");
             continue;
         }
         // ack.param carries the board's own millis() at release time. Boards
@@ -397,10 +431,10 @@ bool CatapultLauncher::fireAll(const uint32_t countdownMs, const int ackTimeoutM
         m_setState(link, CatapultState::Launched);
     }
 
-    return allFired;
+    return true;
 }
 
-void CatapultLauncher::abortAll() {
+void CatapultLauncher::abortAll() const {
     for (auto& linkPtr : m_links) {
         Link& link = *linkPtr;
         if (link.fd < 0) continue;
@@ -430,7 +464,7 @@ void CatapultLauncher::setStatusCallback(StatusCallback cb) {
     m_statusCallback = std::move(cb);
 }
 
-void CatapultLauncher::m_watchdogLoop() {
+void CatapultLauncher::m_watchdogLoop() const {
     while (m_watchdogRunning) {
         std::this_thread::sleep_for(std::chrono::milliseconds(250));
 
@@ -443,8 +477,11 @@ void CatapultLauncher::m_watchdogLoop() {
 
             // Idle keepalive: lets the board's own GCS-liveness watchdog reset even
             // when we're not actively arming/firing, so it never self-disarms just
-            // because nothing happened to be sent for a while.
-            if (now - link.lastPingSent > std::chrono::milliseconds(PING_INTERVAL_MS)) {
+            // because nothing happened to be sent for a while. Skipped during an
+            // active Countdown: the board is about to reply with FIRE_ACK anyway,
+            // and a PING landing right before release would be redundant traffic
+            // sharing the wire with the ACK the whole handshake is waiting on.
+            if (state != CatapultState::Countdown && now - link.lastPingSent > std::chrono::milliseconds(PING_INTERVAL_MS)) {
                 m_sendPacket(link, catapultMakePacket(MSG_PING, 0, 0));
                 link.lastPingSent = now;
             }

@@ -82,22 +82,36 @@ public:
     // still booting) will still be picked up in the background, this only
     // affects what connectAll() itself reports as success/failure.
     bool connectAll(int timeoutMs = 3000);
-    void disconnectAll();
+    void disconnectAll() const;
 
     // Blocks until every catapult acks ARM with STATUS_ARMED set, or timeoutMs
     // elapses. On partial failure, automatically disarms whichever catapults
     // did arm and returns false.
-    bool armAll(int timeoutMs = 3000);
-    void disarmAll();
+    bool armAll(int timeoutMs = 3000) const;
+    void disarmAll() const;
 
-    // Requires armAll() success. Sends FIRE_AT to every catapult as fast as
-    // possible, one after another with no work in between. Returns true once
-    // every catapult acks that it actually released (STATUS_COUNTDOWN cleared
-    // via MSG_FIRE_ACK), or false if any didn't within timeoutMs.
-    bool fireAll(uint32_t countdownMs = 500, int ackTimeoutMs = 3000);
+    // Requires every targeted catapult to already be armed (see armAll()).
+    // Sends FIRE_AT to every catapult as fast as possible, one after
+    // another with no work in between, then waits up to acceptTimeoutMs for
+    // every one to send MSG_FIRE_AT_ACK (an immediate "command received and
+    // still safe to fire" confirmation, sent well before the countdown
+    // elapses). If any catapult doesn't confirm in time, ABORT is sent to
+    // everyone right away, since acceptTimeoutMs should be well under
+    // countdownMs, this is a real abort window, not a post-hoc report.
+    //
+    // acceptTimeoutMs should be comfortably shorter than countdownMs, or
+    // there's little to no time left to actually abort before release.
+    //
+    // Once every catapult has confirmed acceptance, this also does a
+    // best-effort (non-gating) wait for the actual MSG_FIRE_ACK release
+    // confirmation from each -- purely for logging/diagnostics, since by
+    // that point every catapult has already committed to firing and an
+    // abort can no longer reliably stop them together. releaseGraceMs is
+    // extra margin added on top of the remaining countdown for that wait.
+    bool fireAll(uint32_t countdownMs = 500, int acceptTimeoutMs = 200, int releaseGraceMs = 500) const;
 
     // Cancels a pending countdown and disarms. Safe to call in any state.
-    void abortAll();
+    void abortAll() const;
 
     [[nodiscard]] CatapultState getState(uint8_t id) const;
     [[nodiscard]] bool allArmed() const;
@@ -141,12 +155,12 @@ private:
     std::atomic<bool> m_watchdogRunning{false};
 
     static bool m_bindAndListen(Link& link);
-    void m_linkLoop(Link& link); // accepts, then services one connection, repeats
+    void m_linkLoop(Link& link) const; // accepts, then services one connection, repeats
     static bool m_sendPacket(const Link& link, const CatapultPacket& pkt);
 
     static bool m_waitForAck(Link& link, uint16_t seq, CatapultMsgType expectedType, int timeoutMs, CatapultPacket& out);
     void m_setState(Link& link, CatapultState state) const;
-    void m_watchdogLoop();
+    void m_watchdogLoop() const;
 };
 
 #endif //CATAPULTLAUNCHER_H
