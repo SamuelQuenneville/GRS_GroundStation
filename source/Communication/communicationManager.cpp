@@ -100,6 +100,16 @@ void CommunicationManager::connectAll(const std::string& baseIp, const uint16_t 
     LOG_INFO("All UAV links initialized.");
 }
 
+void CommunicationManager::connectAll(const std::vector<pixhawkEndpointConfig>& endpoints) {
+    LOG_INFO("Connecting to UAV(s) via explicit endpoints...");
+    for (const auto& ep : endpoints) {
+        const std::string uri = "tcpout://" + ep.ip + ":" + std::to_string(ep.port);
+        LOG_INFO("Adding link for UAV " + std::to_string(ep.id) + " -> " + uri);
+        addLink(uri);
+    }
+    LOG_INFO("All UAV links initialized.");
+}
+
 void CommunicationManager::armAll() {
     for (const auto& [sysId, passthrough]: m_passthrough) {
 

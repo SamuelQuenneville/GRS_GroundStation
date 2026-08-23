@@ -22,6 +22,40 @@
 namespace YAML {
 
     template<>
+        struct convert<catapultEndpointConfig> {
+            static bool decode(const Node& node, catapultEndpointConfig& rhs) {
+                if (!node.IsMap()) return false;
+                rhs.id         = node["id"].as<uint8_t>();
+                rhs.expectedIp = node["ip"].as<std::string>();
+                rhs.port       = node["port"] ? node["port"].as<uint16_t>() : CATAPULT_PORT;
+                return true;
+            }
+        };
+
+    template<>
+        struct convert<pixhawkEndpointConfig> {
+            static bool decode(const Node& node, pixhawkEndpointConfig& rhs) {
+                if (!node.IsMap()) return false;
+                rhs.id   = node["id"].as<uint8_t>();
+                rhs.ip   = node["ip"].as<std::string>();
+                rhs.port = node["port"].as<uint16_t>();
+                return true;
+            }
+        };
+
+    template<>
+        struct convert<pixhawkConfig> {
+            static bool decode(const Node& node, pixhawkConfig& rhs) {
+                if (!node.IsMap()) return false;
+                if (node["sitl"])             rhs.sitl             = node["sitl"].as<bool>();
+                if (node["remoteIP"])         rhs.remoteIP         = node["remoteIP"].as<std::string>();
+                if (node["tcpPort"])          rhs.tcpPort          = node["tcpPort"].as<int>();
+                if (node["tcpPortIncrement"]) rhs.tcpPortIncrement = node["tcpPortIncrement"].as<int>();
+                return true;
+            }
+        };
+
+    template<>
         struct convert<solverConfig> {
             static bool decode(const Node& node, solverConfig& rhs) {
                 if(!node.IsMap()) {

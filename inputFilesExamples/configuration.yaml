@@ -4,6 +4,28 @@
 #--------------------------------------------------
 #
 #
+GcsConfiguration:
+  numUavs: 2
+  verbose: false
+  hlcFrequency: 20.0
+  controlMode: MPC        # MPC | MATLAB | ATTITUDE_FILE
+
+Pixhawk:
+  sitl: true               # true -> base IP + port*increment (SITL). false -> use endpoints below.
+  remoteIP: 127.0.0.1
+  tcpPort: 5760
+  tcpPortIncrement: 10
+
+  # Only read when sitl: false — one dedicated IP:port per real Pixhawk.
+  endpoints:
+    - {id: 1, ip: 192.168.50.30, port: 400}
+    - {id: 2, ip: 192.168.50.31, port: 500}
+    - {id: 3, ip: 192.168.50.32, port: 600}
+
+Catapults:
+  - {id: 1, ip: 192.168.50.20, port: 5800}
+  - {id: 2, ip: 192.168.50.21, port: 5801}
+
 SolverConfiguration:
   NX: 8
   NU: 3

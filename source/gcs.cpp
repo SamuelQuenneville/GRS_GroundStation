@@ -78,8 +78,8 @@ void GroundControlStation::initialize(const gcsConfig& config)
 
     if (!config.catapults.empty()) {
         std::vector<CatapultEndpoint> endpoints;
-        for (const auto&[id, ip, port] : config.catapults) {
-            endpoints.push_back({id, ip, port});
+        for (const auto&[id, port, ip] : config.catapults) {
+            endpoints.push_back({id, port, ip});
         }
         m_catapultLauncher->configure(endpoints);
     }
@@ -119,7 +119,15 @@ void GroundControlStation::connectAll() {
     }
 
     LOG_INFO("Starting communication...");
-    m_communicationManager->connectAll(m_gcsConfig.pixhawk.remoteIP, m_gcsConfig.pixhawk.tcpPort, m_gcsConfig.numUavs, m_gcsConfig.pixhawk.tcpPortIncrement);
+
+    if (m_gcsConfig.pixhawk.sitl) {
+        m_communicationManager->connectAll(m_gcsConfig.pixhawk.remoteIP, m_gcsConfig.pixhawk.tcpPort, m_gcsConfig.numUavs, m_gcsConfig.pixhawk.tcpPortIncrement);
+    } else if (!m_gcsConfig.pixhawkEndpoints.empty()) {
+        m_communicationManager->connectAll(m_gcsConfig.pixhawkEndpoints);
+    } else {
+        LOG_ERROR("Real-hardware mode needs Pixhawk.endpoints in config (or set sitl: true).");
+        return;
+    }
 
     if (!m_running) {
         m_running = true;

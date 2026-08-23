@@ -47,6 +47,7 @@ public:
 
     void setTelemetryCallback(std::function<void(const std::map<uint8_t, uavStates>&)> cb);
     void connectAll(const std::string& baseIp, uint16_t basePort, int numUavs, int increment);
+    void connectAll(const std::vector<pixhawkEndpointConfig>& endpoints);
 
     void armAll();
     void setMode(uint8_t sysId, const std::string& mode);

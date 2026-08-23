@@ -24,7 +24,7 @@ void ControlInterface::initialize(const gcsConfig& config) {
     m_config = config;
 
     if (m_config.controlMode == ControlMode::MPC) {
-        YAML::Node node = YAML::LoadFile("inputFilesExamples/configuration.yaml");
+        YAML::Node node = YAML::LoadFile(config.configPath);
         solverConfig solverConfig = ConfigurationParser::parseSolverConfig(node);
 
         m_nmpc = std::make_unique<NMPCController>(solverConfig);

@@ -13,6 +13,7 @@
 #include <string>
 #include <optional>
 #include <map>
+#include <vector>
 
 #include "Definitions/catapultProtocol.h"
 
@@ -47,6 +48,12 @@ struct pixhawkConfig {
     bool sitl = false;
 };
 
+struct pixhawkEndpointConfig {
+    uint8_t id;
+    std::string ip;
+    uint16_t port;
+};
+
 struct catapultEndpointConfig {
     uint8_t id;
     uint16_t port = CATAPULT_PORT;
@@ -59,11 +66,13 @@ struct gcsConfig {
     double telemetry_publish_hz = -1.0;
     double hlcFrequency = 20.0;
     pixhawkConfig pixhawk;
+    std::vector<pixhawkEndpointConfig> pixhawkEndpoints; // used when pixhawk.sitl == false
     std::optional<std::pair<std::string, uint16_t>> matlab;
     std::optional<std::string> attitudeFile;
     std::optional<std::string> rcFile;
     ControlMode controlMode = ControlMode::MPC;
     std::vector<catapultEndpointConfig> catapults;
+    std::string configPath = "inputFilesExamples/configuration.yaml";
 };
 
 #endif //GCSCONFIG_H

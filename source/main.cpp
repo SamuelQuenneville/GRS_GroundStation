@@ -24,6 +24,14 @@ int main(const int argc, const char * argv[]) {
 
     gcsConfig config;
 
+    try {
+        YAML::Node node = YAML::LoadFile(config.configPath);
+        config = ConfigurationParser::parseGcsConfig(node, config);
+    } catch (const std::exception& e) {
+        std::cerr << "Failed to load config '" << config.configPath << "': " << e.what() << "\n";
+        return 1;
+    }
+
     // Loop through command-line arguments
     for (int i = 1; i < argc; ++i) {
         const std::string arg = argv[i];
@@ -84,13 +92,6 @@ int main(const int argc, const char * argv[]) {
     if (!result.success) {
         std::cerr << "Failed to launch browser: " << result.error.message() << std::endl;
     }
-
-    // ---- Launcher ----
-    const catapultEndpointConfig launcher1{1, CATAPULT_PORT,     "192.168.50.20"};
-    const catapultEndpointConfig launcher2{2, CATAPULT_PORT + 1, "192.168.50.21"};
-    const std::vector<catapultEndpointConfig> launcher{launcher1, launcher2};
-
-    config.catapults = launcher;
 
     // ---- Initialize app ----
     GroundControlStation gcs;

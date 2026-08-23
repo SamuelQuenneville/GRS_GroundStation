@@ -9,6 +9,7 @@
 #ifndef CONFIGURATIONPARSER_H
 #define CONFIGURATIONPARSER_H
 
+#include "gcsConfig.h"
 #include "yaml-cpp/yaml.h"
 #include "Definitions/yamlCustomStructure.h"
 
@@ -18,6 +19,7 @@ public:
     ConfigurationParser() = default;
     ~ConfigurationParser() = default;
 
+    static gcsConfig parseGcsConfig(YAML::Node& node, const gcsConfig& defaults = {});
     static solverConfig parseSolverConfig(YAML::Node& node);
 
 };
