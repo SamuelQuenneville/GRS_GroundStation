@@ -51,6 +51,7 @@ void ConsoleInterface::printCommands() {
                       << "  catapultFire [MS]     --> Fire both catapults after a synchronized countdown (default 500ms)\n"
                       << "  catapultAbort         --> Cancel countdown / disarm both catapults immediately\n"
                       << "  catapultDisarm        --> Disarm both catapults\n"
+                      << "  catapultStatus        --> Show servo-lock / safety-pin / armed status for each launcher\n"
                       << "  stop                  --> Stop the Ground Station\n"
                       << "  exit                  --> Terminate the execution\n";
 }
@@ -130,6 +131,8 @@ void ConsoleInterface::handleCommand(const std::string& command) const {
         m_gcs.catapultAbort();
     } else if (command == "catapultDisarm") {
         m_gcs.catapultDisarm();
+    } else if (command == "catapultStatus") {
+        m_gcs.catapultStatus();
     } else if (command == "stop") {
         LOG_INFO("Stopping main process...");
         m_gcs.stop();

@@ -22,6 +22,20 @@ namespace {
         }
         return "Unknown";
     }
+
+
+
+    std::string describeStatusBits(const uint32_t bits) {
+        std::string s;
+        s += "servoLocked=";        s += (bits & STATUS_COCKED)         ? "YES" : "NO";
+        s += "safetyPinRemoved=";   s += (bits & STATUS_SAFETY_PIN_IN)  ? "YES" : "NO";
+        s += "armed=";              s += (bits & STATUS_ARMED)          ? "YES" : "NO";
+        s += "countdown=";          s += (bits & STATUS_COUNTDOWN)      ? "YES" : "NO";
+        if (bits & STATUS_LOW_BATTERY) s += " [LOW BATTERY]";
+        if (bits & STATUS_GCS_TIMEOUT) s += " [SELF-DISARMED: GCS TIMEOUT]";
+
+        return s;
+    }
 }
 
 CatapultLauncher::CatapultLauncher() = default;
@@ -261,6 +275,7 @@ void CatapultLauncher::m_linkLoop(Link& link) const {
 
             case MSG_ARM_ACK:
             case MSG_DISARM_ACK:
+            case MSG_FIRE_AT_ACK:
             case MSG_FIRE_ACK:
             case MSG_ABORT_ACK: {
                 link.lastStatusBits = pkt.param;
@@ -318,8 +333,15 @@ bool CatapultLauncher::armAll(const int timeoutMs) const {
         CatapultPacket ack{};
         const bool ok = m_waitForAck(link, seqs[i], MSG_ARM_ACK, timeoutMs, ack);
 
-        if (!ok || !(ack.param & STATUS_ARMED)) {
-            LOG_ERROR("Catapult " + std::to_string(link.id) + ": failed to arm");
+        if (!ok) {
+            LOG_ERROR("Catapult " + std::to_string(link.id) + ": no ARM_ACK received (unreachable, or not "
+                      "connected) -- last known status: " + describeStatusBits(link.lastStatusBits.load()));
+            m_setState(link, CatapultState::Fault);
+            allArmedOk = false;
+            continue;
+        }
+        if (!(ack.param & STATUS_ARMED)) {
+            LOG_ERROR("Catapult " + std::to_string(link.id) + ": refused to arm (" + describeStatusBits(ack.param) + ")");
             m_setState(link, CatapultState::Fault);
             allArmedOk = false;
             continue;
@@ -390,8 +412,14 @@ bool CatapultLauncher::fireAll(const uint32_t countdownMs, const int acceptTimeo
         CatapultPacket ack{};
         const bool ok = m_waitForAck(link, seqs[i], MSG_FIRE_AT_ACK, acceptTimeoutMs, ack);
 
-        if (!ok || !(ack.param & STATUS_COUNTDOWN)) {
-            LOG_ERROR("Catapult " + std::to_string(link.id) + ": did not confirm FIRE_AT in time.");
+        if (!ok) {
+            LOG_ERROR("Catapult " + std::to_string(link.id) + ": no FIRE_AT_ACK received -- last known status: "
+                      + describeStatusBits(link.lastStatusBits.load()));
+            allAccepted = false;
+            continue;
+        }
+        if (!(ack.param & STATUS_COUNTDOWN)) {
+            LOG_ERROR("Catapult " + std::to_string(link.id) + ": refused FIRE_AT (" + describeStatusBits(ack.param) + ")");
             allAccepted = false;
             continue;
         }
@@ -421,6 +449,7 @@ bool CatapultLauncher::fireAll(const uint32_t countdownMs, const int acceptTimeo
 
         if (!ok) {
             LOG_WARNING("Catapult " + std::to_string(link.id) + ": accepted FIRE_AT but no release confirmation received (diagnostic-only, it likely still fired).");
+            m_setState(link, CatapultState::Launched);
             continue;
         }
         // ack.param carries the board's own millis() at release time. Boards
@@ -462,6 +491,32 @@ bool CatapultLauncher::allArmed() const {
 void CatapultLauncher::setStatusCallback(StatusCallback cb) {
     std::lock_guard<std::mutex> lock(m_callbackMutex);
     m_statusCallback = std::move(cb);
+}
+
+std::vector<uint8_t> CatapultLauncher::configureIds() const {
+    std::vector<uint8_t> ids;
+    ids.reserve(m_links.size());
+    for (const auto& linkPtr : m_links) {
+        ids.push_back(linkPtr->id);
+    }
+    return ids;
+}
+
+std::string CatapultLauncher::describeStatus(const uint8_t id) const {
+    for (const auto& linkPtr : m_links) {
+        if (linkPtr->id != id) continue;
+
+        const Link& link = *linkPtr;
+        std::string s = "Launcher " + std::to_string(id) + ": " + stateName(link.state.load());
+
+        if (link.fd > 0) {
+            s += " (" + describeStatusBits(link.lastStatusBits.load()) + ")";
+        } else {
+            s += " -- not connected";
+        }
+        return s;
+    }
+    return "Catapult " + std::to_string(id) + ": not configured";
 }
 
 void CatapultLauncher::m_watchdogLoop() const {

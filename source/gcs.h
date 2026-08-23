@@ -51,6 +51,7 @@ public:
     void catapultFire(uint32_t countdownMs = 500) const;
     void catapultAbort() const;
     void catapultDisarm() const;
+    void catapultStatus() const;
 
 private:
     gcsConfig m_gcsConfig;

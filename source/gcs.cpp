@@ -219,6 +219,12 @@ void GroundControlStation::catapultDisarm() const {
     m_catapultLauncher->disarmAll();
 }
 
+void GroundControlStation::catapultStatus() const {
+    for (const uint8_t id : m_catapultLauncher->configureIds()) {
+        LOG_INFO(m_catapultLauncher->describeStatus(id));
+    }
+}
+
 void GroundControlStation::m_parseCommandFile(const std::string& file) const {
     std::ifstream fileStream(file);
 

@@ -117,6 +117,10 @@ public:
     [[nodiscard]] bool allArmed() const;
     void setStatusCallback(StatusCallback cb);
 
+    [[nodiscard]] std::vector<uint8_t> configureIds() const;
+
+    [[nodiscard]] std::string describeStatus(uint8_t id) const;
+
     static constexpr int HEARTBEAT_TIMEOUT_MS = 2000;
     static constexpr int PING_INTERVAL_MS = 500;
 
