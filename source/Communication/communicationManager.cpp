@@ -86,6 +86,10 @@ void CommunicationManager::setTelemetryCallback(std::function<void(const std::ma
     m_telemetryCallback = std::move(cb);
 }
 
+void CommunicationManager::setStatusCallback(std::function<void(const std::map<uint8_t, uavHealth>&)> cb) {
+    m_statusCallback = std::move(cb);
+}
+
 void CommunicationManager::connectAll(const std::string& baseIp, const uint16_t basePort, const int numUavs, const int increment) {
 
     LOG_INFO("Connecting to UAV(s)...");
@@ -224,7 +228,13 @@ bool CommunicationManager::addLink(const std::string& connection) {
             m_passthrough[sysId] = std::make_shared<mavsdk::MavlinkPassthrough>(system);
             m_rtk[sysId]         = std::make_shared<mavsdk::Rtk>(system);
 
+            {
+                std::lock_guard statesLock(m_statesMutex);
+                m_uavHealths[sysId].isConnected = true;
+            }
+
             m_subscribeMavlink(sysId);
+            m_onStatusUpdate();
 
             LOG_INFO("Connected: sysID = " + std::to_string(sysId));
         }
@@ -331,6 +341,9 @@ void CommunicationManager::m_subscribeMavlink(const uint8_t sysId) {
     m_subscribeHealthAllOk(telemetry, sysId, handles);
     m_subscribeArmed(telemetry, sysId, handles);
     m_subscribeFlightMode(telemetry, sysId, handles);
+    m_subscribeBattery(telemetry, sysId, handles);
+    m_subscribeGpsInfo(telemetry, sysId, handles);
+    m_subscribeRcStatus(telemetry, sysId, handles);
 
     // LOCAL_POSITION_NED
     m_subscribePositionVelocity(telemetry, sysId, handles);
@@ -376,6 +389,15 @@ void CommunicationManager::m_unsubscribeMavlink(const uint8_t sysId) {
     telemetry->unsubscribe_health_all_ok(handles.healthAllOkHandle);
     telemetry->unsubscribe_armed(handles.armedHandle);
     telemetry->unsubscribe_flight_mode(handles.flightModeHandle);
+    telemetry->unsubscribe_battery(handles.batteryHandle);
+    telemetry->unsubscribe_gps_info(handles.gpsInfoHandle);
+    telemetry->unsubscribe_rc_status(handles.rcStatusHandle);
+
+    {
+        std::lock_guard statesLock(m_statesMutex);
+        m_uavHealths[sysId].isConnected = false;
+    }
+    m_onStatusUpdate();
 
     // LOCAL_POSITION_NED
     telemetry->unsubscribe_position_velocity_ned(handles.positionVelocityNedHandle);
@@ -406,6 +428,18 @@ void CommunicationManager::m_onTelemetryUpdate() {
 
     if (m_telemetryCallback) {
         m_telemetryCallback(snapshot);
+    }
+}
+
+void CommunicationManager::m_onStatusUpdate() {
+    std::map<uint8_t, uavHealth> snapshot;
+    {
+        std::lock_guard lock(m_statesMutex);
+        snapshot = m_uavHealths;
+    }
+
+    if (m_statusCallback) {
+        m_statusCallback(snapshot);
     }
 }
 
@@ -489,27 +523,69 @@ void CommunicationManager::m_subscribeAttitudeTarget(const uint8_t sysId) {
 void CommunicationManager::m_subscribeHealth(const std::shared_ptr<mavsdk::Telemetry> &telemetry, uint8_t sysId, subscriptionHandles &handles) {
 
     handles.healthHandle = telemetry->subscribe_health([this, sysId](const mavsdk::Telemetry::Health& health) {
-        std::lock_guard lock(m_statesMutex);
-
-        m_uavHealths[sysId].health = health;
+        {
+            std::lock_guard lock(m_statesMutex);
+            m_uavHealths[sysId].health = health;
+        }
+        m_onStatusUpdate();
     });
 }
 
 void CommunicationManager::m_subscribeHealthAllOk(const std::shared_ptr<mavsdk::Telemetry> &telemetry, uint8_t sysId, subscriptionHandles &handles) {
 
     handles.healthAllOkHandle = telemetry->subscribe_health_all_ok([this, sysId](const bool isHealthy) {
-        std::lock_guard lock(m_statesMutex);
-
-        m_uavHealths[sysId].isHealthy = isHealthy;
+        {
+            std::lock_guard lock(m_statesMutex);
+            m_uavHealths[sysId].isHealthy = isHealthy;
+        }
+        m_onStatusUpdate();
     });
 }
 
 void CommunicationManager::m_subscribeArmed(const std::shared_ptr<mavsdk::Telemetry> &telemetry, uint8_t sysId, subscriptionHandles &handles) {
 
     handles.armedHandle = telemetry->subscribe_armed([this, sysId](const bool isArmed) {
-        std::lock_guard lock(m_statesMutex);
+        {
+            std::lock_guard lock(m_statesMutex);
+            m_uavHealths[sysId].isArmed = isArmed;
+        }
+        m_onStatusUpdate();
+    });
+}
 
-        m_uavHealths[sysId].isArmed = isArmed;
+void CommunicationManager::m_subscribeBattery(const std::shared_ptr<mavsdk::Telemetry>& telemetry, uint8_t sysId, subscriptionHandles& handles) {
+
+    handles.batteryHandle = telemetry->subscribe_battery([this, sysId](const mavsdk::Telemetry::Battery& battery) {
+        {
+            std::lock_guard lock(m_statesMutex);
+            m_uavHealths[sysId].batteryRemainingPercent = battery.remaining_percent;
+            m_uavHealths[sysId].batteryVoltageVolt = battery.voltage_v;
+        }
+        m_onStatusUpdate();
+    });
+}
+
+void CommunicationManager::m_subscribeGpsInfo(const std::shared_ptr<mavsdk::Telemetry>& telemetry, uint8_t sysId, subscriptionHandles& handles) {
+
+    handles.gpsInfoHandle = telemetry->subscribe_gps_info([this, sysId](const mavsdk::Telemetry::GpsInfo& gpsInfo) {
+        {
+            std::lock_guard lock(m_statesMutex);
+            m_uavHealths[sysId].gpsNumSatellites = gpsInfo.num_satellites;
+            m_uavHealths[sysId].gpsFixType = gpsInfo.fix_type;
+        }
+        m_onStatusUpdate();
+    });
+}
+
+void CommunicationManager::m_subscribeRcStatus(const std::shared_ptr<mavsdk::Telemetry>& telemetry, uint8_t sysId, subscriptionHandles& handles) {
+
+    handles.rcStatusHandle = telemetry->subscribe_rc_status([this, sysId](const mavsdk::Telemetry::RcStatus& rcStatus) {
+        {
+            std::lock_guard lock(m_statesMutex);
+            m_uavHealths[sysId].rcAvailable = rcStatus.is_available;
+            m_uavHealths[sysId].rcSignalPercent = rcStatus.signal_strength_percent;
+        }
+        m_onStatusUpdate();
     });
 }
 
@@ -526,9 +602,11 @@ void CommunicationManager::m_subscribeHome(const std::shared_ptr<mavsdk::Telemet
 void CommunicationManager::m_subscribeFlightMode(const std::shared_ptr<mavsdk::Telemetry> &telemetry, uint8_t sysId, subscriptionHandles &handles) {
 
     handles.flightModeHandle = telemetry->subscribe_flight_mode([this, sysId](const mavsdk::Telemetry::FlightMode& flightMode) {
-        std::lock_guard lock(m_statesMutex);
-
-        m_uavHealths[sysId].flightMode = flightMode;
+        {
+            std::lock_guard lock(m_statesMutex);
+            m_uavHealths[sysId].flightMode = flightMode;
+        }
+        m_onStatusUpdate();
     });
 }
 

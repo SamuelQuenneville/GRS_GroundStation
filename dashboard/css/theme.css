@@ -9,31 +9,40 @@
     --green: #3ecf6e;
     --red: #ff5d5d;
     --orange: #ff9f45;
-    --radius: 10px;
+    --radius: 8px;
+    --gap: 10px;
 }
 
 * { box-sizing: border-box; }
 
-body {
+html, body {
+    height: 100%;
     margin: 0;
+}
+
+body {
     background: var(--bg);
     color: var(--text);
     font-family: -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden; /* the whole dashboard is sized to fit one viewport */
 }
 
 /* ---------- Topbar ---------- */
 
 .topbar {
+    flex: 0 0 auto;
     display: flex;
     align-items: center;
-    gap: 24px;
-    padding: 14px 24px;
+    gap: 20px;
+    padding: 10px 20px;
     background: var(--panel);
     border-bottom: 1px solid var(--border);
 }
 
 .brand {
-    font-size: 18px;
+    font-size: 20px;
     display: flex;
     align-items: center;
     gap: 8px;
@@ -43,7 +52,7 @@ body {
 
 .brand-mark { color: var(--blue); }
 .brand-sep { color: var(--text-dim); }
-.brand-page { color: var(--blue); font-size: 18px; }
+.brand-page { color: var(--blue); font-size: 20px; }
 
 .topbar-status {
     display: flex;
@@ -55,17 +64,17 @@ body {
     display: flex;
     align-items: center;
     gap: 8px;
-    padding: 6px 14px;
+    padding: 4px 12px;
     background: var(--card);
     border: 1px solid var(--border);
     border-radius: 999px;
-    font-size: 18px;
+    font-size: 20px;
     color: var(--text-dim);
 }
 
 .pill .dot {
-    width: 8px;
-    height: 8px;
+    width: 7px;
+    height: 7px;
     border-radius: 50%;
     background: var(--text-dim);
 }
@@ -75,77 +84,84 @@ body {
 .clock {
     font-variant-numeric: tabular-nums;
     color: var(--text-dim);
-    font-size: 18px;
+    font-size: 20px;
 }
+
+/* ---------- Main layout: fills the rest of the viewport, never scrolls
+   at the page level. The UAV grid and side column each get their own
+   overflow as a safety net for unusually large fleets, but everything is
+   sized (via clamp()/vh below) to fit a normal 2-UAV + payload + NMPC +
+   2-launcher setup on one screen. ---------- */
 
 .dashboard-layout {
+    flex: 1 1 auto;
+    min-height: 0;
     display: grid;
-    grid-template-columns: 2fr 1fr;
-    gap: 15px;
-    padding: 15px;
+    grid-template-columns: 1fr 400px;
+    gap: var(--gap);
+    padding: var(--gap);
+    overflow: hidden;
 }
 
-.launcher-card {
-    background: var(--card);
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
-    padding: 12px 14px;
-    margin-bottom: 16px;
-    gap: 10px;
-}
-
-.launcher-card h3 {
-    font-size: 20px;
-    margin: 0 0 8px 0;
-    color: var(--text);
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
+.uav-section,
+.side-section {
+    min-height: 0;
+    overflow-y: auto;
 }
 
 /* ---------- UAV grid ---------- */
 
 .uav-grid {
+    height: 100%;
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(420px, 1fr));
-    gap: 16px;
+    grid-template-columns: 0.7fr 1fr 1fr;
+    grid-auto-rows: 1fr;
+    gap: var(--gap);
 }
 
 .uav-panel {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
     background: var(--panel);
     border: 1px solid var(--border);
     border-radius: var(--radius);
-    padding: 16px;
+    padding: 8px 10px;
 }
 
 .uav-header {
+    flex: 0 0 auto;
     display: flex;
     align-items: center;
-    gap: 10px;
-    margin-bottom: 16px;
+    gap: 8px;
+    margin-bottom: 8px;
 }
 
 .status-dot {
-    width: 10px;
-    height: 10px;
+    width: 8px;
+    height: 8px;
     border-radius: 50%;
     background: var(--text-dim);
+    flex: 0 0 auto;
 }
 
 .status-dot.on { background: var(--green); }
 
 .uav-name {
-    font-size: 20px;
+    font-size: 24px;
     margin: 0 4px 0 0;
+    white-space: nowrap;
 }
 
 .badge {
-    font-size: 18px;
+    font-size: 16px;
     font-weight: 600;
-    padding: 3px 8px;
+    padding: 2px 7px;
     border-radius: 5px;
     background: var(--card);
     color: var(--text-dim);
-    letter-spacing: 0.4px;
+    letter-spacing: 0.3px;
+    white-space: nowrap;
 }
 
 .badge-conn.on { background: rgba(62,207,110,0.12); color: var(--green); }
@@ -154,84 +170,106 @@ body {
 /* ---------- Stat cards ---------- */
 
 .stat-grid {
+    flex: 1 1 auto;
     display: grid;
     grid-template-columns: repeat(3, 1fr);
-    gap: 10px;
-    margin-bottom: 16px;
+    gap: 6px;
+    margin-bottom: 8px;
 }
 
 .stat-grid-payload {
+    flex: 1 1 auto;
     display: grid;
     grid-template-columns: repeat(2, 1fr);
-    gap: 10px;
-    margin-bottom: 16px;
+    gap: 6px;
+    margin-bottom: 8px;
 }
 
 .stat-card {
+    display: flex;
+    flex-direction: column;
     background: var(--card);
     border: 1px solid var(--border);
     border-radius: var(--radius);
-    padding: 10px 12px;
+    padding: 6px 8px;
+    min-width: 0;
 }
 
 .stat-label {
-    font-size: 22px;
+    font-size: 16px;
     color: var(--text-dim);
     text-transform: uppercase;
-    letter-spacing: 0.4px;
+    letter-spacing: 0.3px;
     display: flex;
     justify-content: space-between;
+    white-space: nowrap;
 }
 
 .stat-unit { text-transform: lowercase; opacity: 0.7; }
 
 .stat-value {
-    font-size: 55px;
+    flex: 1;
+    display: flex;
+    align-items: center;
+
+    font-size: 48px;
     font-weight: 600;
-    margin-top: 4px;
+
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 
 /* ---------- Status / health columns ---------- */
 
 .panel-columns {
+    flex: 1 1 auto;
+    min-height: 0;
     display: grid;
     grid-template-columns: 1fr 1fr;
-    margin-bottom: 16px;
-    gap: 10px;
+    gap: 6px;
 }
 
 .info-card {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
     background: var(--card);
     border: 1px solid var(--border);
     border-radius: var(--radius);
-    padding: 12px 14px;
+    padding: 8px 10px;
 }
 
 .info-card h3 {
-    margin: 0 0 8px 0;
+    flex: 0 0 auto;
+    margin: 0 0 4px 0;
     font-size: 16px;
     color: var(--blue);
     text-transform: uppercase;
-    letter-spacing: 0.5px;
+    letter-spacing: 0.4px;
 }
 
 .info-list {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-y: auto;
     list-style: none;
     margin: 0;
     padding: 0;
-    font-size: 15px;
+    font-size: 14px;
 }
 
 .info-list li {
     display: flex;
     justify-content: space-between;
-    padding: 5px 0;
+    gap: 8px;
+    padding: 2px 0;
     border-bottom: 1px solid var(--border);
 }
 
 .info-list li:last-child { border-bottom: none; }
-.info-list li span:first-child { color: var(--text-dim); }
-.info-list li span:last-child { font-weight: 500; }
+.info-list li span:first-child { color: var(--text-dim); white-space: nowrap; }
+.info-list li span:last-child { font-weight: 500; text-align: right; }
 
 .health-ok { color: var(--green); }
 .health-warn { color: var(--orange); }
@@ -240,10 +278,54 @@ body {
 .status-yes { color: var(--green); }
 .status-no { color: var(--red); }
 
+/* ---------- Right column: NMPC controller + launchers, stacked as one
+   vertical column (NMPC on top, one row per launcher below) ---------- */
+
+.side-grid {
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    gap: var(--gap);
+}
+
+.payload-panel,
+.side-panel {
+    min-width: 0;
+}
+
+.payload-panel > .uav-panel,
+.side-panel > .uav-panel {
+    height: 100%;
+}
+
+.side-panel {
+    flex: 0 0 auto; /* size to its own content, don't compete with launchers for space */
+}
+
+.launcher-grid {
+    flex: 1 1 auto;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    gap: var(--gap);
+}
+
+.launcher-grid > .launcher-panel {
+    flex: 1 1 0;
+    min-height: 0;
+}
+
+.launcher-panel { padding-bottom: 8px; }
+.launcher-panel .info-card { flex: 1 1 auto; }
+
 /* ---------- Responsive ---------- */
 
-@media (max-width: 900px) {
-    .uav-grid { grid-template-columns: 1fr; }
-    .stat-grid { grid-template-columns: repeat(2, 1fr); }
+@media (max-width: 1100px) {
+    .dashboard-layout { grid-template-columns: 1fr; overflow-y: auto; }
+    .uav-section, .side-section { overflow: visible; }
+    body { overflow-y: auto; }
+}
+
+@media (max-width: 640px) {
     .panel-columns { grid-template-columns: 1fr; }
 }

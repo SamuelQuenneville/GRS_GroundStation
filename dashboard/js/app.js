@@ -38,7 +38,34 @@
  *   "gpsFix": "3D Fix (9)",
  *   "satellites": 15,
  *   "health": { "imu": "ok", "gps": "ok", "battery": "ok" }
- *   "launcher": { "connected": "yes", "locked": "no", "armed": "no", "launched": "no"}
+ * }
+ *
+ * Launcher ("type": "launcher") -- one per catapult, decoupled from any UAV:
+ * {
+ *   "type": "launcher",
+ *   "id": "1",
+ *   "state": "Armed",
+ *   "connected": "yes",
+ *   "cocked": "yes",
+ *   "armed": "yes",
+ *   "countdown": "no",
+ *   "lowBattery": "no",
+ *   "safetyPinIn": "no",
+ *   "gcsTimeout": "no"
+ * }
+ *
+ * NMPC controller debug panel ("type": "nmpc") -- one for the whole
+ * controller, not per-UAV:
+ * {
+ *   "type": "nmpc",
+ *   "launched": true,
+ *   "inFlight": true,
+ *   "endedTraj": false,
+ *   "violation": false,
+ *   "lastSolveMs": 3.42,
+ *   "trackingNumber": 128,
+ *   "trajectoryIndex": 340,
+ *   "trajectoryTotal": 1000
  * }
  *
  * Adapt WebSocketServer.cpp / DashboardServer.cpp to emit this shape,
@@ -49,14 +76,20 @@ const WS_URL = "ws://localhost:8080/ws";
 
 const uavGrid = document.getElementById("uav-grid");
 const payloadContainer = document.getElementById("payload-panel");
+const launcherGrid = document.getElementById("launcher-grid");
+const nmpcContainer = document.getElementById("nmpc-panel");
 
 const templateUav = document.getElementById("uav-panel-template");
 const payloadTemplate = document.getElementById("payload-panel-template");
+const launcherTemplate = document.getElementById("launcher-panel-template");
+const nmpcTemplate = document.getElementById("nmpc-panel-template");
 const uavCountEl = document.getElementById("uav-count");
 const clockEl = document.getElementById("clock");
 
 const uavPanels = new Map();
+const launcherPanels = new Map();
 let payloadPanel = null;
+let nmpcPanel = null;
 
 function getOrCreatePanel(id) {
     if (uavPanels.has(id)) return uavPanels.get(id);
@@ -97,8 +130,8 @@ function setHealth(panel, field, status) {
     el.className = status === "ok" ? "health-ok" : status === "warn" ? "health-warn" : "health-fail";
 }
 
-function setStatus(panel, field, status) {
-    const el = panel.querySelector(`[data-field="launcher-${field}"]`);
+function setStatus(panel, field, status, prefix = "launcher-") {
+    const el = panel.querySelector(`[data-field="${prefix}${field}"]`);
     if (!el) return;
     el.textContent = status === "yes" ? "YES" : "NO";
     el.className = status === "yes" ? "status-yes" : "status-no";
@@ -137,12 +170,6 @@ function applyUpdate(data) {
     if (data.health) {
         for (const [key, status] of Object.entries(data.health)) {
             setHealth(panel, key, status);
-        }
-    }
-
-    if (data.launcher) {
-        for (const [key, status] of Object.entries(data.launcher)) {
-            setStatus(panel, key, status);
         }
     }
 
@@ -204,25 +231,105 @@ function updatePayload(data) {
     }
 }
 
+/* ---------- Launcher panels (one per catapult, own section) ---------- */
+
+function getOrCreateLauncherPanel(id) {
+    if (launcherPanels.has(id)) return launcherPanels.get(id);
+
+    const node = launcherTemplate.content.firstElementChild.cloneNode(true);
+    node.querySelector(".uav-name").textContent = `Launcher ${id}`;
+    launcherGrid.appendChild(node);
+    launcherPanels.set(id, node);
+    return node;
+}
+
+function updateLauncher(data) {
+    const panel = getOrCreateLauncherPanel(data.id);
+
+    const connected = data.connected === "yes";
+    const armed = data.armed === "yes";
+
+    panel.querySelector(".status-dot").classList.toggle("on", connected);
+
+    const connBadge = panel.querySelector(".badge-conn");
+    connBadge.textContent = connected ? "CONNECTED" : "OFFLINE";
+    connBadge.classList.toggle("on", connected);
+
+    const armBadge = panel.querySelector(".badge-arm");
+    armBadge.textContent = armed ? "ARMED" : "DISARMED";
+    armBadge.classList.toggle("on", armed);
+
+    setInfo(panel, "state", data.state ?? "--");
+    setStatus(panel, "cocked", data.cocked);
+    setStatus(panel, "countdown", data.countdown);
+    setStatus(panel, "safetyPinIn", data.safetyPinIn);
+    setStatus(panel, "lowBattery", data.lowBattery);
+    setStatus(panel, "gcsTimeout", data.gcsTimeout);
+}
+
+/* ---------- NMPC controller debug panel (one for the whole controller) ---------- */
+
+function createNmpcPanel() {
+    if (nmpcPanel !== null) return nmpcPanel;
+
+    const node = nmpcTemplate.content.firstElementChild.cloneNode(true);
+    nmpcContainer.appendChild(node);
+    nmpcPanel = node;
+    return nmpcPanel;
+}
+
+function updateNmpc(data) {
+    const panel = createNmpcPanel();
+
+    panel.querySelector(".status-dot").classList.toggle("on", !!data.launched);
+
+    const launchedBadge = panel.querySelector('[data-field="nmpc-launched-badge"]');
+    launchedBadge.textContent = data.launched ? "LAUNCHED" : "PRE-LAUNCH";
+    launchedBadge.classList.toggle("on", !!data.launched);
+
+    const violationBadge = panel.querySelector('[data-field="nmpc-violation-badge"]');
+    violationBadge.textContent = data.violation ? "VIOLATION" : "OK";
+    violationBadge.classList.toggle("on", !!data.violation);
+
+    setStat(panel, "lastSolveMs", data.lastSolveMs, 2);
+    setStat(panel, "trackingNumber", data.trackingNumber, 0);
+
+    setInfo(panel, "nmpc-launched", data.launched ? "Yes" : "No");
+    setInfo(panel, "nmpc-inFlight", data.inFlight ? "Yes" : "No");
+    setInfo(panel, "nmpc-trajectory", `${data.trajectoryIndex ?? "--"} / ${data.trajectoryTotal ?? "--"}`);
+    setInfo(panel, "nmpc-endedTraj", data.endedTraj ? "Yes" : "No");
+    setInfo(panel, "nmpc-violation", data.violation ? "Yes" : "No");
+}
+
 /* ---------- WebSocket connection to DashboardServer / WebSocketServer ---------- */
 
 let socket = null;
 let demoMode = false;
+let demoIntervalId = null;
+
+// Distinct from "socket connected": an idle GCS with no UAVs linked yet has
+// a perfectly healthy, open WebSocket that just never sends anything. Demo
+// mode should stay up until the first real message actually arrives, not
+// merely until the socket opens.
+let hasReceivedRealData = false;
 
 function connect() {
     socket = new WebSocket(WS_URL);
 
-    socket.addEventListener("open", () => {
-        demoMode = false;
-    });
-
     socket.addEventListener("message", (event) => {
         try {
             const data = JSON.parse(event.data);
-            if (data.type === "payload") {
-                updatePayload(data);
-            } else {
-                applyUpdate(data);
+
+            if (!hasReceivedRealData) {
+                hasReceivedRealData = true;
+                stopDemo();
+            }
+
+            switch (data.type) {
+                case "payload":  updatePayload(data);  break;
+                case "launcher": updateLauncher(data); break;
+                case "nmpc":     updateNmpc(data);      break;
+                default:         applyUpdate(data);
             }
         } catch (err) {
             console.error("Bad message from GCS backend:", err);
@@ -231,7 +338,7 @@ function connect() {
 
     socket.addEventListener("close", () => {
         setTimeout(connect, 2000); // retry
-        maybeStartDemo();
+        if (!hasReceivedRealData) maybeStartDemo();
     });
 
     socket.addEventListener("error", () => {
@@ -242,9 +349,27 @@ function connect() {
 /* ---------- Demo/offline fallback so the page is viewable standalone ---------- */
 
 function maybeStartDemo() {
-    if (demoMode) return;
+    if (demoMode || hasReceivedRealData) return;
     demoMode = true;
     runDemo();
+}
+
+function stopDemo() {
+    demoMode = false;
+    if (demoIntervalId !== null) {
+        clearInterval(demoIntervalId);
+        demoIntervalId = null;
+    }
+
+    // Wipe demo-created panels so stale fake data can't linger next to (or
+    // instead of) real ones once telemetry starts flowing.
+    uavGrid.innerHTML = "";
+    uavPanels.clear();
+    launcherGrid.innerHTML = "";
+    launcherPanels.clear();
+    if (payloadPanel) { payloadPanel.remove(); payloadPanel = null; }
+    if (nmpcPanel) { nmpcPanel.remove(); nmpcPanel = null; }
+    updateTopbar();
 }
 
 function runDemo() {
@@ -253,9 +378,33 @@ function runDemo() {
         "UAV-01": { airspeed: 15.3, groundspeed: 18.2, altitude: 125, roll: 6, pitch: 4, cl: 0.82, battery: 75 },
         "UAV-02": { airspeed: 18.8, groundspeed: 22.2, altitude: 125, roll: 5, pitch: 2, cl: 0.79, battery: 68 },
     };
+    const nmpcState = { lastSolveMs: 3.1, trackingNumber: 0, trajectoryIndex: 0, trajectoryTotal: 1000 };
 
-    setInterval(() => {
+    demoIntervalId = setInterval(() => {
         if (!demoMode) return;
+
+        updateLauncher({
+            id: "1", state: "Armed", connected: "yes", armed: "yes",
+            cocked: "yes", countdown: "no", safetyPinIn: "no", lowBattery: "no", gcsTimeout: "no",
+        });
+        updateLauncher({
+            id: "2", state: "Connected", connected: "yes", armed: "no",
+            cocked: "no", countdown: "no", safetyPinIn: "yes", lowBattery: "no", gcsTimeout: "no",
+        });
+
+        nmpcState.trackingNumber += 1;
+        nmpcState.trajectoryIndex = Math.min(nmpcState.trajectoryTotal, nmpcState.trajectoryIndex + 1);
+        nmpcState.lastSolveMs = 2.5 + Math.random() * 2;
+        updateNmpc({
+            launched: true,
+            inFlight: true,
+            endedTraj: nmpcState.trajectoryIndex >= nmpcState.trajectoryTotal,
+            violation: false,
+            lastSolveMs: nmpcState.lastSolveMs,
+            trackingNumber: nmpcState.trackingNumber,
+            trajectoryIndex: nmpcState.trajectoryIndex,
+            trajectoryTotal: nmpcState.trajectoryTotal,
+        });
 
         updatePayload({
             connected: true,
@@ -300,7 +449,6 @@ function runDemo() {
                 satellites: 18,
                 linkQuality: "Excellent",
                 health: { imu: "ok", baro: "warn", compass: "ok", gps: "ok", battery: "ok", rc: "ok" },
-                launcher: {connected: "yes", locked: "no", armed: "no", launched: "no"},
             });
 
 
@@ -309,7 +457,9 @@ function runDemo() {
 }
 
 connect();
-// If nothing connects within 3s, show demo data so the layout is visible standalone.
+// If the socket never connects, or it connects but the GCS is idle (no
+// UAVs linked yet so nothing is ever sent), fall back to demo data so the
+// page isn't just black. Cancels itself the moment real telemetry arrives.
 setTimeout(() => {
-    if (!socket || socket.readyState !== WebSocket.OPEN) maybeStartDemo();
-}, 3000);
+    if (!hasReceivedRealData) maybeStartDemo();
+}, 2000);

@@ -28,13 +28,30 @@ struct subscriptionHandles {
     mavsdk::Telemetry::VelocityNedHandle                 velocityNedHandle;
     mavsdk::Telemetry::HeadingHandle                     headingHandle;
     mavsdk::Telemetry::FixedwingMetricsHandle            fixedwingMetricsHandle;
+    mavsdk::Telemetry::BatteryHandle                     batteryHandle;
+    mavsdk::Telemetry::GpsInfoHandle                     gpsInfoHandle;
+    mavsdk::Telemetry::RcStatusHandle                    rcStatusHandle;
 };
 
+// Non-numeric / low-rate UAV status, kept separate from uavStates (which is
+// packed and shared verbatim with the MATLAB UDP link -- don't add fields
+// there). This is what feeds the dashboard's "Status" and "System Health"
+// cards; the control loop never touches it.
 struct uavHealth {
     mavsdk::Telemetry::FlightMode flightMode = mavsdk::Telemetry::FlightMode::Unknown;
     mavsdk::Telemetry::Health health;
     bool isHealthy = false;
     bool isArmed = false;
+    bool isConnected = false;
+
+    float batteryRemainingPercent = 0.0f;  // [0,1], see mavsdk::Telemetry::Battery
+    float batteryVoltageVolt = 0.0f;
+
+    int gpsNumSatellites = 0;
+    mavsdk::Telemetry::FixType gpsFixType = mavsdk::Telemetry::FixType::NoGps;
+
+    bool rcAvailable = false;
+    float rcSignalPercent = 0.0f;
 };
 
 struct uavStates {

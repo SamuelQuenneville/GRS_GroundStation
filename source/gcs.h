@@ -58,6 +58,19 @@ private:
 
     DashboardServer* m_dashboardServer = nullptr;
 
+    // Cached per-UAV state used to build dashboard snapshots: numeric
+    // telemetry (fast, from CommunicationManager::setTelemetryCallback) and
+    // status (slow/event-driven, from setStatusCallback) arrive on separate
+    // callbacks, but DashboardServer::updateTelemetry() replaces the whole
+    // per-UAV snapshot each time -- so every push needs to merge both.
+    std::mutex m_dashboardMutex;
+    std::map<uint8_t, uavStates> m_latestUavStates;
+    std::map<uint8_t, uavHealth> m_latestUavHealth;
+    void m_pushDashboardSnapshot(uint8_t sysId);
+    static std::string m_flightModeToString(mavsdk::Telemetry::FlightMode mode);
+    static std::string m_gpsFixToString(mavsdk::Telemetry::FixType fix);
+    static std::string m_catapultStateToString(CatapultState state);
+
     std::unique_ptr<CommunicationManager> m_communicationManager;
     std::unique_ptr<ControlDispatcher>    m_controlDispatcher;
     std::unique_ptr<ControlInterface>     m_controlInterface;

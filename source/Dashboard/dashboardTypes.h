@@ -58,15 +58,6 @@ struct PayloadHealth {
     HealthStatus battery = HealthStatus::Ok;
 };
 
-// One catapult, embedded directly in the UAV it launches (matches the
-// "Launcher" card inside the uav-panel-template, not a separate panel).
-struct CatapultStateUi {
-    bool connected = false;
-    bool locked = false;
-    bool armed = false;
-    bool launched = false;
-};
-
 struct UavTelemetrySnapshot {
     std::string id;                 // e.g. "UAV-01" -- stable key, used to match/create dashboard panels
     bool connected = false;
@@ -89,7 +80,9 @@ struct UavTelemetrySnapshot {
     std::string linkQuality;         // e.g. "Excellent", "Good", "Poor"
 
     UavHealth health;
-    CatapultStateUi launcher;        // this UAV's catapult
+    // No launcher field here on purpose -- catapult state is decoupled from
+    // the UAV panel and gets its own dashboard section (see
+    // LauncherTelemetrySnapshot below).
 
     std::string toJson() const {
         JsonWriter healthJson;
@@ -99,12 +92,6 @@ struct UavTelemetrySnapshot {
                   .add("gps", toString(health.gps))
                   .add("battery", toString(health.battery))
                   .add("rc", toString(health.rc));
-
-        JsonWriter launcherJson;
-        launcherJson.add("connected", yesNo(launcher.connected))
-                    .add("locked", yesNo(launcher.locked))
-                    .add("armed", yesNo(launcher.armed))
-                    .add("launched", yesNo(launcher.launched));
 
         JsonWriter root;
         root.add("type", "uav")
@@ -125,8 +112,7 @@ struct UavTelemetrySnapshot {
             .add("satellites", satellites)
             .add("rcSignal", rcSignal)
             .add("linkQuality", linkQuality)
-            .addRaw("health", healthJson.str())
-            .addRaw("launcher", launcherJson.str());
+            .addRaw("health", healthJson.str());
         return root.str();
     }
 };
@@ -170,6 +156,64 @@ struct PayloadTelemetrySnapshot {
             .add("satellites", satellites)
             .add("linkQuality", linkQuality)
             .addRaw("health", healthJson.str());
+        return root.str();
+    }
+};
+
+// One catapult launcher, its own dashboard panel (decoupled from any UAV --
+// see CatapultLauncher::setStatusCallback()). `id` matches the CatapultEndpoint
+// id from config, stringified (e.g. "1", "2").
+struct LauncherTelemetrySnapshot {
+    std::string id;
+    std::string state;        // e.g. "Disconnected", "Armed", "Countdown", "Fault" -- see CatapultState
+    bool connected = false;
+    bool cocked = false;
+    bool armed = false;
+    bool countdown = false;
+    bool lowBattery = false;
+    bool safetyPinIn = false;
+    bool gcsTimeout = false;
+
+    std::string toJson() const {
+        JsonWriter root;
+        root.add("type", "launcher")
+            .add("id", id)
+            .add("state", state)
+            .add("connected", yesNo(connected))
+            .add("cocked", yesNo(cocked))
+            .add("armed", yesNo(armed))
+            .add("countdown", yesNo(countdown))
+            .add("lowBattery", yesNo(lowBattery))
+            .add("safetyPinIn", yesNo(safetyPinIn))
+            .add("gcsTimeout", yesNo(gcsTimeout));
+        return root.str();
+    }
+};
+
+// NMPC controller debug/health panel -- one snapshot for the whole
+// controller (it solves for every UAV jointly), not per-UAV.
+struct NmpcTelemetrySnapshot {
+    bool launched = false;
+    bool inFlight = false;
+    bool endedTraj = false;
+    bool violation = false;      // last solve hit a constraint/solver issue
+
+    double lastSolveMs = 0.0;
+    size_t trackingNumber = 0;   // solve iteration counter
+    size_t trajectoryIndex = 0;
+    size_t trajectoryTotal = 0;
+
+    std::string toJson() const {
+        JsonWriter root;
+        root.add("type", "nmpc")
+            .add("launched", launched)
+            .add("inFlight", inFlight)
+            .add("endedTraj", endedTraj)
+            .add("violation", violation)
+            .add("lastSolveMs", lastSolveMs)
+            .add("trackingNumber", static_cast<int>(trackingNumber))
+            .add("trajectoryIndex", static_cast<int>(trajectoryIndex))
+            .add("trajectoryTotal", static_cast<int>(trajectoryTotal));
         return root.str();
     }
 };

@@ -46,6 +46,14 @@ public:
     void stop();
 
     void setTelemetryCallback(std::function<void(const std::map<uint8_t, uavStates>&)> cb);
+
+    // Fired whenever any UAV's non-numeric status changes (health, battery,
+    // GPS fix, RC link, armed state, flight mode, connection). Low rate,
+    // event-driven -- this is what the dashboard's Status/Health cards
+    // should be built from, kept separate from the tight numeric
+    // telemetryCallback used by the control loop.
+    void setStatusCallback(std::function<void(const std::map<uint8_t, uavHealth>&)> cb);
+
     void connectAll(const std::string& baseIp, uint16_t basePort, int numUavs, int increment);
     void connectAll(const std::vector<pixhawkEndpointConfig>& endpoints);
 
@@ -83,6 +91,8 @@ private:
 
     gcsConfig m_config;
     std::function<void(const std::map<uint8_t, uavStates>&)> m_telemetryCallback;
+    std::function<void(const std::map<uint8_t, uavHealth>&)> m_statusCallback;
+    void m_onStatusUpdate();
 
     std::unordered_map<uint8_t, subscriptionHandles> m_messageHandles;
     void m_subscribeMavlink(uint8_t sysId);
@@ -107,6 +117,9 @@ private:
     void m_subscribeHealth(const std::shared_ptr<mavsdk::Telemetry>& telemetry, uint8_t sysId, subscriptionHandles& handles);
     void m_subscribeHealthAllOk(const std::shared_ptr<mavsdk::Telemetry>& telemetry, uint8_t sysId, subscriptionHandles& handles);
     void m_subscribeArmed(const std::shared_ptr<mavsdk::Telemetry>& telemetry, uint8_t sysId, subscriptionHandles& handles);
+    void m_subscribeBattery(const std::shared_ptr<mavsdk::Telemetry>& telemetry, uint8_t sysId, subscriptionHandles& handles);
+    void m_subscribeGpsInfo(const std::shared_ptr<mavsdk::Telemetry>& telemetry, uint8_t sysId, subscriptionHandles& handles);
+    void m_subscribeRcStatus(const std::shared_ptr<mavsdk::Telemetry>& telemetry, uint8_t sysId, subscriptionHandles& handles);
 
     static void m_subscribeHome(const std::shared_ptr<mavsdk::Telemetry>& telemetry, uint8_t sysId, subscriptionHandles& handles);
     void m_subscribeFlightMode(const std::shared_ptr<mavsdk::Telemetry>& telemetry, uint8_t sysId, subscriptionHandles& handles);

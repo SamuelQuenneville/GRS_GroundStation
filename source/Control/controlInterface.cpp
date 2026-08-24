@@ -47,6 +47,10 @@ void ControlInterface::setCommandCallback(std::function<void(const std::map<uint
     m_sendCommand = std::move(cb);
 }
 
+void ControlInterface::setNmpcDebugCallback(std::function<void(const NMPCController::DebugInfo&)> cb) {
+    m_nmpcDebugCallback = std::move(cb);
+}
+
 void ControlInterface::updateStates(const std::map<uint8_t, uavStates>& states) {
     std::lock_guard lock(m_stateMutex);
     m_latestStates = states;
@@ -126,6 +130,10 @@ void ControlInterface::m_controlLoop() {
 
                 for (auto& [sysId, states] : cmds) {
                     states.commands.thrust = static_cast<float>(thrust2rpm(navStates[sysId].airspeedMeterSecond, states.commands.thrust));
+                }
+
+                if (m_nmpcDebugCallback) {
+                    m_nmpcDebugCallback(m_nmpc->getDebugInfo());
                 }
 
             } else if (m_config.controlMode == ControlMode::ATTITUDE_FILE) {

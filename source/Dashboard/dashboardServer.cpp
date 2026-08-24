@@ -87,6 +87,17 @@ void DashboardServer::updatePayloadTelemetry(const PayloadTelemetrySnapshot& sna
     m_hasPayloadSnapshot = true;
 }
 
+void DashboardServer::updateLauncherTelemetry(const LauncherTelemetrySnapshot& snapshot) {
+    std::lock_guard<std::mutex> lock(m_snapshotsMutex);
+    m_latestLauncherSnapshots[snapshot.id] = snapshot;
+}
+
+void DashboardServer::updateNmpcTelemetry(const NmpcTelemetrySnapshot& snapshot) {
+    std::lock_guard<std::mutex> lock(m_snapshotsMutex);
+    m_latestNmpcSnapshot = snapshot;
+    m_hasNmpcSnapshot = true;
+}
+
 size_t DashboardServer::connectedBrowserCount() const {
     std::lock_guard<std::mutex> lock(m_clientsMutex);
     return m_clients.size();
@@ -107,6 +118,15 @@ void DashboardServer::m_broadcastLoop() {
 
             if (m_hasPayloadSnapshot) {
                 payloads.push_back(m_latestPayloadSnapshot.toJson());
+            }
+
+            for (const auto& [id, snapshot] : m_latestLauncherSnapshots) {
+                (void)id;
+                payloads.push_back(snapshot.toJson());
+            }
+
+            if (m_hasNmpcSnapshot) {
+                payloads.push_back(m_latestNmpcSnapshot.toJson());
             }
         }
 

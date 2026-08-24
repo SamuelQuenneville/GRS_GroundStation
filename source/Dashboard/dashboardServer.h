@@ -42,6 +42,8 @@ public:
     // Just updates the buffered snapshot, the broadcast thread decides when to actually send it out.
     void updateTelemetry(const UavTelemetrySnapshot& snapshot);
     void updatePayloadTelemetry(const PayloadTelemetrySnapshot& snapshot);
+    void updateLauncherTelemetry(const LauncherTelemetrySnapshot& snapshot);
+    void updateNmpcTelemetry(const NmpcTelemetrySnapshot& snapshot);
 
     size_t connectedBrowserCount() const;
 
@@ -63,6 +65,11 @@ private:
 
     PayloadTelemetrySnapshot m_latestPayloadSnapshot;
     bool m_hasPayloadSnapshot = false;
+
+    std::unordered_map<std::string, LauncherTelemetrySnapshot> m_latestLauncherSnapshots;
+
+    NmpcTelemetrySnapshot m_latestNmpcSnapshot;
+    bool m_hasNmpcSnapshot = false;
 
     std::atomic<bool> m_running{false};
     std::thread m_broadcastThread;

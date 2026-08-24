@@ -43,6 +43,21 @@ public:
     std::map<uint8_t, uavCommandsFlags> solve(const std::map<uint8_t, uavStates>& latestStates);
     double lastSolveMs() const;
 
+    // Debug/health snapshot for dashboards or logging -- deliberately a
+    // plain struct here (not a dashboard type) so this header stays
+    // independent of Dashboard/.
+    struct DebugInfo {
+        bool launched = false;
+        bool inFlight = false;
+        bool endedTraj = false;
+        bool violation = false;
+        double lastSolveMs = 0.0;
+        size_t trackingNumber = 0;
+        size_t trajectoryIndex = 0;
+        size_t trajectoryTotal = 0;
+    };
+    DebugInfo getDebugInfo() const;
+
 private:
     solverConfig m_config;
 

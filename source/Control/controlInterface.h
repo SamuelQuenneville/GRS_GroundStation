@@ -36,6 +36,11 @@ public:
     void setCommandCallback(std::function<void(const std::map<uint8_t, uavCommandsFlags>&)> cb);
     void updateStates(const std::map<uint8_t, uavStates>& states);
 
+    // Fired once per control-loop iteration while running in MPC mode, right
+    // after NMPCController::solve() returns. No-op in MATLAB/ATTITUDE_FILE
+    // mode since there's no NMPC controller to report on.
+    void setNmpcDebugCallback(std::function<void(const NMPCController::DebugInfo&)> cb);
+
     void initMatlabConnection(const char* ip, uint16_t port);
     void setCommandsList(const std::map<uint8_t, std::vector<uavCommandsFlags>>& commandsList);
 
@@ -63,6 +68,7 @@ private:
     std::unique_ptr<NMPCController> m_nmpc;
 
     std::function<void(const std::map<uint8_t, uavCommandsFlags>&)> m_sendCommand;
+    std::function<void(const NMPCController::DebugInfo&)> m_nmpcDebugCallback;
     std::map<uint8_t, uavStates> m_latestStates;
     std::mutex m_stateMutex;
 

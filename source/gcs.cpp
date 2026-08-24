@@ -8,6 +8,9 @@
 
 #include "gcs.h"
 
+#include <cmath>
+#include <ranges>
+
 GroundControlStation::GroundControlStation()
     : m_running(false)
 {
@@ -21,17 +24,51 @@ GroundControlStation::GroundControlStation()
 
         if (!m_dashboardServer) return;
 
-        for (const auto& [sysId, state] : states) {
-            UavTelemetrySnapshot snap;
-            snap.id          = "UAV-" + std::to_string(sysId);
-            snap.airspeed    = state.airspeedMeterSecond;
-            snap.groundspeed = std::hypot(state.northMeterSecond, state.eastMeterSecond);
-            snap.altitude    = state.altitudeAmslMeter;
-            snap.roll        = state.rollDegree;
-            snap.pitch       = state.pitchDegree;
-
-            m_dashboardServer->updateTelemetry(snap);
+        {
+            std::lock_guard lock(m_dashboardMutex);
+            for (const auto& [sysId, state] : states) {
+                m_latestUavStates[sysId] = state;
+            }
         }
+
+        for (const auto& sysId : states | std::views::keys) {
+            m_pushDashboardSnapshot(sysId);
+        }
+    });
+
+    // Non-numeric status (health, battery, GPS, RC, armed, mode, connection)
+    // arrives separately and at a much lower rate -- merge it with whatever
+    // numeric state we already have and re-push the full snapshot.
+    m_communicationManager->setStatusCallback([this](const std::map<uint8_t, uavHealth>& healthMap) {
+        if (!m_dashboardServer) return;
+
+        {
+            std::lock_guard lock(m_dashboardMutex);
+            for (const auto& [sysId, health] : healthMap) {
+                m_latestUavHealth[sysId] = health;
+            }
+        }
+
+        for (const auto& sysId : healthMap | std::views::keys) {
+            m_pushDashboardSnapshot(sysId);
+        }
+    });
+
+    // Dedicated NMPC controller debug/health panel, decoupled from any UAV.
+    m_controlInterface->setNmpcDebugCallback([this](const NMPCController::DebugInfo& info) {
+        if (!m_dashboardServer) return;
+
+        NmpcTelemetrySnapshot snap;
+        snap.launched        = info.launched;
+        snap.inFlight        = info.inFlight;
+        snap.endedTraj       = info.endedTraj;
+        snap.violation       = info.violation;
+        snap.lastSolveMs     = info.lastSolveMs;
+        snap.trackingNumber  = info.trackingNumber;
+        snap.trajectoryIndex = info.trajectoryIndex;
+        snap.trajectoryTotal = info.trajectoryTotal;
+
+        m_dashboardServer->updateNmpcTelemetry(snap);
     });
 
     m_controlDispatcher->attachCommunicationManager([this](const std::map<uint8_t, uavCommandsFlags>& cmds) {
@@ -47,8 +84,23 @@ GroundControlStation::GroundControlStation()
     });
 
     m_catapultLauncher = std::make_unique<CatapultLauncher>();
-    m_catapultLauncher->setStatusCallback([](const uint8_t id, CatapultState state, const uint32_t bits) {
+    m_catapultLauncher->setStatusCallback([this](const uint8_t id, CatapultState state, const uint32_t bits) {
         LOG_INFO("Catapult " + std::to_string(id) + " -> state=" + std::to_string(static_cast<int>(state)) + " bits=0x" + std::to_string(bits));
+
+        if (!m_dashboardServer) return;
+
+        LauncherTelemetrySnapshot snap;
+        snap.id          = std::to_string(id);
+        snap.state       = m_catapultStateToString(state);
+        snap.connected   = state != CatapultState::Disconnected;
+        snap.cocked      = bits & STATUS_COCKED;
+        snap.armed       = bits & STATUS_ARMED;
+        snap.countdown   = bits & STATUS_COUNTDOWN;
+        snap.lowBattery  = bits & STATUS_LOW_BATTERY;
+        snap.safetyPinIn = bits & STATUS_SAFETY_PIN_IN;
+        snap.gcsTimeout  = bits & STATUS_GCS_TIMEOUT;
+
+        m_dashboardServer->updateLauncherTelemetry(snap);
     });
 }
 
@@ -312,6 +364,118 @@ bool GroundControlStation::m_parseUavCommandsLine(const std::string& line, uavCo
     commands.F3Command = static_cast<bool>(std::stoi(token));
 
     return true;
+}
+
+void GroundControlStation::m_pushDashboardSnapshot(const uint8_t sysId) {
+    uavStates state{};
+    uavHealth health{};
+    bool haveState = false;
+
+    {
+        std::lock_guard lock(m_dashboardMutex);
+
+        if (const auto it = m_latestUavStates.find(sysId); it != m_latestUavStates.end()) {
+            state = it->second;
+            haveState = true;
+        }
+
+        if (const auto it = m_latestUavHealth.find(sysId); it != m_latestUavHealth.end()) {
+            health = it->second;
+        }
+    }
+
+    // Nothing to show yet for this UAV -- wait for the first numeric
+    // telemetry sample before creating its panel.
+    if (!haveState) return;
+
+    UavTelemetrySnapshot snap;
+    snap.id          = "UAV-" + std::to_string(sysId);
+    snap.connected   = health.isConnected;
+    snap.armed       = health.isArmed;
+    snap.mode        = m_flightModeToString(health.flightMode);
+
+    snap.airspeed    = state.airspeedMeterSecond;
+    snap.groundspeed = std::hypot(state.northMeterSecond, state.eastMeterSecond);
+    snap.altitude    = state.altitudeAmslMeter;
+    snap.roll        = state.rollDegree;
+    snap.pitch       = state.pitchDegree;
+    // rpm / cl: not currently published over MAVSDK telemetry (no
+    // subscription wired for them yet) -- left at 0 until that's added.
+
+    snap.battery  = health.batteryRemainingPercent * 100.0;
+    // gpsHdop: mavsdk::Telemetry::GpsInfo doesn't expose HDOP, only fix type
+    // and satellite count -- left at 0 until/unless you pull it from a raw
+    // GPS_RAW_INT mavlink subscription instead.
+    snap.gpsFix   = m_gpsFixToString(health.gpsFixType);
+    snap.satellites = health.gpsNumSatellites;
+    snap.rcSignal = health.rcAvailable ? health.rcSignalPercent : 0.0;
+    snap.linkQuality = !health.isConnected ? "Offline"
+                      : health.rcAvailable && health.rcSignalPercent >= 80.0f ? "Excellent"
+                      : health.rcAvailable && health.rcSignalPercent >= 50.0f ? "Good"
+                      : "Poor";
+
+    // MAVSDK's Telemetry::Health doesn't break out barometer/battery/RC
+    // individually, so those three are best-effort derived here rather than
+    // read straight off the struct -- adjust the thresholds/mapping to
+    // taste.
+    snap.health.imu     = (health.health.is_gyrometer_calibration_ok && health.health.is_accelerometer_calibration_ok)
+                           ? HealthStatus::Ok : HealthStatus::Fail;
+    snap.health.compass = health.health.is_magnetometer_calibration_ok ? HealthStatus::Ok : HealthStatus::Fail;
+    snap.health.gps     = health.health.is_global_position_ok ? HealthStatus::Ok : HealthStatus::Warn;
+    snap.health.baro    = health.health.is_local_position_ok ? HealthStatus::Ok : HealthStatus::Warn;
+    snap.health.battery = health.batteryRemainingPercent <= 0.10f ? HealthStatus::Fail
+                         : health.batteryRemainingPercent <= 0.25f ? HealthStatus::Warn
+                         : HealthStatus::Ok;
+    snap.health.rc      = health.rcAvailable ? HealthStatus::Ok : HealthStatus::Warn;
+
+    m_dashboardServer->updateTelemetry(snap);
+}
+
+std::string GroundControlStation::m_flightModeToString(const mavsdk::Telemetry::FlightMode mode) {
+    switch (mode) {
+        case mavsdk::Telemetry::FlightMode::Ready:        return "READY";
+        case mavsdk::Telemetry::FlightMode::Takeoff:      return "TAKEOFF";
+        case mavsdk::Telemetry::FlightMode::Hold:         return "HOLD";
+        case mavsdk::Telemetry::FlightMode::Mission:      return "MISSION";
+        case mavsdk::Telemetry::FlightMode::ReturnToLaunch: return "RTL";
+        case mavsdk::Telemetry::FlightMode::Land:         return "LAND";
+        case mavsdk::Telemetry::FlightMode::Offboard:     return "OFFBOARD";
+        case mavsdk::Telemetry::FlightMode::FollowMe:     return "FOLLOW_ME";
+        case mavsdk::Telemetry::FlightMode::Manual:       return "MANUAL";
+        case mavsdk::Telemetry::FlightMode::Altctl:       return "ALTCTL";
+        case mavsdk::Telemetry::FlightMode::Posctl:       return "POSCTL";
+        case mavsdk::Telemetry::FlightMode::Acro:         return "ACRO";
+        case mavsdk::Telemetry::FlightMode::Stabilized:   return "STABILIZED";
+        case mavsdk::Telemetry::FlightMode::Rattitude:    return "RATTITUDE";
+        default:                                          return "UNKNOWN";
+    }
+}
+
+std::string GroundControlStation::m_gpsFixToString(const mavsdk::Telemetry::FixType fix) {
+    switch (fix) {
+        case mavsdk::Telemetry::FixType::NoGps:    return "No GPS";
+        case mavsdk::Telemetry::FixType::NoFix:    return "No Fix";
+        case mavsdk::Telemetry::FixType::Fix2D:    return "2D Fix";
+        case mavsdk::Telemetry::FixType::Fix3D:    return "3D Fix";
+        case mavsdk::Telemetry::FixType::FixDgps:  return "DGPS Fix";
+        case mavsdk::Telemetry::FixType::RtkFloat: return "RTK Float";
+        case mavsdk::Telemetry::FixType::RtkFixed: return "RTK Fixed";
+        default:                                   return "Unknown";
+    }
+}
+
+std::string GroundControlStation::m_catapultStateToString(const CatapultState state) {
+    switch (state) {
+        case CatapultState::Disconnected: return "Disconnected";
+        case CatapultState::Connecting:   return "Connecting";
+        case CatapultState::Connected:    return "Connected";
+        case CatapultState::Arming:       return "Arming";
+        case CatapultState::Armed:        return "Armed";
+        case CatapultState::Countdown:    return "Countdown";
+        case CatapultState::Launched:     return "Launched";
+        case CatapultState::Fault:        return "Fault";
+        default:                          return "Unknown";
+    }
 }
 
 void GroundControlStation::m_supervisorLoop() const {

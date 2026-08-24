@@ -125,6 +125,21 @@ double NMPCController::lastSolveMs() const {
     return m_lastSolveMs;
 }
 
+NMPCController::DebugInfo NMPCController::getDebugInfo() const {
+    std::lock_guard lock(m_solveMutex);
+
+    DebugInfo info;
+    info.launched = m_launched;
+    info.inFlight = m_inFlight;
+    info.endedTraj = m_endedTraj;
+    info.violation = m_violation;
+    info.lastSolveMs = m_lastSolveMs;
+    info.trackingNumber = m_trackingNumber;
+    info.trajectoryIndex = m_lastIdxTraj;
+    info.trajectoryTotal = m_numTrajectoryPoints;
+    return info;
+}
+
 void NMPCController::m_initializeSolverIO() {
     // Inputs
     m_x0.assign(solver_sparsity_in(0)[0], 0.0);

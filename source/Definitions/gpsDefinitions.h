@@ -52,39 +52,110 @@ static inline gps_abstime gps_absolute_time() {
 }
 
 struct sensor_gps_s {
-    uint64_t timestamp;
-    uint64_t time_utc_usec;
-    uint32_t device_id;
-    int32_t latitude_deg;
-    int32_t longitude_deg;
-    int32_t altitude_msl_m;
-    int32_t altitude_ellipsoid_m;
-    float s_variance_m_s;
-    float c_variance_rad;
-    float eph;
-    float epv;
-    float hdop;
-    float vdop;
-    int32_t noise_per_ms;
-    int32_t jamming_indicator;
-    float vel_m_s;
-    float vel_n_m_s;
-    float vel_e_m_s;
-    float vel_d_m_s;
-    float cog_rad;
-    int32_t timestamp_time_relative;
-    float heading;
-    float heading_offset;
-    float heading_accuracy;
-    uint16_t automatic_gain_control;
-    uint8_t fix_type;
-    uint8_t jamming_state;
-    bool vel_ned_valid;
-    uint8_t satellites_used;
-    uint8_t _padding0[2]; // required for logger
-    uint8_t spoofing_state;
-    bool rtcm_crc_failed;
-    bool rtcm_msg_used;
+
+    // -------------------------------------------------------------------------
+    // Constants
+    // -------------------------------------------------------------------------
+
+    static constexpr uint8_t FIX_TYPE_NONE                   = 1;
+    static constexpr uint8_t FIX_TYPE_2D                     = 2;
+    static constexpr uint8_t FIX_TYPE_3D                     = 3;
+    static constexpr uint8_t FIX_TYPE_RTCM_CODE_DIFFERENTIAL = 4;
+    static constexpr uint8_t FIX_TYPE_RTK_FLOAT              = 5;
+    static constexpr uint8_t FIX_TYPE_RTK_FIXED              = 6;
+    static constexpr uint8_t FIX_TYPE_EXTRAPOLATED           = 8;
+
+    static constexpr uint8_t JAMMING_STATE_UNKNOWN   = 0;
+    static constexpr uint8_t JAMMING_STATE_OK        = 1;
+    static constexpr uint8_t JAMMING_STATE_MITIGATED = 2;
+    static constexpr uint8_t JAMMING_STATE_DETECTED  = 3;
+
+    static constexpr uint8_t SPOOFING_STATE_UNKNOWN   = 0;
+    static constexpr uint8_t SPOOFING_STATE_OK        = 1;
+    static constexpr uint8_t SPOOFING_STATE_MITIGATED = 2;
+    static constexpr uint8_t SPOOFING_STATE_DETECTED  = 3;
+
+    static constexpr uint8_t AUTHENTICATION_STATE_UNKNOWN      = 0;
+    static constexpr uint8_t AUTHENTICATION_STATE_INITIALIZING = 1;
+    static constexpr uint8_t AUTHENTICATION_STATE_ERROR        = 2;
+    static constexpr uint8_t AUTHENTICATION_STATE_OK           = 3;
+    static constexpr uint8_t AUTHENTICATION_STATE_DISABLED     = 4;
+
+    static constexpr uint32_t SYSTEM_ERROR_OK                   = 0;
+    static constexpr uint32_t SYSTEM_ERROR_INCOMING_CORRECTIONS = 1;
+    static constexpr uint32_t SYSTEM_ERROR_CONFIGURATION        = 2;
+    static constexpr uint32_t SYSTEM_ERROR_SOFTWARE             = 4;
+    static constexpr uint32_t SYSTEM_ERROR_ANTENNA              = 8;
+    static constexpr uint32_t SYSTEM_ERROR_EVENT_CONGESTION     = 16;
+    static constexpr uint32_t SYSTEM_ERROR_CPU_OVERLOAD         = 32;
+    static constexpr uint32_t SYSTEM_ERROR_OUTPUT_CONGESTION    = 64;
+
+    static constexpr uint8_t CORRECTIONS_PROTOCOL_UNKNOWN = 0;
+    static constexpr uint8_t CORRECTIONS_PROTOCOL_RTCM3  = 1;
+    static constexpr uint8_t CORRECTIONS_PROTOCOL_SPARTN = 2;
+    static constexpr uint8_t CORRECTIONS_PROTOCOL_HAS    = 3;
+    static constexpr uint8_t CORRECTIONS_PROTOCOL_PMP    = 4;
+    static constexpr uint8_t CORRECTIONS_PROTOCOL_QZSS_L6 = 5;
+
+    static constexpr uint8_t CORRECTIONS_MSG_USED_UNKNOWN  = 0;
+    static constexpr uint8_t CORRECTIONS_MSG_USED_NOT_USED = 1;
+    static constexpr uint8_t CORRECTIONS_MSG_USED_USED     = 2;
+
+    // -------------------------------------------------------------------------
+    // Fields
+    // -------------------------------------------------------------------------
+
+    uint64_t timestamp{0};
+    uint64_t timestamp_sample{0};
+    uint32_t device_id{0};
+
+    double latitude_deg{0.0};
+    double longitude_deg{0.0};
+    double altitude_msl_m{0.0};
+    double altitude_ellipsoid_m{0.0};
+
+    float s_variance_m_s{0.0f};
+    float c_variance_rad{0.0f};
+    uint8_t fix_type{0};
+    float eph{0.0f};
+    float epv{0.0f};
+    float hdop{0.0f};
+    float vdop{0.0f};
+
+    int32_t noise_per_ms{0};
+    uint16_t automatic_gain_control{0};
+    uint8_t jamming_state{JAMMING_STATE_UNKNOWN};
+    int32_t jamming_indicator{0};
+    uint8_t spoofing_state{SPOOFING_STATE_UNKNOWN};
+    uint8_t authentication_state{AUTHENTICATION_STATE_UNKNOWN};
+
+    float vel_m_s{0.0f};
+    float vel_n_m_s{0.0f};
+    float vel_e_m_s{0.0f};
+    float vel_d_m_s{0.0f};
+    float cog_rad{0.0f};
+    bool vel_ned_valid{false};
+
+    int32_t timestamp_time_relative{0};
+    uint64_t time_utc_usec{0};
+
+    uint8_t satellites_used{0};
+
+    uint32_t system_error{SYSTEM_ERROR_OK};
+
+    float heading{0.0f};
+    float heading_offset{0.0f};
+    float heading_accuracy{0.0f};
+
+    float rtcm_injection_rate{0.0f};
+    uint8_t selected_rtcm_instance{0};
+    uint8_t corrections_protocol{CORRECTIONS_PROTOCOL_UNKNOWN};
+    bool corrections_crc_failed{false};
+    uint8_t corrections_msg_used{CORRECTIONS_MSG_USED_UNKNOWN};
+
+    float antenna_offset_x{0.0f};
+    float antenna_offset_y{0.0f};
+    float antenna_offset_z{0.0f};
 };
 
 struct satellite_info_s {
