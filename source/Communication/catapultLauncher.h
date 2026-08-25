@@ -164,6 +164,7 @@ private:
 
     static bool m_waitForAck(Link& link, uint16_t seq, CatapultMsgType expectedType, int timeoutMs, CatapultPacket& out);
     void m_setState(Link& link, CatapultState state) const;
+    void m_notifyStatus(const Link& link) const;
     void m_watchdogLoop() const;
 };
 

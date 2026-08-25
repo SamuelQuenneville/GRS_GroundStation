@@ -265,6 +265,7 @@ void CatapultLauncher::m_linkLoop(Link& link) const {
                     std::lock_guard<std::mutex> lock(link.heartbeatMutex);
                     link.lastHeartbeat = std::chrono::steady_clock::now();
                 }
+                m_notifyStatus(link);
                 break;
 
             case MSG_FAULT:
@@ -303,9 +304,13 @@ void CatapultLauncher::m_linkLoop(Link& link) const {
 
 void CatapultLauncher::m_setState(Link& link, const CatapultState state) const {
     link.state = state;
+    m_notifyStatus(link);
+}
+
+void CatapultLauncher::m_notifyStatus(const Link &link) const {
     if (m_statusCallback) {
         std::lock_guard<std::mutex> lock(m_callbackMutex);
-        m_statusCallback(link.id, state, link.lastStatusBits.load());
+        m_statusCallback(link.id, link.state.load(), link.lastStatusBits.load());
     }
 }
 
@@ -529,6 +534,27 @@ void CatapultLauncher::m_watchdogLoop() const {
             Link& link = *linkPtr;
             const CatapultState state = link.state.load();
             if (state == CatapultState::Disconnected || state == CatapultState::Fault || link.fd < 0) continue;
+
+            // Idle keepalive: lets the board's own GCS-liveness watchdog reset even
+            // when we're not actively arming/firing, so it never self-disarms just
+            // because nothing happened to be sent for a while.
+
+            // This intentionally does NOT skip Countdown. It used to (the
+            // reasoning being "the board is about to ACK anyway, a PING here
+            // is redundant traffic"), but that only holds for the brief
+            // acceptTimeoutMs accept-phase, not the whole remaining
+            // countdown. Skipping it for the full Countdown duration meant
+            // the firmware's own GCS_TIMEOUT_MS watchdog (2000ms, see the
+            // .ino) was racing the countdown from the same t=0 (the FIRE_AT
+            // packet) with nothing to reset it in between: any countdownMs
+            // approaching 2000ms could self-disarm the board right at
+            // release (spurious post-launch fault), and anything at or
+            // above 2000ms could self-disarm it before the fire time was
+            // ever reached at all, silently dropping the launch.
+            if (now - link.lastPingSent > std::chrono::milliseconds(PING_INTERVAL_MS)) {
+                m_sendPacket(link, catapultMakePacket(MSG_PING, 0, 0));
+                link.lastPingSent = now;
+            }
 
             // Idle keepalive: lets the board's own GCS-liveness watchdog reset even
             // when we're not actively arming/firing, so it never self-disarms just
