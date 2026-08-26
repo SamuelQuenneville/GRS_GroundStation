@@ -11,6 +11,7 @@
 #include "Console/consoleInterface.h"
 #include "Dashboard/dashboardServer.h"
 #include "Dashboard/browserLauncher.h"
+#include "Util/parseUtils.h"
 #include "gcsConfig.h"
 
 // Global synchronization for clean shutdown
@@ -40,19 +41,39 @@ int main(const int argc, const char * argv[]) {
             config.verbose = true;
 
         } else if (arg.find("--UAVs=") == 0) {
-            config.numUavs = std::stoi(arg.substr(arg.find('=') + 1));
+            const auto value = grs::parseInt<int>(arg.substr(arg.find('=') + 1));
+            if (!value || *value <= 0) {
+                std::cerr << "Invalid " << arg << " (expected --UAVs=N with N a positive integer)\n";
+                return 1;
+            }
+            config.numUavs = *value;
 
         } else if (arg.find("--hlc-freq=") == 0) {
-            config.hlcFrequency = std::stod(arg.substr(arg.find('=') + 1));
+            const auto value = grs::parseDouble(arg.substr(arg.find('=') + 1));
+            if (!value || *value <= 0.0) {
+                std::cerr << "Invalid " << arg << " (expected --hlc-freq=F with F a positive number)\n";
+                return 1;
+            }
+            config.hlcFrequency = *value;
 
         } else if (arg.find("--matlab=") == 0) {
             const size_t equalPos = arg.find('=');
-            const size_t colonPos = arg.find(':');
+            const size_t colonPos = arg.find(':', equalPos);
 
-            static std::string ipStr = arg.substr(equalPos + 1, colonPos - equalPos - 1);
-            const auto ip = ipStr.c_str();
-            const auto port = static_cast<uint16_t>(std::stoi(arg.substr(colonPos + 1)));
-            config.matlab = std::make_pair(ip, port);
+            if (colonPos == std::string::npos) {
+                std::cerr << "Invalid " << arg << " (expected --matlab=ip:port)\n";
+                return 1;
+            }
+
+            std::string ipStr = arg.substr(equalPos + 1, colonPos - equalPos - 1);
+            const auto port = grs::parseInt<int>(arg.substr(colonPos + 1));
+
+            if (ipStr.empty() || !port || *port <= 0 || *port > 65535) {
+                std::cerr << "Invalid " << arg << " (expected --matlab=ip:port, with port in 1-65535)\n";
+                return 1;
+            }
+
+            config.matlab = std::make_pair(std::move(ipStr), static_cast<uint16_t>(*port));
             config.controlMode = ControlMode::MATLAB;
 
         } else if (arg.find("--commandFile=") == 0) {
@@ -87,7 +108,7 @@ int main(const int argc, const char * argv[]) {
     DashboardServer dashboard(8080, "./dashboard");
     dashboard.start();
 
-    auto result = BrowserLauncher::launch("http://localhost:8080");
+    const auto result = BrowserLauncher::launch("http://localhost:8080");
 
     if (!result.success) {
         std::cerr << "Failed to launch browser: " << result.error.message() << std::endl;
@@ -96,10 +117,20 @@ int main(const int argc, const char * argv[]) {
     // ---- Initialize app ----
     GroundControlStation gcs;
     gcs.setDashboard(&dashboard);
-    gcs.initialize(config);
+
+    try {
+        gcs.initialize(config);
+    } catch (const std::exception& e) {
+        // Mirrors the try/catch around the GCS config load above: initialize()
+        // reloads the same YAML file to parse SolverConfiguration, and a
+        // malformed/missing section there should fail with a clear message
+        // too, not an unhandled exception.
+        std::cerr << "Failed to initialize GCS from '" << config.configPath << "': " << e.what() << "\n";
+        return 1;
+    }
 
     // ---- Launch console thread ----
-    ConsoleInterface console(gcs, g_exitFlag, g_exitCv);
+    ConsoleInterface console(gcs, g_exitFlag, g_exitMutex, g_exitCv);
     console.start();
 
     // ---- Wait for exit ----

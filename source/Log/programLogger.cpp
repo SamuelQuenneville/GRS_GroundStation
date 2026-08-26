@@ -35,16 +35,12 @@ void ProgramLogger::log(const LogLevel level, const std::string& message) {
     std::lock_guard<std::mutex> lock(m_logMutex);
     const std::string logMessage = m_getLevelString(level) + message;
 
-    if (m_verbose) {
+    if (m_verbose || level == LogLevel::warning || level == LogLevel::error) {
         std::cout << logMessage << std::endl;
     }
 
     if (m_logFile.is_open()) {
         m_logFile << logMessage << std::endl;
-    }
-
-    if (level == LogLevel::error) {
-        std::exit(EXIT_FAILURE);
     }
 }
 

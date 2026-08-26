@@ -7,10 +7,11 @@
  */
 #include "consoleInterface.h"
 
-ConsoleInterface::ConsoleInterface(GroundControlStation& gcs, bool& exitFlag, std::condition_variable& cv)
+ConsoleInterface::ConsoleInterface(GroundControlStation& gcs, bool& exitFlag, std::mutex& exitMutex, std::condition_variable& cv)
     : m_running(false)
     , m_gcs(gcs)
     , m_exitFlag(exitFlag)
+    , m_exitMutex(exitMutex)
     , m_cv(cv)
 {
 
@@ -67,8 +68,15 @@ void ConsoleInterface::handleCommand(const std::string& command) const {
         LOG_INFO("Arming controller ...");
         m_gcs.armAll();
     } else if (command.starts_with("mode ")) {
-        LOG_INFO("Setting mode ...");
-        m_gcs.setModeAll(command.substr(5));
+        static const std::map<std::string, FlightMode> validModes = flightModeMap();
+        const std::string mode = command.substr(5);
+
+        if (!validModes.contains(mode)) {
+            LOG_INFO("Unknown mode '" + mode + "'. Valid modes: MANUAL, GUIDED, XNAV");
+        } else {
+            LOG_INFO("Setting mode ...");
+            m_gcs.setModeAll(mode);
+        }
     }else if (command == "startController") {
         LOG_INFO("Starting controller ...");
         m_gcs.startController();
@@ -76,7 +84,12 @@ void ConsoleInterface::handleCommand(const std::string& command) const {
         LOG_INFO("Launching ...");
         m_gcs.initLaunch();
     } else if (command.starts_with("fetchParams ")) {
-        m_gcs.fetchParam(std::stoi(command.substr(12)));
+        const auto sysId = grs::parseInt<int>(command.substr(12));
+        if (!sysId || *sysId < 0) {
+            LOG_INFO("Usage: fetchParams [ID]  (ID must be a non-negative integer)");
+        } else {
+            m_gcs.fetchParam(*sysId);
+        }
     } else if (command.starts_with("loadTraj ")) {
         m_gcs.loadTrajectory(command.substr(9));
     } else if (command.starts_with("setOrigin ")) {
@@ -85,17 +98,18 @@ void ConsoleInterface::handleCommand(const std::string& command) const {
 
         if (!parseOrigin(args, lat, lon, alt)) {
             LOG_INFO("Usage: setOrigin lat, lon, alt  OR  setOrigin lat lon alt");
+        } else {
+            m_gcs.setOrigin(lat, lon, alt);
         }
-        m_gcs.setOrigin(lat, lon, alt);
     } else if (command.starts_with("convert ")) {
         const std::string args = command.substr(8);
         double lat, lon, alt;
 
         if (!parseOrigin(args, lat, lon, alt)) {
             LOG_INFO("Usage: setOrigin lat, lon, alt  OR  setOrigin lat lon alt");
+        } else {
+            m_gcs.debugConvert(lat, lon, alt);
         }
-
-        m_gcs.debugConvert(lat, lon, alt);
     } else if (command == "listRtkPorts") {
         const auto ports = RtkBaseStation::scanAvailablePorts();
         if (ports.empty()) {
@@ -126,7 +140,14 @@ void ConsoleInterface::handleCommand(const std::string& command) const {
         m_gcs.catapultArm();
     } else if (command.starts_with("catapultFire")) {
         const std::string arg = command.size() > 12 ? command.substr(13) : "";
-        m_gcs.catapultFire(arg.empty() ? 500 : static_cast<uint32_t>(std::stoul(arg)));
+
+        if (arg.empty()) {
+            m_gcs.catapultFire();
+        } else if (const auto countdownMs = grs::parseInt<uint32_t>(arg); !countdownMs) {
+            LOG_INFO("Usage: catapultFire [MS]  (MS must be a non-negative integer, default 500)");
+        } else {
+            m_gcs.catapultFire(*countdownMs);
+        }
     } else if (command == "catapultAbort") {
         m_gcs.catapultAbort();
     } else if (command == "catapultDisarm") {
@@ -172,29 +193,53 @@ bool ConsoleInterface::parseOrigin(const std::string& input, double& lat, double
     return true;
 }
 
+void ConsoleInterface::m_dispatch(const std::string& command) const {
+    // Defense in depth: handleCommand() and the code it calls into validate
+    // what they reasonably can up front, but plenty of GCS-internal calls
+    // (file I/O, YAML parsing, MAVSDK) can still throw for reasons the
+    // console layer can't predict. Whatever a command throws, it should log
+    // and return control to the prompt.
+    try {
+        handleCommand(command);
+    } catch (const std::exception& e) {
+        LOG_ERROR("Command '" + command + "' failed: " + e.what());
+    } catch (...) {
+        LOG_ERROR("Command '" + command + "' failed with an unknown error");
+    }
+}
+
 void ConsoleInterface::m_listen() {
     std::string command;
     while (m_running) {
         std::cout << "\nGCS->";
-        std::getline(std::cin, command);
+
+        if (!std::getline(std::cin, command)) {
+            // stdin closed (e.g. piped input ran out, or Ctrl-D) treat
+            // like "exit" instead of spinning on a stream that will never
+            // produce another line.
+            LOG_WARNING("Console input closed, shutting down...");
+            command = "exit";
+        }
 
         if (!m_running) {
             break;
         }
 
         if (command == "exit") {
+            LOG_INFO("Exiting program...");
+            m_gcs.stop();
+
             {
-                std::lock_guard<std::mutex> lock(*(new std::mutex())); // short-lived local lock
+                std::lock_guard<std::mutex> lock(m_exitMutex);
                 m_exitFlag = true;
             }
-            handleCommand(command);
             m_cv.notify_one();
             m_running = false;
             return;
         }
 
         if (!command.empty()) {
-            handleCommand(command);
+            m_dispatch(command);
         }
     }
 }

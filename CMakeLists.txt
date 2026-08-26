@@ -54,7 +54,7 @@ find_package(casadi CONFIG REQUIRED)
 FetchContent_Declare(
         px4_gpsdrivers
         GIT_REPOSITORY https://github.com/PX4/PX4-GPSDrivers.git
-        GIT_TAG main
+        GIT_TAG 1b279865192dd61af62095744366466a0d39ffce            # Full SHA of commit on main on 2026-08-24 (no tag available)
 )
 FetchContent_GetProperties(px4_gpsdrivers)
 
@@ -157,6 +157,7 @@ set(GRS_POWERTRAIN
 
 set(GRS_UTIL
         source/Util/profilingTimer.h
+        source/Util/parseUtils.h
 )
 
 set(GRS_USERINPUTS

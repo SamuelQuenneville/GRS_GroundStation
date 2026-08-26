@@ -54,15 +54,19 @@ public:
     // telemetryCallback used by the control loop.
     void setStatusCallback(std::function<void(const std::map<uint8_t, uavHealth>&)> cb);
 
-    void connectAll(const std::string& baseIp, uint16_t basePort, int numUavs, int increment);
-    void connectAll(const std::vector<pixhawkEndpointConfig>& endpoints);
+    // discoveryTimeoutMs bounds how long each addLink() call blocks waiting
+    // for MAVSDK to report the new vehicle. It does not affect whether the
+    // underlying connection stays open, just how long the caller (e.g. the
+    // console thread handling "connect") can be blocked for.
+    void connectAll(const std::string& baseIp, uint16_t basePort, int numUavs, int increment, int discoveryTimeoutMs = 5000);
+    void connectAll(const std::vector<pixhawkEndpointConfig>& endpoints, int discoveryTimeoutMs = 5000);
 
     void armAll();
     void setMode(uint8_t sysId, const std::string& mode);
     void setModeAll(const std::string& mode);
     void fetchParam(int sysId);
 
-    bool addLink(const std::string& connection);
+    bool addLink(const std::string& connection, int discoveryTimeoutMs = 5000);
     void listLinks();
 
     std::shared_ptr<mavsdk::Telemetry> getTelemetry(uint8_t sysId);

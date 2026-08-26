@@ -12,11 +12,12 @@
 #include <atomic>
 
 #include "gcs.h"
+#include "Util/parseUtils.h"
 
 class ConsoleInterface {
 
 public:
-    explicit ConsoleInterface(GroundControlStation& gcs, bool& exitFlag, std::condition_variable& cv);
+    explicit ConsoleInterface(GroundControlStation& gcs, bool& exitFlag, std::mutex& exitMutex, std::condition_variable& cv);
     ~ConsoleInterface();
 
     void start();
@@ -29,11 +30,14 @@ public:
 
 private:
     void m_listen(); // Function that runs in the thread
+    void m_dispatch(const std::string& command) const;
+
     std::thread m_inputThread;
     std::atomic<bool> m_running;
 
     GroundControlStation& m_gcs;
     bool& m_exitFlag;
+    std::mutex& m_exitMutex;
     std::condition_variable& m_cv;
 };
 

@@ -90,7 +90,7 @@ void CommunicationManager::setStatusCallback(std::function<void(const std::map<u
     m_statusCallback = std::move(cb);
 }
 
-void CommunicationManager::connectAll(const std::string& baseIp, const uint16_t basePort, const int numUavs, const int increment) {
+void CommunicationManager::connectAll(const std::string& baseIp, const uint16_t basePort, const int numUavs, const int increment, const int discoveryTimeoutMs) {
 
     LOG_INFO("Connecting to UAV(s)...");
 
@@ -98,18 +98,18 @@ void CommunicationManager::connectAll(const std::string& baseIp, const uint16_t 
         const uint16_t port = basePort + i * increment;
         const std::string uri = "tcpout://" + baseIp + ":" + std::to_string(port);
         LOG_INFO("Adding link");
-        addLink(uri);
+        addLink(uri, discoveryTimeoutMs);
     }
 
     LOG_INFO("All UAV links initialized.");
 }
 
-void CommunicationManager::connectAll(const std::vector<pixhawkEndpointConfig>& endpoints) {
+void CommunicationManager::connectAll(const std::vector<pixhawkEndpointConfig>& endpoints, const int discoveryTimeoutMs) {
     LOG_INFO("Connecting to UAV(s) via explicit endpoints...");
     for (const auto&[id, ip, port] : endpoints) {
         const std::string uri = "udpin://" + ip + ":" + std::to_string(port);
         LOG_INFO("Adding link for UAV " + std::to_string(id) + " -> " + uri);
-        addLink(uri);
+        addLink(uri, discoveryTimeoutMs);
     }
     LOG_INFO("All UAV links initialized.");
 }
@@ -193,8 +193,8 @@ void CommunicationManager::fetchParam(const int sysId) {
     LOG_INFO("Params file created");
 }
 
-bool CommunicationManager::addLink(const std::string& connection) {
-    std::cout << "Connection:" << connection << std::endl;
+bool CommunicationManager::addLink(const std::string& connection, const int discoveryTimeoutMs) {
+    LOG_INFO("Connection: " + connection);
     const auto [connectionResult, connectionHandle] = m_mavsdk.add_any_connection_with_handle(connection);
 
     if (connectionResult != mavsdk::ConnectionResult::Success) {
@@ -203,8 +203,22 @@ bool CommunicationManager::addLink(const std::string& connection) {
     }
 
     m_numberOfUavs += 1;
-    while (m_mavsdk.systems().size() < m_numberOfUavs) {
-        std::this_thread::sleep_for(std::chrono::seconds(1));
+
+    // Bounded wait: give MAVSDK a chance to discover the new vehicle, but
+    // never block the caller (e.g. the console thread handling "connect")
+    // forever if it never shows up.
+    // The connection itself is left open either way; MAVSDK keeps
+    // listening/retrying on it in the background.
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(discoveryTimeoutMs);
+    while (static_cast<int>(m_mavsdk.systems().size()) < m_numberOfUavs
+           && std::chrono::steady_clock::now() < deadline) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    }
+
+    if (static_cast<int>(m_mavsdk.systems().size()) < m_numberOfUavs) {
+        LOG_WARNING("addLink(" + connection + "): no new vehicle discovered within "
+            + std::to_string(discoveryTimeoutMs) + "ms -- check the IP/port and that the vehicle "
+            "is powered on. The link stays open; re-run 'connect' once it's reachable.");
     }
 
     for (auto& system : m_mavsdk.systems()) {
