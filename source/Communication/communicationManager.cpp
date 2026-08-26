@@ -106,9 +106,9 @@ void CommunicationManager::connectAll(const std::string& baseIp, const uint16_t 
 
 void CommunicationManager::connectAll(const std::vector<pixhawkEndpointConfig>& endpoints) {
     LOG_INFO("Connecting to UAV(s) via explicit endpoints...");
-    for (const auto& ep : endpoints) {
-        const std::string uri = "tcpout://" + ep.ip + ":" + std::to_string(ep.port);
-        LOG_INFO("Adding link for UAV " + std::to_string(ep.id) + " -> " + uri);
+    for (const auto&[id, ip, port] : endpoints) {
+        const std::string uri = "udpin://" + ip + ":" + std::to_string(port);
+        LOG_INFO("Adding link for UAV " + std::to_string(id) + " -> " + uri);
         addLink(uri);
     }
     LOG_INFO("All UAV links initialized.");
@@ -168,7 +168,7 @@ void CommunicationManager::fetchParam(const int sysId) {
         return;
     }
 
-    mavsdk::Param::AllParams params = m_param[sysId]->get_all_params();
+    auto [int_params, float_params, custom_params] = m_param[sysId]->get_all_params();
 
     std::string fileName = "uav" + std::to_string(sysId) + ".param";
     std::ofstream file(fileName);
@@ -177,15 +177,15 @@ void CommunicationManager::fetchParam(const int sysId) {
         return;
     }
 
-    for (const auto&[name, value] : params.int_params) {
+    for (const auto&[name, value] : int_params) {
         file << name << "," << value << "\n";
     }
 
-    for (const auto&[name, value] : params.float_params) {
+    for (const auto&[name, value] : float_params) {
         file << name << "," << value << "\n";
     }
 
-    for (const auto&[name, value] : params.custom_params) {
+    for (const auto&[name, value] : custom_params) {
         file << name << "," << value << "\n";
     }
 

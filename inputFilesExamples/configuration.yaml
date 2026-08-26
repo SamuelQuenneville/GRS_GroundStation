@@ -17,14 +17,16 @@ Pixhawk:
   tcpPortIncrement: 10
 
   # Only read when sitl: false — one dedicated IP:port per real Pixhawk.
+  # We use UDP so IP is WI-FI interface on GCS laptop
   endpoints:
-    - {id: 1, ip: 192.168.50.30, port: 400}
-    #- {id: 2, ip: 192.168.50.31, port: 500}
-    #- {id: 3, ip: 192.168.50.32, port: 600}
+    - {id: 1, ip: 192.168.50.10, port: 14400}
+    #- {id: 2, ip: 192.168.50.10, port: 14500}
+    #- {id: 3, ip: 192.168.50.10, port: 14600}
 
+# Connect via TCP
 Catapults:
   - {id: 1, port: 5800, ip: 192.168.50.20}
-  #- {id: 2, port: 5801, ip: 192.168.50.21}
+  - {id: 2, port: 5801, ip: 192.168.50.21}
 
 SolverConfiguration:
   NX: 8
