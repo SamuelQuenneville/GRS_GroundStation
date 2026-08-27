@@ -55,8 +55,8 @@ public:
         const std::string& device,
         unsigned baudrate,
         const RtcmCallback& callback,
-        float surveyInMinimumMeters = 10.0F,
-        unsigned surveyInDurationSeconds = 60);
+        float surveyInMinimumMeters = 2.0F,
+        unsigned surveyInDurationSeconds = 120);
 
     void stop();
 

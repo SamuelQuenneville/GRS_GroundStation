@@ -351,7 +351,7 @@ void CommunicationManager::sendRtcmData(const std::vector<uint8_t>& data) {
     std::lock_guard lock(m_linkMutex);
 
     if (m_rtk.empty()) {
-        LOG_WARNING("sendRtcmData called but no UAV is connected yet");
+        LOG_DEBUG("sendRtcmData called but no UAV is connected yet");
         return;
     }
 

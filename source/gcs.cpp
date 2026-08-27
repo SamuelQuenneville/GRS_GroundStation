@@ -239,9 +239,7 @@ void GroundControlStation::startRtkBase(const std::string& device, const unsigne
         m_rtkBaseStation = std::make_unique<RtkBaseStation>();
     }
 
-    const bool started = m_rtkBaseStation->start(
-        resolvedDevice, baudrate,
-        [this](const std::vector<uint8_t>& rtcmData) {
+    const bool started = m_rtkBaseStation->start(resolvedDevice, baudrate, [this](const std::vector<uint8_t>& rtcmData) {
             m_communicationManager->sendRtcmData(rtcmData);
         });
 
@@ -263,11 +261,11 @@ void GroundControlStation::catapultConnect() const {
 }
 
 void GroundControlStation::catapultArm() const {
-    m_catapultLauncher->armAll();
+    [[maybe_unused]] auto res = m_catapultLauncher->armAll();
 }
 
 void GroundControlStation::catapultFire(const uint32_t countdownMs) const {
-    m_catapultLauncher->fireAll(countdownMs);
+    [[maybe_unused]] auto res = m_catapultLauncher->fireAll(countdownMs);
 }
 
 void GroundControlStation::catapultAbort() const {
