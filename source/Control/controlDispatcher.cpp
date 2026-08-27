@@ -15,7 +15,6 @@ ControlDispatcher::~ControlDispatcher() {
 }
 
 void ControlDispatcher::start() {
-    LOG_INFO("Starting control dispatcher");
     m_running = true;
     m_thread = std::thread(&ControlDispatcher::m_dispatchLoop, this);
 }
@@ -54,6 +53,9 @@ void ControlDispatcher::attachControllerInput(std::function<void(const std::map<
 }
 
 void ControlDispatcher::m_dispatchLoop() {
+
+    LOG_INFO("ControlDispatcher started");
+
     while (m_running) {
         std::unique_lock lock(m_queueMutex);
         m_cv.wait(lock, [this]() { return !m_commandQueue.empty() || !m_running; });

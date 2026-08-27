@@ -43,7 +43,7 @@ void NavigationFrameManager::initializeOffset(std::map<uint8_t, uavStates>& stat
 
         m_uavFrameOffsets.emplace(uavId, offset);
 
-        std::cout << "Offset: " << offset << std::endl;
+        LOG_INFO("Offset: " + std::to_string(offset[0]) + ", " + std::to_string(offset[1]) + ", " + std::to_string(offset[2]));
     }
 
     m_initialized = true;
@@ -54,7 +54,7 @@ void NavigationFrameManager::debugConvert(const double latitudeDegrees, const do
     double north, east, down;
     m_geodeticConverter.geodeticToNed(latitudeDegrees, longitudeDegrees, altitude, north, east, down);
 
-    std::cout << north << ", " << east << ", " << down << std::endl;
+    LOG_DEBUG(std::to_string(north) + ", " + std::to_string(east) + ", " + std::to_string(down));
 }
 
 std::map<uint8_t, uavStates> NavigationFrameManager::toNavigationFrame(std::map<uint8_t, uavStates>& states) const {

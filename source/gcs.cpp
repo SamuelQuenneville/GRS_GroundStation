@@ -85,7 +85,7 @@ GroundControlStation::GroundControlStation()
 
     m_catapultLauncher = std::make_unique<CatapultLauncher>();
     m_catapultLauncher->setStatusCallback([this](const uint8_t id, CatapultState state, const uint32_t bits) {
-        LOG_INFO("Catapult " + std::to_string(id) + " -> state=" + std::to_string(static_cast<int>(state)) + " bits=0x" + std::to_string(bits));
+        LOG_DEBUG("Catapult " + std::to_string(id) + " -> state=" + std::to_string(static_cast<int>(state)) + " bits=0x" + std::to_string(bits));
 
         if (!m_dashboardServer) return;
 
@@ -149,7 +149,6 @@ void GroundControlStation::start() {
 
     m_running = true;
     m_supervisorThread = std::thread(&GroundControlStation::m_supervisorLoop, this);
-    LOG_INFO("GroundControlStation supervisor thread started.");
 }
 
 void GroundControlStation::stop() {
@@ -170,7 +169,7 @@ void GroundControlStation::connectAll() {
         return;
     }
 
-    LOG_INFO("Starting communication...");
+    LOG_INFO("Starting connection...");
 
     if (m_gcsConfig.pixhawk.sitl) {
         m_communicationManager->connectAll(m_gcsConfig.pixhawk.remoteIP, m_gcsConfig.pixhawk.tcpPort, m_gcsConfig.numUavs, m_gcsConfig.pixhawk.tcpPortIncrement);
@@ -212,7 +211,7 @@ void GroundControlStation::loadTrajectory(const std::string& file) const {
         LOG_INFO("Loading trajectory ...");
         m_controlInterface->loadTrajectory(file);
     } else {
-        LOG_INFO("Control mode MPC is required!");
+        LOG_WARNING("Control mode [MPC] is required to load a trajectory!");
     }
 }
 
@@ -259,7 +258,7 @@ void GroundControlStation::stopRtkBase() const {
 
 void GroundControlStation::catapultConnect() const {
     if (!m_catapultLauncher->connectAll()) {
-        LOG_ERROR("Not all catapults connected — check IPs/Wi-Fi before arming.");
+        LOG_WARNING("Not all catapults connected — check IPs/Wi-Fi before arming.");
     }
 }
 
@@ -480,7 +479,7 @@ std::string GroundControlStation::m_catapultStateToString(const CatapultState st
 
 void GroundControlStation::m_supervisorLoop() const {
 
-    LOG_INFO("GroundControlStation main loop started.");
+    LOG_INFO("GroundControlStation main loop started");
 
     // Enable and start logging
     Logger::instance().start(true, "logGcs" + Logger::getDateString());

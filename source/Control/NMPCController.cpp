@@ -62,8 +62,7 @@ void NMPCController::loadTrajectory(const std::string& file) {
     }
 
     m_numTrajectoryPoints = m_referenceTrajectory.size() / m_refStride;
-    std::cout << m_numTrajectoryPoints << std::endl;
-    LOG_INFO("Trajectory loaded");
+    LOG_INFO("Trajectory loaded, number of points = " + std::to_string(m_numTrajectoryPoints));
 }
 
 std::map<uint8_t, uavCommandsFlags> NMPCController::solve(const std::map<uint8_t, uavStates>& latestStates) {

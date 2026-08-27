@@ -62,19 +62,16 @@ void ConsoleInterface::handleCommand(const std::string& command) const {
         LOG_INFO("Starting main process...");
         m_gcs.start();
     } else if (command == "connect") {
-        LOG_INFO("Connecting to all UAVs...");
         m_gcs.connectAll();
     } else if (command == "arm") {
-        LOG_INFO("Arming controller ...");
         m_gcs.armAll();
     } else if (command.starts_with("mode ")) {
         static const std::map<std::string, FlightMode> validModes = flightModeMap();
         const std::string mode = command.substr(5);
 
         if (!validModes.contains(mode)) {
-            LOG_INFO("Unknown mode '" + mode + "'. Valid modes: MANUAL, GUIDED, XNAV");
+            LOG_ERROR("Unknown mode '" + mode + "'. Valid modes: MANUAL, GUIDED, XNAV");
         } else {
-            LOG_INFO("Setting mode ...");
             m_gcs.setModeAll(mode);
         }
     }else if (command == "startController") {
@@ -86,7 +83,7 @@ void ConsoleInterface::handleCommand(const std::string& command) const {
     } else if (command.starts_with("fetchParams ")) {
         const auto sysId = grs::parseInt<int>(command.substr(12));
         if (!sysId || *sysId < 0) {
-            LOG_INFO("Usage: fetchParams [ID]  (ID must be a non-negative integer)");
+            LOG_ERROR("Usage: fetchParams [ID]  (ID must be a non-negative integer)");
         } else {
             m_gcs.fetchParam(*sysId);
         }
@@ -97,7 +94,7 @@ void ConsoleInterface::handleCommand(const std::string& command) const {
         double lat, lon, alt;
 
         if (!parseOrigin(args, lat, lon, alt)) {
-            LOG_INFO("Usage: setOrigin lat, lon, alt  OR  setOrigin lat lon alt");
+            LOG_ERROR("Usage: setOrigin lat, lon, alt  OR  setOrigin lat lon alt");
         } else {
             m_gcs.setOrigin(lat, lon, alt);
         }
@@ -106,14 +103,14 @@ void ConsoleInterface::handleCommand(const std::string& command) const {
         double lat, lon, alt;
 
         if (!parseOrigin(args, lat, lon, alt)) {
-            LOG_INFO("Usage: setOrigin lat, lon, alt  OR  setOrigin lat lon alt");
+            LOG_ERROR("Usage: setOrigin lat, lon, alt  OR  setOrigin lat lon alt");
         } else {
             m_gcs.debugConvert(lat, lon, alt);
         }
     } else if (command == "listRtkPorts") {
         const auto ports = RtkBaseStation::scanAvailablePorts();
         if (ports.empty()) {
-            LOG_INFO("No u-blox USB serial devices found");
+            LOG_ERROR("No u-blox USB serial devices found");
         } else {
             for (const auto& port : ports) {
                 LOG_INFO("Found: " + port);
@@ -126,7 +123,7 @@ void ConsoleInterface::handleCommand(const std::string& command) const {
         iss >> device >> baudrate;
 
         if (device.empty()) {
-            LOG_INFO("Usage: startRtk [DEVICE] [BAUD]  e.g. startRtk /dev/ttyACM0 0");
+            LOG_ERROR("Usage: startRtk [DEVICE] [BAUD]  e.g. startRtk /dev/ttyACM0 0");
         } else {
             LOG_INFO("Starting RTK base station on " + device + "...");
             m_gcs.startRtkBase(device, baudrate);
@@ -144,7 +141,7 @@ void ConsoleInterface::handleCommand(const std::string& command) const {
         if (arg.empty()) {
             m_gcs.catapultFire();
         } else if (const auto countdownMs = grs::parseInt<uint32_t>(arg); !countdownMs) {
-            LOG_INFO("Usage: catapultFire [MS]  (MS must be a non-negative integer, default 500)");
+            LOG_ERROR("Usage: catapultFire [MS]  (MS must be a non-negative integer, default 500)");
         } else {
             m_gcs.catapultFire(*countdownMs);
         }
@@ -161,7 +158,7 @@ void ConsoleInterface::handleCommand(const std::string& command) const {
         LOG_INFO("Exiting program...");
         m_gcs.stop();
     } else {
-        LOG_INFO("Unknown command");
+        LOG_ERROR("Unknown command");
     }
 }
 

@@ -117,7 +117,6 @@ void ControlInterface::m_controlLoop() {
             auto navStates = m_navFrameManager.toNavigationFrame(latestStates);
 
             if (m_config.controlMode == ControlMode::MATLAB) {
-                LOG_DEBUG("ControlInterface::m_controlLoop() --> MATLAB");
                 m_sendDataToMatlab(navStates);
                 auto output = m_receiveDataFromMatlab();
 
@@ -150,7 +149,7 @@ void ControlInterface::m_controlLoop() {
                 fileIdx += static_cast<int>(m_fileFrequency / m_config.hlcFrequency);
 
             } else {
-                LOG_ERROR("Error setting controller Mode");
+                LOG_ERROR("Not a valid control mode. Options are Matlab/MPC/AttitudeFile");
             }
 
             if (m_sendCommand) {
@@ -166,7 +165,7 @@ void ControlInterface::m_initMatlabConnection(const char* ip, const uint16_t por
 
     m_udpSocketMatlab = socket(AF_INET, SOCK_DGRAM, 0);
     if (m_udpSocketMatlab < 0) {
-        LOG_ERROR("Error creating UDP socket");
+        LOG_ERROR("Failed to init matlab udp socket");
         return;
     }
 

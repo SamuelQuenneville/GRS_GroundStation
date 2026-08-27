@@ -101,7 +101,7 @@ void CommunicationManager::connectAll(const std::string& baseIp, const uint16_t 
         addLink(uri, discoveryTimeoutMs);
     }
 
-    LOG_INFO("All UAV links initialized.");
+    LOG_INFO("All UAV links initialized");
 }
 
 void CommunicationManager::connectAll(const std::vector<pixhawkEndpointConfig>& endpoints, const int discoveryTimeoutMs) {
@@ -111,13 +111,19 @@ void CommunicationManager::connectAll(const std::vector<pixhawkEndpointConfig>& 
         LOG_INFO("Adding link for UAV " + std::to_string(id) + " -> " + uri);
         addLink(uri, discoveryTimeoutMs);
     }
-    LOG_INFO("All UAV links initialized.");
+    LOG_INFO("All UAV links initialized");
 }
 
 void CommunicationManager::armAll() {
+
+    if (m_passthrough.empty()) {
+        LOG_WARNING("Arm command ignored: no UAV connected");
+        return;
+    }
+
     for (const auto& [sysId, passthrough]: m_passthrough) {
 
-        LOG_INFO("Arming ...");
+        LOG_INFO("Arming UAV sysId = " + std::to_string(sysId) + " ...");
 
         mavsdk::MavlinkPassthrough::CommandLong command{};
         command.command = MAV_CMD_COMPONENT_ARM_DISARM;
@@ -129,33 +135,60 @@ void CommunicationManager::armAll() {
         const auto result = passthrough->send_command_long(command);
 
         if (result != mavsdk::MavlinkPassthrough::Result::Success) {
-            LOG_WARNING("Arming failed for sysId = " + std::to_string(sysId));
+            LOG_WARNING("Arming failed for sysId = " + std::to_string(sysId) + ", result = " + std::to_string(static_cast<int>(result)));
+            continue;
         }
 
-        LOG_INFO("SysId " + std::to_string(sysId) + " is armed");
+        LOG_INFO("Arm command sent successfully to sysId = " + std::to_string(sysId));
     }
 }
 
 void CommunicationManager::setMode(const uint8_t sysId, const std::string& mode) {
+
+    const auto it = m_passthrough.find(sysId);
+
+    if (it == m_passthrough.end() || !it->second) {
+        LOG_WARNING("Cannot set mode: UAV sysId = " + std::to_string(sysId) + " is not connected");
+        return;
+    }
+
+    const auto modes = flightModeMap();
+    const auto modeIt = modes.find(mode);
+
+    if (modeIt == modes.end()) {
+        LOG_WARNING("Cannot set mode for sysId = " + std::to_string(sysId) + ": unknown mode '" + mode + "'");
+        return;
+    }
+
+    LOG_INFO("Setting UAV sysId = " + std::to_string(sysId) + " to mode " + mode + " ...");
+
     mavsdk::MavlinkPassthrough::CommandLong command{};
     command.command = MAV_CMD_DO_SET_MODE;
     command.param1 = MAV_MODE_FLAG_CUSTOM_MODE_ENABLED;
-    command.param2 = flightModeMap()[mode];
-    command.target_sysid = m_passthrough[sysId]->get_target_sysid();
+    command.param2 = modeIt->second;
+    command.target_sysid = it->second->get_target_sysid();
     command.target_compid = MAV_COMP_ID_AUTOPILOT1;
 
-    const auto result = m_passthrough[sysId]->send_command_long(command);
+    const auto result = it->second->send_command_long(command);
 
     if (result != mavsdk::MavlinkPassthrough::Result::Success) {
-        std::cout << result << std::endl;
-    } else {
-        LOG_INFO("Successfully switched mode!");
+        LOG_WARNING("Failed to set mode for sysId = " + std::to_string(sysId) + ", mode = " + mode + ", result = " + std::to_string(static_cast<int>(result)));
+        return;
     }
+
+    LOG_INFO("Mode command sent successfully to sysId = " + std::to_string(sysId) + ": " + mode);
 }
 
 void CommunicationManager::setModeAll(const std::string& mode) {
 
+    if (m_passthrough.empty()) {
+        LOG_WARNING("Set mode ignored: no UAV connected");
+        return;
+    }
+
     setHomeToCurrentPosition();
+
+    LOG_INFO("Setting mode '" + mode + "' for " + std::to_string(m_passthrough.size()) + " UAV(s) ...");
 
     for (const auto& sysId : m_passthrough | std::views::keys) {
         setMode(sysId, mode);
@@ -173,7 +206,7 @@ void CommunicationManager::fetchParam(const int sysId) {
     std::string fileName = "uav" + std::to_string(sysId) + ".param";
     std::ofstream file(fileName);
     if (!file.is_open()) {
-        std::cerr << "Failed to open file for writing" << std::endl;
+        LOG_ERROR("Failed to open file: " + fileName);
         return;
     }
 
@@ -210,8 +243,7 @@ bool CommunicationManager::addLink(const std::string& connection, const int disc
     // The connection itself is left open either way; MAVSDK keeps
     // listening/retrying on it in the background.
     const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(discoveryTimeoutMs);
-    while (static_cast<int>(m_mavsdk.systems().size()) < m_numberOfUavs
-           && std::chrono::steady_clock::now() < deadline) {
+    while (static_cast<int>(m_mavsdk.systems().size()) < m_numberOfUavs && std::chrono::steady_clock::now() < deadline) {
         std::this_thread::sleep_for(std::chrono::milliseconds(100));
     }
 
@@ -301,8 +333,7 @@ void CommunicationManager::setHomeToCurrentPosition() {
         if (result == mavsdk::MavlinkPassthrough::Result::Success) {
             LOG_INFO("Home position set to current location");
         } else {
-            LOG_WARNING("Failed to set home position set to current location");
-            std::cout << result << std::endl;
+            LOG_WARNING("Failed to set home position set to current location, result = " + std::to_string(static_cast<int>(result)));
         }
     }
 }
@@ -343,7 +374,7 @@ void CommunicationManager::m_subscribeMavlink(const uint8_t sysId) {
     const auto telemetryIterator = m_telemetry.find(sysId);
 
     if (telemetryIterator == m_telemetry.end()) {
-        LOG_WARNING("Telemetry not found for sysId = " + std::to_string(sysId));
+        LOG_ERROR("Telemetry not found for sysId = " + std::to_string(sysId));
         return;
     }
 
@@ -389,7 +420,7 @@ void CommunicationManager::m_unsubscribeMavlink(const uint8_t sysId) {
     const auto telemetryIterator = m_telemetry.find(sysId);
 
     if (telemetryIterator == m_telemetry.end()) {
-        LOG_WARNING("Telemetry not found for sysId = " + std::to_string(sysId));
+        LOG_ERROR("Telemetry not found for sysId = " + std::to_string(sysId));
         return;
     }
 
@@ -466,7 +497,7 @@ void CommunicationManager::m_handleCommandAck(const mavlink_message_t& message) 
         m_lastAck = ack;
 
         if (m_lastAck.command == MAVLINK_MSG_ID_ATTITUDE_TARGET) {
-           std::cout << "ATTITUDE ACK" << std::endl;
+           LOG_DEBUG("ATTITUDE ACK");
         }
 
         m_cvCommandAck.notify_all();
@@ -513,9 +544,9 @@ void CommunicationManager::m_requestAttitudeTarget(const uint8_t sysId) {
         });
 
     if (result != mavsdk::MavlinkPassthrough::Result::Success) {
-        std::cerr << "Failed to request ATTITUDE_TARGET stream!" << std::endl;
+        LOG_WARNING("Failed to request ATTITUDE_TARGET stream! Result = " + std::to_string(static_cast<int>(result)));
     } else {
-        std::cout << "Requested ATTITUDE_TARGET stream at " << 10.0 << " Hz" << std::endl;
+        LOG_INFO("Requested ATTITUDE_TARGET stream at " + std::to_string(10.0) + " Hz");
     }
 }
 
@@ -524,7 +555,7 @@ void CommunicationManager::m_handleAttitudeTarget(const mavlink_message_t& messa
         mavlink_attitude_target_t attitudeTarget;
         mavlink_msg_attitude_target_decode(&message, &attitudeTarget);
 
-        std::cout << "Thrust target from AP = " << std::to_string(attitudeTarget.thrust) << std::endl;
+        LOG_DEBUG("Thrust target from AP = " + std::to_string(attitudeTarget.thrust));
     }).detach();
 }
 
@@ -606,9 +637,7 @@ void CommunicationManager::m_subscribeRcStatus(const std::shared_ptr<mavsdk::Tel
 void CommunicationManager::m_subscribeHome(const std::shared_ptr<mavsdk::Telemetry> &telemetry, uint8_t sysId, subscriptionHandles &handles) {
 
     handles.homeHandle = telemetry->subscribe_home([](const mavsdk::Telemetry::Position &home) {
-        std::cout << "Home position: Lat = " << home.latitude_deg
-                  << ", Lon = " << home.longitude_deg
-                  << ", Alt = " << home.absolute_altitude_m << "m" << std::endl;
+        LOG_INFO("Home position: Lat = " + std::to_string(home.latitude_deg) + ", Lon = " + std::to_string(home.longitude_deg) + ", Alt = " + std::to_string(home.absolute_altitude_m) + "m");
     });
 }
 
@@ -738,8 +767,8 @@ void CommunicationManager::m_setParameter(const uint8_t sysId, const MAV_PARAM_T
         });
 
     if (result != mavsdk::MavlinkPassthrough::Result::Success) {
-        std::cerr << "Failed to set " << name << "!" << std::endl;
+        LOG_ERROR("Failed to set " + name + ", result = " + std::to_string(static_cast<int>(result)));
     } else {
-        std::cout << "Successfully set " << name << " to " << value << std::endl;
+        LOG_INFO("Successfully sent command to set " + name + " to " + std::to_string(value));
     }
 };

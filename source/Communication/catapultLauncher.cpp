@@ -107,7 +107,6 @@ bool CatapultLauncher::connectAll(const int timeoutMs) {
 
         link.running = true;
         link.linkThread = std::thread(&CatapultLauncher::m_linkLoop, this, std::ref(link));
-        LOG_INFO("Catapult " + std::to_string(link.id) + ": listening on port " + std::to_string(link.port));
     }
 
     // Give each link up to timeoutMs (shared budget, not per-link) to accept

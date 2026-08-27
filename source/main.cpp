@@ -112,6 +112,7 @@ int main(const int argc, const char * argv[]) {
 
     if (!result.success) {
         std::cerr << "Failed to launch browser: " << result.error.message() << std::endl;
+        return 1;
     }
 
     // ---- Initialize app ----
