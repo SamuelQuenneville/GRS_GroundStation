@@ -15,6 +15,16 @@ CommunicationManager::CommunicationManager()
     //     // Returning true from the callback disables printing the message to stdout
     //     return level < mavsdk::log::Level::Warn;
     // });
+
+    // Registered once for the lifetime of this object (not per connect/stop
+    // cycle). Fires whenever MAVSDK adds a new system to m_mavsdk.systems(),
+    // for any connection, at any time -- see m_watchSystem for why this
+    // replaces a bounded discovery-polling loop.
+    m_newSystemHandle = m_mavsdk.subscribe_on_new_system([this]() {
+        for (auto& system : m_mavsdk.systems()) {
+            m_watchSystem(system);
+        }
+    });
 }
 
 CommunicationManager::~CommunicationManager() {
@@ -62,12 +72,21 @@ void CommunicationManager::stop() {
     m_running = false;
     if (m_publishThread.joinable()) m_publishThread.join();
 
-    // unsubscribe & remove connections
+    // unsubscribe from every registered vehicle, then close every connection
+    // ever opened (including any that never got as far as producing a
+    // system -- e.g. a Pixhawk that was configured but never showed up).
     {
         std::lock_guard lock(m_linkMutex);
-        for (const auto& [sysId, handle]: m_connectionHandles) {
+        for (const auto& sysId : m_links | std::views::keys) {
             try {
                 m_unsubscribeMavlink(sysId);
+            } catch ([[maybe_unused]] const std::exception& e) {
+                LOG_WARNING("Exception unsubscribing sysId = " + std::to_string(sysId));
+            }
+        }
+
+        for (const auto& handle : m_connectionHandles) {
+            try {
                 m_mavsdk.remove_connection(handle);
             } catch ([[maybe_unused]] const std::exception& e) {
                 LOG_WARNING("Exception removing connection handle");
@@ -77,6 +96,8 @@ void CommunicationManager::stop() {
         m_messageHandles.clear();
         m_connectionHandles.clear();
         m_links.clear();
+        m_watchedSystems.clear();
+        m_expectedSysIds.clear();
     }
 
     LOG_INFO("CommunicationManager stopped");
@@ -94,24 +115,40 @@ void CommunicationManager::connectAll(const std::string& baseIp, const uint16_t 
 
     LOG_INFO("Connecting to UAV(s)...");
 
+    // Open every link back-to-back -- each addLink() call is just a socket
+    // add, not a wait, so N vehicles no longer cost N sequential timeouts.
     for (int i = 0; i < numUavs; ++i) {
         const uint16_t port = basePort + i * increment;
         const std::string uri = "tcpout://" + baseIp + ":" + std::to_string(port);
         LOG_INFO("Adding link");
-        addLink(uri, discoveryTimeoutMs);
+        addLink(uri);
     }
 
-    LOG_INFO("All UAV links initialized");
+    LOG_INFO("All UAV links opened -- vehicles will register automatically as they connect.");
+    m_waitAndSummarize(numUavs, discoveryTimeoutMs);
 }
 
 void CommunicationManager::connectAll(const std::vector<pixhawkEndpointConfig>& endpoints, const int discoveryTimeoutMs) {
     LOG_INFO("Connecting to UAV(s) via explicit endpoints...");
+
+    {
+        std::lock_guard lock(m_linkMutex);
+        for (const auto& endpoint : endpoints) {
+            m_expectedSysIds.insert(endpoint.id);
+        }
+    }
+
+    // Same reasoning as the SITL overload above: open every endpoint first,
+    // let discovery happen in the background for all of them concurrently,
+    // and only wait once at the end for a status summary.
     for (const auto&[id, ip, port] : endpoints) {
         const std::string uri = "udpin://0.0.0.0:" + std::to_string(port);
         LOG_INFO("Adding link for UAV " + std::to_string(id) + " -> " + uri);
-        addLink(uri, discoveryTimeoutMs);
+        addLink(uri);
     }
-    LOG_INFO("All UAV links initialized");
+
+    LOG_INFO("All UAV links opened -- vehicles will register automatically as they connect.");
+    m_waitAndSummarize(static_cast<int>(endpoints.size()), discoveryTimeoutMs);
 }
 
 void CommunicationManager::armAll() {
@@ -226,7 +263,7 @@ void CommunicationManager::fetchParam(const int sysId) {
     LOG_INFO("Params file created");
 }
 
-bool CommunicationManager::addLink(const std::string& connection, const int discoveryTimeoutMs) {
+bool CommunicationManager::addLink(const std::string& connection) {
     LOG_INFO("Connection: " + connection);
     const auto [connectionResult, connectionHandle] = m_mavsdk.add_any_connection_with_handle(connection);
 
@@ -235,57 +272,125 @@ bool CommunicationManager::addLink(const std::string& connection, const int disc
         return false;
     }
 
-    m_numberOfUavs += 1;
-
-    // Bounded wait: give MAVSDK a chance to discover the new vehicle, but
-    // never block the caller (e.g. the console thread handling "connect")
-    // forever if it never shows up.
-    // The connection itself is left open either way; MAVSDK keeps
-    // listening/retrying on it in the background.
-    const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(discoveryTimeoutMs);
-    while (static_cast<int>(m_mavsdk.systems().size()) < m_numberOfUavs && std::chrono::steady_clock::now() < deadline) {
-        std::this_thread::sleep_for(std::chrono::milliseconds(100));
-    }
-
-    if (static_cast<int>(m_mavsdk.systems().size()) < m_numberOfUavs) {
-        LOG_WARNING("addLink(" + connection + "): no new vehicle discovered within "
-            + std::to_string(discoveryTimeoutMs) + "ms -- check the IP/port and that the vehicle "
-            "is powered on. The link stays open; re-run 'connect' once it's reachable.");
-    }
-
-    for (auto& system : m_mavsdk.systems()) {
-        if (!system->is_connected()) {
-            continue;
-        }
-
-        uint8_t sysId = system->get_system_id();
-        m_vehicleType[sysId] = system->vehicle_type();
-
-        m_aggregators[sysId] = std::make_shared<StatesAggregator>();
-
+    {
         std::lock_guard lock(m_linkMutex);
-        if (!m_links.contains(sysId)) {
-            m_links[sysId] = system;
-            m_connectionHandles[sysId] = connectionHandle;
+        m_connectionHandles.push_back(connectionHandle);
+    }
 
-            m_telemetry[sysId]   = std::make_shared<mavsdk::Telemetry>(system);
-            m_action[sysId]      = std::make_shared<mavsdk::Action>(system);
-            m_param[sysId]       = std::make_shared<mavsdk::Param>(system);
-            m_passthrough[sysId] = std::make_shared<mavsdk::MavlinkPassthrough>(system);
-            m_rtk[sysId]         = std::make_shared<mavsdk::Rtk>(system);
+    // No discovery wait here: the constructor's subscribe_on_new_system
+    // callback (via m_watchSystem) picks up whatever vehicle eventually
+    // shows up on this connection, whenever that happens.
+    return true;
+}
 
+void CommunicationManager::m_watchSystem(const std::shared_ptr<mavsdk::System>& system) {
+    const uint8_t sysId = system->get_system_id();
+
+    {
+        std::lock_guard lock(m_linkMutex);
+        if (m_links.contains(sysId) || m_watchedSystems.contains(sysId)) {
+            return; // already registered, or already being watched
+        }
+        m_watchedSystems.insert(sysId);
+    }
+
+    if (system->has_autopilot() && system->is_connected()) {
+        m_registerSystem(system);
+        return;
+    }
+
+    // The heartbeat arrived (that's how MAVSDK created this System object at
+    // all), but is_connected()/has_autopilot() haven't settled yet --
+    // component discovery and vehicle-type resolution are still in flight.
+    // Watch this specific system and register it the instant MAVSDK marks
+    // it connected, instead of checking once and giving up if it's not
+    // ready in that exact instant (that race is what dropped vehicles
+    // before). This also means a vehicle that briefly drops its link later
+    // gets its health flagged and re-registers automatically on reconnect.
+    system->subscribe_is_connected([this, system](const bool connected) {
+        const uint8_t id = system->get_system_id();
+
+        if (connected && system->has_autopilot()) {
+            m_registerSystem(system);
+            return;
+        }
+
+        if (!connected) {
+            bool wasRegistered;
             {
-                std::lock_guard statesLock(m_statesMutex);
-                m_uavHealths[sysId].isConnected = true;
+                std::lock_guard lock(m_linkMutex);
+                wasRegistered = m_links.contains(id);
             }
+            if (wasRegistered) {
+                {
+                    std::lock_guard statesLock(m_statesMutex);
+                    m_uavHealths[id].isConnected = false;
+                }
+                LOG_WARNING("UAV sysId = " + std::to_string(id) + " lost connection");
+                m_onStatusUpdate();
+            }
+        }
+    });
+}
 
-            m_subscribeMavlink(sysId);
-            m_onStatusUpdate();
+void CommunicationManager::m_registerSystem(const std::shared_ptr<mavsdk::System>& system) {
+    const uint8_t sysId = system->get_system_id();
 
-            LOG_INFO("Connected: sysID = " + std::to_string(sysId));
+    {
+        std::lock_guard lock(m_linkMutex);
+        if (m_links.contains(sysId)) {
+            return; // e.g. is_connected toggled true a second time -- no-op
+        }
+
+        if (!m_expectedSysIds.empty() && !m_expectedSysIds.contains(sysId)) {
+            LOG_WARNING("UAV connected with sysId = " + std::to_string(sysId)
+                        + ", which isn't one of the ids configured under Pixhawk.endpoints -- check for "
+                        "a MAVLink SYSID collision between vehicles (e.g. two boards both left on the "
+                        "default SYSID_THISMAV) or unexpected traffic on the listening port.");
+        }
+
+        m_vehicleType[sysId] = system->vehicle_type();
+        m_aggregators[sysId] = std::make_shared<StatesAggregator>();
+        m_links[sysId]       = system;
+        m_telemetry[sysId]   = std::make_shared<mavsdk::Telemetry>(system);
+        m_action[sysId]      = std::make_shared<mavsdk::Action>(system);
+        m_param[sysId]       = std::make_shared<mavsdk::Param>(system);
+        m_passthrough[sysId] = std::make_shared<mavsdk::MavlinkPassthrough>(system);
+        m_rtk[sysId]         = std::make_shared<mavsdk::Rtk>(system);
+
+        {
+            std::lock_guard statesLock(m_statesMutex);
+            m_uavHealths[sysId].isConnected = true;
         }
     }
-    return true;
+
+    m_subscribeMavlink(sysId);
+    m_onStatusUpdate();
+
+    LOG_INFO("Connected: sysID = " + std::to_string(sysId));
+}
+
+void CommunicationManager::m_waitAndSummarize(const int expectedCount, const int timeoutMs) {
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(timeoutMs);
+
+    int connected;
+    do {
+        {
+            std::lock_guard lock(m_linkMutex);
+            connected = static_cast<int>(m_links.size());
+        }
+        if (connected >= expectedCount) break;
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    } while (std::chrono::steady_clock::now() < deadline);
+
+    if (connected < expectedCount) {
+        LOG_WARNING(std::to_string(connected) + "/" + std::to_string(expectedCount)
+                    + " UAV(s) connected within " + std::to_string(timeoutMs) + "ms. Still listening in "
+                    "the background -- any remaining vehicle registers automatically the moment it sends "
+                    "its first heartbeat, no need to re-run 'connect'.");
+    } else {
+        LOG_INFO("All " + std::to_string(connected) + " UAV(s) connected.");
+    }
 }
 
 void CommunicationManager::listLinks() {
