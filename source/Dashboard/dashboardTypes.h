@@ -173,6 +173,7 @@ struct LauncherTelemetrySnapshot {
     bool lowBattery = false;
     bool safetyPinIn = false;
     bool gcsTimeout = false;
+    int battery = 0;
 
     std::string toJson() const {
         JsonWriter root;
@@ -185,7 +186,8 @@ struct LauncherTelemetrySnapshot {
             .add("countdown", yesNo(countdown))
             .add("lowBattery", yesNo(lowBattery))
             .add("safetyPinIn", yesNo(safetyPinIn))
-            .add("gcsTimeout", yesNo(gcsTimeout));
+            .add("gcsTimeout", yesNo(gcsTimeout))
+            .add("battery", battery);
         return root.str();
     }
 };

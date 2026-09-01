@@ -260,6 +260,7 @@ function updateLauncher(data) {
     armBadge.classList.toggle("on", armed);
 
     setInfo(panel, "state", data.state ?? "--");
+    setStat(panel, "battery", data.battery, 0, "%");
     setStatus(panel, "cocked", data.cocked);
     setStatus(panel, "countdown", data.countdown);
     setStatus(panel, "safetyPinIn", data.safetyPinIn);
@@ -385,11 +386,11 @@ function runDemo() {
 
         updateLauncher({
             id: "1", state: "Armed", connected: "yes", armed: "yes",
-            cocked: "yes", countdown: "no", safetyPinIn: "no", lowBattery: "no", gcsTimeout: "no",
+            cocked: "yes", countdown: "no", safetyPinIn: "no", lowBattery: "no", gcsTimeout: "no",battery: 88,
         });
         updateLauncher({
             id: "2", state: "Connected", connected: "yes", armed: "no",
-            cocked: "no", countdown: "no", safetyPinIn: "yes", lowBattery: "no", gcsTimeout: "no",
+            cocked: "no", countdown: "no", safetyPinIn: "yes", lowBattery: "no", gcsTimeout: "no",battery: 91,
         });
 
         nmpcState.trackingNumber += 1;

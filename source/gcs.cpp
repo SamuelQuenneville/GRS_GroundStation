@@ -99,6 +99,7 @@ GroundControlStation::GroundControlStation()
         snap.lowBattery  = bits & STATUS_LOW_BATTERY;
         snap.safetyPinIn = bits & STATUS_SAFETY_PIN_IN;
         snap.gcsTimeout  = bits & STATUS_GCS_TIMEOUT;
+        snap.battery     = catapultUnpackBatteryPct(bits);
 
         m_dashboardServer->updateLauncherTelemetry(snap);
     });

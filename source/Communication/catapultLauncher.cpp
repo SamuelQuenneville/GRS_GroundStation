@@ -31,6 +31,7 @@ namespace {
         s += "safetyPinRemoved=";   s += (bits & STATUS_SAFETY_PIN_IN)  ? "YES" : "NO";
         s += "armed=";              s += (bits & STATUS_ARMED)          ? "YES" : "NO";
         s += "countdown=";          s += (bits & STATUS_COUNTDOWN)      ? "YES" : "NO";
+        s += " battery=" + std::to_string(catapultUnpackBatteryPct(bits)) + "%";
         if (bits & STATUS_LOW_BATTERY) s += " [LOW BATTERY]";
         if (bits & STATUS_GCS_TIMEOUT) s += " [SELF-DISARMED: GCS TIMEOUT]";
 

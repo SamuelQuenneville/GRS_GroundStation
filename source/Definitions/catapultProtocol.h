@@ -46,6 +46,17 @@ enum CatapultStatusBit : uint32_t {
     STATUS_GCS_TIMEOUT   = 1u << 5  // set right before firmware self-disarms on watchdog expiry
 };
 
+constexpr uint32_t BATTERY_PCT_SHIFT = 8;
+constexpr uint32_t BATTERY_PCT_MASK  = 0xFFu << BATTERY_PCT_SHIFT;
+
+inline uint32_t catapultPackBatteryPct(const uint32_t bits, const uint8_t pct) {
+    return (bits & ~BATTERY_PCT_MASK) | (static_cast<uint32_t>(pct) << BATTERY_PCT_SHIFT);
+}
+
+inline uint8_t catapultUnpackBatteryPct(const uint32_t param) {
+    return static_cast<uint8_t>((param & BATTERY_PCT_MASK) >> BATTERY_PCT_SHIFT);
+}
+
 #pragma pack(push, 1)
 struct CatapultPacket {
     uint8_t  magic;   // must equal CATAPULT_MAGIC

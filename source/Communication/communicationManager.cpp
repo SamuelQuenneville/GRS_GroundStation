@@ -107,7 +107,7 @@ void CommunicationManager::connectAll(const std::string& baseIp, const uint16_t 
 void CommunicationManager::connectAll(const std::vector<pixhawkEndpointConfig>& endpoints, const int discoveryTimeoutMs) {
     LOG_INFO("Connecting to UAV(s) via explicit endpoints...");
     for (const auto&[id, ip, port] : endpoints) {
-        const std::string uri = "udpin://" + ip + ":" + std::to_string(port);
+        const std::string uri = "udpin://0.0.0.0:" + std::to_string(port);
         LOG_INFO("Adding link for UAV " + std::to_string(id) + " -> " + uri);
         addLink(uri, discoveryTimeoutMs);
     }
