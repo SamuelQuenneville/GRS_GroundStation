@@ -165,7 +165,7 @@ bool GroundControlStation::m_parseUavCommandsLine(const std::string& line, uavCo
     std::string token;
 
     // Line definition:
-    // time (sec), sysId, roll (deg), pitch (deg), yaw (deg), thrust (N), F1 (0/1), F2 (0/1)
+    // time (sec), sysId, roll (deg), pitch (deg), yaw (deg), thrust (N), aoa (deg), tension (N), flags (0/1)
 
     if (!std::getline(lineStream, token, ',')) {
         return false;
@@ -200,17 +200,17 @@ bool GroundControlStation::m_parseUavCommandsLine(const std::string& line, uavCo
     if (!std::getline(lineStream, token, ',')) {
         return false;
     }
-    commands.F1Command = static_cast<bool>(std::stoi(token));
+    commands.estimates.aoaDegree = std::stof(token);;
 
     if (!std::getline(lineStream, token, ',')) {
         return false;
     }
-    commands.F2Command = static_cast<bool>(std::stoi(token));
+    commands.estimates.tension = std::stof(token);
 
     if (!std::getline(lineStream, token, ',')) {
         return false;
     }
-    commands.F3Command = static_cast<bool>(std::stoi(token));
+    commands.flags = std::stoi(token);
 
     return true;
 }

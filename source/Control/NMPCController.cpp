@@ -278,17 +278,17 @@ std::map<uint8_t, uavCommandsFlags> NMPCController::m_extractControls() const {
         cmd.commands.pitchDegree = grs::radToDeg(static_cast<float>(m_x[offset + 2]));
         cmd.commands.yawDegree   = 0.0;
 
-        cmd.F1Command = true;   // Should move?
-        cmd.F2Command = false;  // End simulation?
-        cmd.F3Command = false;  // Launch?
+        // cmd.F1Command = true;   // Should move?
+        // cmd.F2Command = false;  // End simulation?
+        // cmd.F3Command = false;  // Launch?
 
-        if (m_launched) {
-            cmd.F3Command = true;
-        }
+        // if (m_launched) {
+        //     cmd.F3Command = true;
+        // }
 
-        if (m_endedTraj) {
-            cmd.F2Command = true;
-        }
+        // if (m_endedTraj) {
+        //     cmd.F2Command = true;
+        // }
 
         out[static_cast<uint8_t>(sysId)] = cmd;
 

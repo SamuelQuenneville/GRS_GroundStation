@@ -80,7 +80,12 @@ void ControlInterface::debugConvert(const double latitudeDegrees, const double l
 void ControlInterface::m_controlLoop() {
     int fileIdx = 0;
 
+    using clock = std::chrono::steady_clock;
+    const auto period = std::chrono::milliseconds(static_cast<int>(1000.0 / m_config.hlcFrequency));
+    auto next = clock::now();
+
     while (m_running) {
+        next += period;
 
         std::map<uint8_t, uavStates> latestStates;
         {
@@ -135,8 +140,16 @@ void ControlInterface::m_controlLoop() {
             }
 
         }
+        // --- timing control ---
+        auto now = clock::now();
 
-        std::this_thread::sleep_for(std::chrono::milliseconds(static_cast<int>(1000.0 / m_config.hlcFrequency)));
+        if (now < next) {
+            std::this_thread::sleep_until(next);
+        } else {
+            // deadline miss
+            LOG_WARNING("Control loop running slow");
+            next = now; // prevent drift accumulation
+        }
     }
 }
 

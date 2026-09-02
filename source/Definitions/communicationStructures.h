@@ -60,12 +60,22 @@ struct uavCommands {
     float thrust;           // [0 1]
 }__attribute__((packed));
 
+struct uavEstimates {
+    float aoaDegree;
+    float tension;
+}__attribute__((packed));
+
 struct uavCommandsFlags {
     uavCommands commands{};
     std::optional<double> timestamp;
-    std::optional<bool> F1Command;
-    std::optional<bool> F2Command;
-    std::optional<bool> F3Command;
+
+    uavEstimates estimates{};
+
+    // uint for flags
+    // bit 0 - should_move
+    // bit 2 - end_sim
+    // bit 3 - launch
+    uint8_t flags;
 };
 
 #endif //COMMUNICATIONSTRUCTURES_H
