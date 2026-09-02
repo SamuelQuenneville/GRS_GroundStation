@@ -1,0 +1,888 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>GRS Ground Station — Setup Orientation View</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <style>
+        /* Palette matches GRS_GroundStation/dashboard/css/theme.css so this drops
+           into the existing dashboard without looking like a foreign panel. */
+        :root {
+            --bg: #0b0e14;
+            --panel: #12161f;
+            --card: #171c27;
+            --border: #232936;
+            --text: #e7ebf3;
+            --text-dim: #8890a0;
+            --blue: #4da3ff;
+            --green: #3ecf6e;
+            --red: #ff5d5d;
+            --orange: #ff9f45;
+            --radius: 8px;
+            --gap: 10px;
+        }
+        * { box-sizing: border-box; }
+        html, body {
+            height: 100%; margin: 0;
+            background: var(--bg); color: var(--text);
+            font-family: -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            overflow: hidden;
+        }
+        body { display: flex; flex-direction: column; }
+
+        /* ---------- Topbar ---------- */
+        .topbar {
+            flex: 0 0 auto;
+            display: flex; align-items: center; gap: 20px;
+            padding: 10px 20px;
+            background: var(--panel);
+            border-bottom: 1px solid var(--border);
+        }
+        .brand { font-size: 16px; font-weight: 600; letter-spacing: 0.3px; display: flex; gap: 8px; align-items: center; }
+        .brand-mark { color: var(--blue); }
+        .brand-sep { color: var(--text-dim); font-weight: 400; }
+        .pill {
+            display: flex; align-items: center; gap: 7px;
+            padding: 4px 11px;
+            background: var(--card);
+            border: 1px solid var(--border);
+            border-radius: 999px;
+            font-size: 12px;
+            color: var(--text-dim);
+        }
+        .pill .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--text-dim); }
+        .pill.warn .dot { background: var(--orange); }
+        .pill.warn { color: var(--orange); border-color: rgba(255,159,69,0.35); }
+        .topbar-spacer { flex: 1; }
+        .topbar-readout { display: flex; gap: 18px; font-size: 12px; }
+        .ro-item { display: flex; flex-direction: column; gap: 2px; align-items: flex-end; min-width: 52px; }
+        .ro-label { color: var(--text-dim); font-size: 10px; }
+        .ro-value { font-variant-numeric: tabular-nums; font-size: 14px; }
+
+        /* ---------- Layout ---------- */
+        .main { flex: 1; display: flex; min-height: 0; }
+        #scene-wrap { flex: 1; position: relative; }
+        canvas { display: block; }
+
+        .sidebar {
+            flex: 0 0 300px;
+            background: var(--panel);
+            border-left: 1px solid var(--border);
+            display: flex; flex-direction: column;
+            overflow-y: auto;
+            padding: var(--gap);
+            gap: var(--gap);
+        }
+        .card {
+            background: var(--card);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            padding: 12px 14px;
+            margin-bottom: var(--gap);
+        }
+        .card h3 {
+            margin: 0 0 10px 0;
+            font-size: 12px;
+            color: var(--text-dim);
+            font-weight: 600;
+            letter-spacing: 0.3px;
+        }
+        .row { display: flex; justify-content: space-between; align-items: center; padding: 3px 0; font-size: 13px; }
+        .row .k { color: var(--text-dim); }
+        .row .v { font-variant-numeric: tabular-nums; }
+
+        /* radio group for waypoint density */
+        .opt-group { display: flex; flex-direction: column; gap: 6px; }
+        .opt {
+            display: flex; align-items: center; gap: 8px;
+            padding: 7px 9px;
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 13px;
+            color: var(--text-dim);
+            transition: border-color .12s, color .12s, background .12s;
+        }
+        .opt:hover { border-color: #33507a; }
+        .opt.active { border-color: var(--blue); color: var(--text); background: rgba(77,163,255,0.08); }
+        .opt input { accent-color: var(--blue); }
+
+        /* vehicle toggle rows -- same shape as .opt but with a color swatch and
+           its own accent color per row instead of the shared blue */
+        .vopt {
+            display: flex; align-items: center; gap: 9px;
+            padding: 7px 9px;
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 13px;
+            color: var(--text-dim);
+            transition: border-color .12s, color .12s, background .12s;
+        }
+        .vopt:hover { border-color: #33507a; }
+        .vopt.active { color: var(--text); background: rgba(255,255,255,0.03); }
+        .v-swatch { width: 10px; height: 10px; border-radius: 50%; flex: 0 0 auto; }
+
+        .btn {
+            background: var(--card);
+            border: 1px solid var(--border);
+            color: var(--text);
+            padding: 7px 12px;
+            border-radius: 6px;
+            font-size: 12px;
+            cursor: pointer;
+            transition: border-color .12s;
+        }
+        .btn:hover { border-color: var(--blue); }
+        .btn.primary { background: var(--blue); border-color: var(--blue); color: #08111f; font-weight: 600; }
+        .btn.primary:hover { filter: brightness(1.08); }
+        .btn-row { display: flex; gap: 8px; margin-top: 4px; }
+
+        input[type="range"] { width: 100%; accent-color: var(--blue); }
+
+        .empty-hint {
+            color: var(--text-dim);
+            font-size: 12.5px;
+            line-height: 1.5;
+        }
+
+        .legend { display: flex; align-items: center; gap: 8px; font-size: 11px; color: var(--text-dim); }
+        .legend-bar {
+            flex: 1; height: 8px; border-radius: 4px;
+            background: linear-gradient(90deg, #4da3ff, #3ecf6e, #ff9f45, #ff5d5d);
+        }
+
+        /* ---------- 3D overlay HUD ---------- */
+        .hud {
+            position: absolute; left: 14px; bottom: 14px;
+            display: flex; gap: 10px;
+            pointer-events: none;
+        }
+        .hud .pill { pointer-events: auto; }
+        .compass {
+            position: absolute; top: 14px; right: 14px;
+            width: 54px; height: 54px;
+            border-radius: 50%;
+            background: var(--card);
+            border: 1px solid var(--border);
+            display: flex; align-items: center; justify-content: center;
+            font-size: 11px; color: var(--text-dim);
+        }
+        .compass svg { width: 100%; height: 100%; transform-origin: 50% 50%; }
+
+        #tooltip {
+            position: absolute;
+            padding: 6px 9px;
+            background: var(--card);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            font-size: 11px;
+            color: var(--text-dim);
+            pointer-events: none;
+            display: none;
+            white-space: nowrap;
+        }
+
+        .section-gap { height: 4px; }
+    </style>
+</head>
+<body>
+
+<div class="topbar">
+    <div class="brand"><span class="brand-mark">GRS</span><span class="brand-sep">/</span><span>Setup Orientation View</span></div>
+    <div class="pill" id="mode-pill"><span class="dot" style="background:var(--text-dim)"></span>Pre-flight setup check — not live tracking</div>
+    <div class="topbar-spacer"></div>
+    <div class="pill" id="origin-pill"><span class="dot"></span><span id="origin-pill-text">Origin: waiting…</span></div>
+
+    <a href="index.html">Dashboard</a>
+</div>
+
+<div class="main">
+    <div id="scene-wrap">
+        <div class="compass"><svg id="compass-svg" viewBox="0 0 54 54">
+            <circle cx="27" cy="27" r="25" fill="none" stroke="#232936" stroke-width="1"/>
+            <text x="27" y="12" fill="#e7ebf3" font-size="9" text-anchor="middle">N</text>
+            <text x="27" y="47" fill="#8890a0" font-size="8" text-anchor="middle">S</text>
+            <text x="8"  y="30" fill="#8890a0" font-size="8" text-anchor="middle">W</text>
+            <text x="46" y="30" fill="#8890a0" font-size="8" text-anchor="middle">E</text>
+        </svg></div>
+        <div class="hud">
+            <div class="pill"><span class="dot" style="background:var(--green)"></span><span id="hud-mode">Orbit — drag to rotate, scroll to zoom</span></div>
+        </div>
+        <div id="tooltip"></div>
+        <div id="error-banner" style="display:none;position:absolute;left:14px;top:14px;right:14px;max-width:640px;background:#2a1218;border:1px solid var(--red);color:#ffd6d6;border-radius:8px;padding:12px 14px;font-size:12.5px;line-height:1.5;"></div>
+    </div>
+
+    <div class="sidebar">
+        <div class="card">
+            <h3>TRAJECTORIES</h3>
+            <div class="opt-group" id="vehicle-group">
+                <div class="empty-hint" id="vehicle-waiting">Loading reference trajectory…</div>
+            </div>
+        </div>
+
+        <div class="card">
+            <h3>WAYPOINT DISPLAY</h3>
+            <div class="opt-group" id="density-group">
+                <label class="opt active" data-mode="all"><input type="radio" name="density" value="all" checked>All points</label>
+                <label class="opt" data-mode="every5"><input type="radio" name="density" value="every5">Every 5th point</label>
+                <label class="opt" data-mode="line"><input type="radio" name="density" value="line">Line only</label>
+            </div>
+            <div class="section-gap"></div>
+            <div class="empty-hint">Each vehicle keeps its own color (see Trajectories above) rather than an altitude gradient, so 3 tracks stay easy to tell apart. Click any waypoint to see that vehicle's altitude and state at that point.</div>
+        </div>
+
+        <div class="card">
+            <h3>GROUND LAYER</h3>
+            <div class="opt-group" id="ground-group">
+                <label class="opt active" data-mode="grid"><input type="radio" name="ground" value="grid" checked>Grid (no tiles needed)</label>
+                <label class="opt" data-mode="tiles"><input type="radio" name="ground" value="tiles">Cached map tiles</label>
+            </div>
+            <div id="tile-settings" style="display:none">
+                <div class="section-gap"></div>
+                <span class="ro-label">Tiles folder (relative to this file)</span>
+                <input type="text" id="tiles-path" value="tiles" style="width:100%;margin-top:4px;background:var(--bg);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:5px 7px;font-size:12px;">
+                <div class="section-gap"></div>
+                <span class="ro-label">Zoom level</span>
+                <input type="number" id="tiles-zoom" value="17" min="10" max="20" style="width:100%;margin-top:4px;background:var(--bg);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:5px 7px;font-size:12px;">
+                <div class="section-gap"></div>
+                <span class="ro-label">Coverage radius (m) — match what you cached</span>
+                <input type="number" id="tiles-radius" value="500" min="50" max="3000" step="50" style="width:100%;margin-top:4px;background:var(--bg);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:5px 7px;font-size:12px;">
+                <div class="btn-row">
+                    <button class="btn primary" id="tiles-load" style="flex:1">Load tiles</button>
+                </div>
+                <div class="section-gap"></div>
+                <div class="empty-hint" id="tiles-status">Point this at the output folder from <code>precache_field_tiles.py</code>. Tiles are placed as textured quads in the same local NED frame as the trajectory, so they line up with it directly.</div>
+            </div>
+        </div>
+
+        <div class="card" id="selected-card">
+            <h3>SELECTED WAYPOINT</h3>
+            <div class="empty-hint" id="selected-empty">Click a marker in the 3D view to inspect the reference state at that point — this is the same data the NMPC solver tracks, not a separate lookup.</div>
+            <div id="selected-body" style="display:none">
+                <div class="row"><span class="k">Vehicle</span><span class="v" id="sw-vehicle" style="font-weight:600">—</span></div>
+                <div class="row"><span class="k">Index</span><span class="v" id="sw-idx">—</span></div>
+                <div class="row"><span class="k">Latitude</span><span class="v" id="sw-lat">—</span></div>
+                <div class="row"><span class="k">Longitude</span><span class="v" id="sw-lon">—</span></div>
+                <div class="row"><span class="k">Altitude</span><span class="v" id="sw-alt">—</span></div>
+                <div class="row"><span class="k">Speed</span><span class="v" id="sw-spd">—</span></div>
+                <div class="row"><span class="k">Roll</span><span class="v" id="sw-roll">—</span></div>
+                <div class="row"><span class="k">Pitch</span><span class="v" id="sw-pitch">—</span></div>
+            </div>
+        </div>
+
+        <div class="card">
+            <h3>ORIGIN</h3>
+            <div id="origin-waiting" class="empty-hint">Waiting for the ground station to report a navigation origin (set via <code>NavigationFrameManager::setOrigin()</code> once GPS lock is available). Everything else on this page is drawn relative to it.</div>
+            <div id="origin-body" style="display:none">
+                <div class="row"><span class="k">Latitude</span><span class="v" id="origin-lat">—</span></div>
+                <div class="row"><span class="k">Longitude</span><span class="v" id="origin-lon">—</span></div>
+                <div class="row"><span class="k">Altitude</span><span class="v" id="origin-alt">—</span></div>
+                <div class="section-gap"></div>
+                <div class="empty-hint">Shown in the scene as the white marker at the local frame's (0,0,0) — everything (trajectories, tiles) is converted into this referential.</div>
+            </div>
+            <div class="section-gap"></div>
+            <button class="btn" id="origin-refresh" style="width:100%">Refresh</button>
+        </div>
+
+        <div class="card">
+            <h3>CAMERA</h3>
+            <div class="btn-row">
+                <button class="btn" id="cam-reset">Reset view</button>
+                <button class="btn" id="cam-top">Top-down</button>
+                <button class="btn" id="cam-side">Side profile</button>
+            </div>
+        </div>
+
+        <div class="card">
+            <h3>ABOUT THIS VIEW</h3>
+            <div class="empty-hint">
+                This page is for pre-flight setup verification, not flight tracking: confirming the navigation origin is where you expect, and that each vehicle's reference trajectory is oriented and shaped correctly before launch. It loads the origin once from <code>GET /api/origin</code> and each vehicle's reference path once from <code>GET /api/trajectory</code> — both static reads, no WebSocket, since none of this needs to update at flight telemetry rates. Switching "Ground layer" to cached map tiles reads PNGs from a local <code>tiles/</code> folder (the output of <code>precache_field_tiles.py</code>) and positions each one by converting its corners into the same local NED frame as the trajectories, using the origin above.
+            </div>
+        </div>
+    </div>
+</div>
+
+
+<script type="importmap">
+    {
+      "imports": {
+        "three": "js/vendor/three/three.module.js",
+        "three/addons/": "js/vendor/three/examples/jsm/"
+      }
+    }
+</script>
+<script type="module">
+    import * as THREE from "three";
+    import { OrbitControls } from "three/addons/controls/OrbitControls.js";
+
+    /* ---------- 1. Real reference trajectory + origin, fetched from the GCS ----------
+     * Two static reads from the same embedded httplib server, not WebSocket --
+     * neither the origin nor the loaded reference trajectory changes at
+     * flight-telemetry rates, so there's no reason to push them.
+     *
+     * GET /api/origin -> { initialized: bool, latitude, longitude, altitude }
+     * GET /api/trajectory -> { vehicles: [ { id, label, color, points: [
+     *     { north, east, down, vx, vy, vz, roll, pitch, speed } , ... ] }, ... ] }
+     *
+     * "color" per vehicle is a "#rrggbb" string chosen server-side (or just
+     * hardcode a small palette client-side keyed by id/index if you'd rather
+     * not thread color through the backend at all).
+     */
+    let ORIGIN_LAT = null, ORIGIN_LON = null, ORIGIN_ALT = null;
+    const M_PER_DEG_LAT = 111320;
+    function nedToLatLon(north, east) {
+        const lat = ORIGIN_LAT + north / M_PER_DEG_LAT;
+        const lon = ORIGIN_LON + east / (M_PER_DEG_LAT * Math.cos(ORIGIN_LAT * Math.PI / 180));
+        return { lat, lon };
+    }
+    // Inverse of the above -- needed to place tile corners in the local frame.
+    function latLonToNed(lat, lon) {
+        const north = (lat - ORIGIN_LAT) * M_PER_DEG_LAT;
+        const east = (lon - ORIGIN_LON) * M_PER_DEG_LAT * Math.cos(ORIGIN_LAT * Math.PI / 180);
+        return { north, east };
+    }
+
+    /* ---------- slippy-map tile math (standard OSM/Leaflet tile scheme) ---------- */
+    function lon2tileX(lon, z) { return (lon + 180) / 360 * Math.pow(2, z); }
+    function lat2tileY(lat, z) {
+        const r = lat * Math.PI / 180;
+        return (1 - Math.log(Math.tan(r) + 1 / Math.cos(r)) / Math.PI) / 2 * Math.pow(2, z);
+    }
+    function tileX2lon(x, z) { return x / Math.pow(2, z) * 360 - 180; }
+    function tileY2lat(y, z) {
+        const n = Math.PI - 2 * Math.PI * y / Math.pow(2, z);
+        return 180 / Math.PI * Math.atan(0.5 * (Math.exp(n) - Math.exp(-n)));
+    }
+
+    /* ---------- 2. Three.js scene ---------- */
+    const wrap = document.getElementById('scene-wrap');
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color(0x0b0e14);
+    scene.fog = new THREE.Fog(0x0b0e14, 250, 700);
+
+    const camera = new THREE.PerspectiveCamera(50, wrap.clientWidth / wrap.clientHeight, 0.1, 2000);
+    camera.position.set(140, 110, 140);
+
+    const renderer = new THREE.WebGLRenderer({ antialias: true });
+    renderer.setPixelRatio(window.devicePixelRatio);
+    renderer.setSize(wrap.clientWidth, wrap.clientHeight);
+    wrap.appendChild(renderer.domElement);
+
+    const controls = new OrbitControls(camera, renderer.domElement);
+    controls.target.set(0, 25, 0);
+    controls.enableDamping = true;
+    controls.dampingFactor = 0.08;
+    controls.update();
+
+    // lighting
+    scene.add(new THREE.AmbientLight(0xffffff, 0.55));
+    const sun = new THREE.DirectionalLight(0xffffff, 0.8);
+    sun.position.set(100, 200, 50);
+    scene.add(sun);
+
+    // ground grid at launch altitude (y=0 = origin altitude)
+    const grid = new THREE.GridHelper(300, 30, 0x33507a, 0x1a2332);
+    grid.position.y = 0;
+    scene.add(grid);
+
+    // simple ground plane, faint, to anchor depth perception
+    const groundMat = new THREE.MeshBasicMaterial({ color: 0x0e1219, transparent: true, opacity: 0.6, side: THREE.DoubleSide });
+    const ground = new THREE.Mesh(new THREE.PlaneGeometry(300, 300), groundMat);
+    ground.rotation.x = -Math.PI / 2;
+    ground.position.y = -0.05;
+    scene.add(ground);
+
+    /* ---------- cached map tiles as a textured ground layer ----------
+     * Reads the folder produced by precache_field_tiles.py (z/x/y.png). Each
+     * tile becomes its own quad, positioned by converting its four corner
+     * lat/lon coordinates into the same local NED frame as the trajectory --
+     * so it lines up regardless of tile size/projection quirks, using the
+     * same origin NavigationFrameManager would use on the real system.
+     */
+    const tileGroup = new THREE.Group();
+    tileGroup.visible = false;
+    scene.add(tileGroup);
+    const textureLoader = new THREE.TextureLoader();
+    textureLoader.setCrossOrigin('anonymous');
+
+    function clearTileGroup() {
+        tileGroup.children.slice().forEach(mesh => {
+            mesh.geometry.dispose();
+            if (mesh.material.map) mesh.material.map.dispose();
+            mesh.material.dispose();
+            tileGroup.remove(mesh);
+        });
+    }
+
+    // After tiles load, point the camera/controls/fog/far-plane at whatever
+    // area actually loaded, rather than leaving the fixed default framing
+    // (tuned for the ~300m synthetic-trajectory footprint) to clip or hide a
+    // much larger cached area.
+    function fitViewToTileGroup() {
+        if (tileGroup.children.length === 0) return;
+        const box = new THREE.Box3().setFromObject(tileGroup);
+        const size = new THREE.Vector3();
+        box.getSize(size);
+        const center = new THREE.Vector3();
+        box.getCenter(center);
+        const span = Math.max(size.x, size.z, 50);
+
+        const dist = span * 0.9;
+        camera.position.set(center.x + dist, dist * 0.75 + 20, center.z + dist);
+        controls.target.set(center.x, 20, center.z);
+        controls.update();
+
+        const far = span * 4 + 500;
+        camera.far = far;
+        camera.updateProjectionMatrix();
+        scene.fog.near = far * 0.4;
+        scene.fog.far = far;
+    }
+
+    async function loadTileGround(folder, zoom, radiusM) {
+        clearTileGroup();
+        const statusEl = document.getElementById('tiles-status');
+        statusEl.textContent = 'Loading…';
+
+        // corners of the area we want covered, in lat/lon
+        const corners = [
+            nedToLatLon(-radiusM, -radiusM),
+            nedToLatLon(radiusM, radiusM),
+        ];
+        const lats = corners.map(c => c.lat), lons = corners.map(c => c.lon);
+        const xMin = Math.floor(lon2tileX(Math.min(...lons), zoom));
+        const xMax = Math.floor(lon2tileX(Math.max(...lons), zoom));
+        const yMin = Math.floor(lat2tileY(Math.max(...lats), zoom)); // north = smaller y
+        const yMax = Math.floor(lat2tileY(Math.min(...lats), zoom));
+
+        const tasks = [];
+        for (let x = xMin; x <= xMax; x++) {
+            for (let y = yMin; y <= yMax; y++) {
+                tasks.push({ z: zoom, x, y });
+            }
+        }
+
+        // A browser can happily draw a few thousand of these small quads, but
+        // that many simultaneous texture fetches/decodes is what actually
+        // hurts -- this cap is about that, not a hard visual limit. Raise it
+        // if you know your machine/connection can take it.
+        const TILE_FETCH_CAP = 1200;
+        if (tasks.length > TILE_FETCH_CAP) {
+            statusEl.innerHTML = `That's ${tasks.length} tiles for a ${radiusM}m radius at zoom ${zoom} -- ` +
+                `more than this demo will fetch at once (cap: ${TILE_FETCH_CAP}). ` +
+                `Lower the zoom (each step down roughly quarters the tile count) or shrink the radius.`;
+            return;
+        }
+
+        let loaded = 0, failed = 0;
+        await Promise.all(tasks.map(({ z, x, y }) => new Promise(resolve => {
+            const url = `${folder}/${z}/${x}/${y}.png`;
+            textureLoader.load(url, (texture) => {
+                texture.colorSpace = THREE.SRGBColorSpace;
+                // Three's Texture defaults to flipY=true (matches OpenGL's
+                // bottom-left UV origin), but the UV array below assumes plain
+                // image-space coordinates (0,0 = top-left, matching how tile
+                // corners are computed from the image's NW pixel). Without
+                // this, every tile renders vertically mirrored -- north and
+                // south content swapped within each tile. Confirmed by
+                // rendering a test tile with an asymmetric N/S marker under an
+                // unambiguous top-down, north-up camera.
+                texture.flipY = false;
+                texture.minFilter = THREE.LinearFilter;
+
+                // tile corners -> lat/lon -> local NED -> scene coords
+                const nwLL = { lat: tileY2lat(y, z), lon: tileX2lon(x, z) };
+                const seLL = { lat: tileY2lat(y + 1, z), lon: tileX2lon(x + 1, z) };
+                const nw = latLonToNed(nwLL.lat, nwLL.lon);
+                const se = latLonToNed(seLL.lat, seLL.lon);
+                const ne = { north: nw.north, east: se.east };
+                const sw = { north: se.north, east: nw.east };
+
+                const p = (c) => nedToScene(c.north, c.east, 0);
+                const positions = new Float32Array([
+                    ...p(nw).toArray(), ...p(sw).toArray(), ...p(se).toArray(),
+                    ...p(nw).toArray(), ...p(se).toArray(), ...p(ne).toArray(),
+                ]);
+                const uvs = new Float32Array([0,0, 0,1, 1,1,  0,0, 1,1, 1,0]);
+                const geo = new THREE.BufferGeometry();
+                geo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+                geo.setAttribute('uv', new THREE.BufferAttribute(uvs, 2));
+                geo.computeVertexNormals();
+
+                const mat = new THREE.MeshBasicMaterial({ map: texture });
+                const mesh = new THREE.Mesh(geo, mat);
+                mesh.position.y = -0.03; // just under the trajectory, above the faint ground plane
+                tileGroup.add(mesh);
+                loaded++;
+                resolve();
+            }, undefined, () => { failed++; resolve(); });
+        })));
+
+        if (loaded === 0) {
+            statusEl.innerHTML = `No tiles found under <code>${folder}/${zoom}/…</code>. Run <code>precache_field_tiles.py</code> and point this at its output folder (same zoom range and center you downloaded).`;
+            tileGroup.visible = false;
+            document.querySelector('#ground-group .opt[data-mode="grid"]').click();
+        } else {
+            statusEl.textContent = `Loaded ${loaded}/${tasks.length} tiles${failed ? `, ${failed} missing` : ''} covering a ${radiusM}m radius.`;
+            tileGroup.visible = true;
+            grid.visible = false;
+            ground.visible = false;
+            fitViewToTileGroup();
+        }
+    }
+
+    document.querySelectorAll('#ground-group .opt').forEach(opt => {
+        opt.addEventListener('click', () => {
+            document.querySelectorAll('#ground-group .opt').forEach(o => o.classList.remove('active'));
+            opt.classList.add('active');
+            const mode = opt.dataset.mode;
+            document.getElementById('tile-settings').style.display = (mode === 'tiles') ? 'block' : 'none';
+            if (mode === 'grid') {
+                tileGroup.visible = false;
+                grid.visible = true;
+                ground.visible = true;
+            } else if (tileGroup.children.length > 0) {
+                tileGroup.visible = true;
+                grid.visible = false;
+                ground.visible = false;
+                fitViewToTileGroup();
+            }
+        });
+    });
+
+    document.getElementById('tiles-load').addEventListener('click', () => {
+        const folder = document.getElementById('tiles-path').value.trim() || 'tiles';
+        const zoom = parseInt(document.getElementById('tiles-zoom').value, 10) || 17;
+        const radiusM = parseFloat(document.getElementById('tiles-radius').value) || 500;
+        loadTileGround(folder, zoom, radiusM);
+    });
+
+    // compass axes at origin
+    function addAxisLabel(dir, color) {
+        const mat = new THREE.LineBasicMaterial({ color });
+        const geo = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(0,0.02,0), dir]);
+        scene.add(new THREE.Line(geo, mat));
+    }
+    addAxisLabel(new THREE.Vector3(0, 0.02, -60), 0x4da3ff);  // north
+    addAxisLabel(new THREE.Vector3(60, 0.02, 0), 0x8890a0);   // east
+
+    /* ---------- Coordinate mapping: NED -> Three.js (x=east, y=up, z=south) ---------- */
+    function nedToScene(north, east, down) {
+        return new THREE.Vector3(east, -down, -north);
+    }
+
+    /* ---------- per-vehicle trajectory lines + waypoint markers ----------
+     * Each vehicle gets a solid-color line/markers so multiple tracks stay
+     * visually distinct. No glyph/trail here -- this view is a static
+     * pre-flight check, not a live tracker, so nothing animates.
+     */
+    let vehicles = [];
+    let currentDensityMode = 'all';
+    const DEFAULT_PALETTE = [0x4da3ff, 0xff9f45, 0x3ecf6e, 0xff5d5d, 0xa78bfa, 0x2dd4bf];
+
+    function buildVehicleVisuals(vehiclesData) {
+        // vehiclesData: [{ id, label, color?, points: [{north,east,down,vx,vy,vz,roll,pitch,speed}, ...] }, ...]
+        vehicles = vehiclesData.map((cfg, i) => {
+            const color = new THREE.Color(cfg.color ?? DEFAULT_PALETTE[i % DEFAULT_PALETTE.length]);
+            const traj = cfg.points.map((p, idx) => ({
+                idx,
+                north: p.north, east: p.east, down: p.down,
+                vx: p.vx ?? 0, vy: p.vy ?? 0, vz: p.vz ?? 0,
+                roll: p.roll ?? 0, pitch: p.pitch ?? 0,
+                speed: p.speed ?? Math.hypot(p.vx ?? 0, p.vy ?? 0),
+            }));
+
+            const linePoints = traj.map(p => nedToScene(p.north, p.east, p.down));
+            const lineGeo = new THREE.BufferGeometry().setFromPoints(linePoints);
+            const lineMat = new THREE.LineBasicMaterial({ color, linewidth: 2 });
+            const trajLine = new THREE.Line(lineGeo, lineMat);
+            scene.add(trajLine);
+
+            const markerGroup = new THREE.Group();
+            scene.add(markerGroup);
+            const markerMeshes = [];
+            const sphereGeo = new THREE.SphereGeometry(1.1, 12, 12);
+            traj.forEach((p) => {
+                const mat = new THREE.MeshStandardMaterial({ color, emissive: color, emissiveIntensity: 0.25 });
+                const mesh = new THREE.Mesh(sphereGeo, mat);
+                mesh.position.copy(nedToScene(p.north, p.east, p.down));
+                mesh.userData = { point: p };
+                markerGroup.add(mesh);
+                markerMeshes.push(mesh);
+            });
+
+            const v = { id: cfg.id, label: cfg.label, color, traj, trajLine, markerGroup, markerMeshes, visible: true };
+            markerMeshes.forEach(m => { m.userData.vehicle = v; });
+            return v;
+        });
+
+        // build the toggle checkboxes to match whatever vehicles actually came back
+        const group = document.getElementById('vehicle-group');
+        group.innerHTML = '';
+        vehicles.forEach(v => {
+            const row = document.createElement('label');
+            row.className = 'vopt active';
+            row.dataset.vehicle = v.id;
+            row.innerHTML = `<input type="checkbox" checked><span class="v-swatch" style="background:#${v.color.getHexString()}"></span>${v.label}`;
+            row.querySelector('input').addEventListener('change', (ev) => {
+                v.visible = ev.target.checked;
+                row.classList.toggle('active', v.visible);
+                applyDensity(currentDensityMode);
+            });
+            group.appendChild(row);
+        });
+
+        applyDensity(currentDensityMode);
+        fitViewToVehicles();
+    }
+
+    function applyDensity(mode) {
+        vehicles.forEach(v => {
+            v.trajLine.visible = (mode === 'line') && v.visible;
+            v.markerMeshes.forEach((m, i) => {
+                if (!v.visible || mode === 'line') { m.visible = false; return; }
+                if (mode === 'all') { m.visible = true; return; }
+                if (mode === 'every5') { m.visible = (i % 5 === 0); return; }
+            });
+        });
+    }
+
+    document.querySelectorAll('#density-group .opt').forEach(opt => {
+        opt.addEventListener('click', () => {
+            document.querySelectorAll('#density-group .opt').forEach(o => o.classList.remove('active'));
+            opt.classList.add('active');
+            currentDensityMode = opt.dataset.mode;
+            applyDensity(currentDensityMode);
+        });
+    });
+
+    // Frame the camera to whatever trajectories actually loaded -- real
+    // hardware trajectories won't be the ~45-90m scale of the old demo data,
+    // so a fixed default camera position would clip or dwarf the real shape.
+    function fitViewToVehicles() {
+        if (vehicles.length === 0) return;
+        const box = new THREE.Box3();
+        vehicles.forEach(v => box.expandByObject(v.trajLine));
+        if (box.isEmpty()) return;
+        const size = new THREE.Vector3();
+        box.getSize(size);
+        const center = new THREE.Vector3();
+        box.getCenter(center);
+        const span = Math.max(size.x, size.y, size.z, 20);
+
+        const dist = span * 1.4;
+        camera.position.set(center.x + dist, center.y + dist * 0.7, center.z + dist);
+        controls.target.copy(center);
+        controls.update();
+
+        const far = span * 6 + 500;
+        camera.far = far;
+        camera.updateProjectionMatrix();
+        scene.fog.near = far * 0.4;
+        scene.fog.far = far;
+    }
+
+    /* ---------- raycasting for clickable markers ---------- */
+    const raycaster = new THREE.Raycaster();
+    const mouse = new THREE.Vector2();
+    const tooltip = document.getElementById('tooltip');
+
+    function fmt(v, d=1) { return v.toFixed(d); }
+
+    function allVisibleMarkerMeshes() {
+        return vehicles.flatMap(v => v.visible ? v.markerMeshes.filter(m => m.visible) : []);
+    }
+
+    function showSelected(p, vehicle) {
+        const { lat, lon } = nedToLatLon(p.north, p.east);
+        document.getElementById('selected-empty').style.display = 'none';
+        document.getElementById('selected-body').style.display = 'block';
+        const vehicleEl = document.getElementById('sw-vehicle');
+        vehicleEl.textContent = vehicle.label;
+        vehicleEl.style.color = `#${vehicle.color.getHexString()}`;
+        document.getElementById('sw-idx').textContent = p.idx;
+        document.getElementById('sw-lat').textContent = lat.toFixed(6) + '°';
+        document.getElementById('sw-lon').textContent = lon.toFixed(6) + '°';
+        document.getElementById('sw-alt').textContent = fmt(-p.down) + ' m';
+        document.getElementById('sw-spd').textContent = fmt(p.speed) + ' m/s';
+        document.getElementById('sw-roll').textContent = fmt(p.roll) + '°';
+        document.getElementById('sw-pitch').textContent = fmt(p.pitch) + '°';
+    }
+
+    renderer.domElement.addEventListener('click', (ev) => {
+        const rect = renderer.domElement.getBoundingClientRect();
+        mouse.x = ((ev.clientX - rect.left) / rect.width) * 2 - 1;
+        mouse.y = -((ev.clientY - rect.top) / rect.height) * 2 + 1;
+        raycaster.setFromCamera(mouse, camera);
+        const hits = raycaster.intersectObjects(allVisibleMarkerMeshes());
+        if (hits.length) showSelected(hits[0].object.userData.point, hits[0].object.userData.vehicle);
+    });
+
+    renderer.domElement.addEventListener('mousemove', (ev) => {
+        const rect = renderer.domElement.getBoundingClientRect();
+        mouse.x = ((ev.clientX - rect.left) / rect.width) * 2 - 1;
+        mouse.y = -((ev.clientY - rect.top) / rect.height) * 2 + 1;
+        raycaster.setFromCamera(mouse, camera);
+        const hits = raycaster.intersectObjects(allVisibleMarkerMeshes());
+        if (hits.length) {
+            const p = hits[0].object.userData.point;
+            const v = hits[0].object.userData.vehicle;
+            tooltip.style.display = 'block';
+            tooltip.style.left = (ev.clientX - rect.left + 14) + 'px';
+            tooltip.style.top = (ev.clientY - rect.top + 10) + 'px';
+            tooltip.textContent = `${v.label} #${p.idx} · ${fmt(-p.down)} m · ${fmt(p.speed)} m/s`;
+            renderer.domElement.style.cursor = 'pointer';
+        } else {
+            tooltip.style.display = 'none';
+            renderer.domElement.style.cursor = 'default';
+        }
+    });
+
+    /* ---------- origin marker ----------
+     * Always at scene (0,0,0) by definition -- that's what the local NED
+     * frame's origin means. Shown regardless of whether the origin's actual
+     * lat/lon has been fetched yet (it's just "the launch point"); the
+     * sidebar ORIGIN card shows the real coordinates once known.
+     */
+    const originGroup = new THREE.Group();
+    const originRing = new THREE.Mesh(
+        new THREE.TorusGeometry(3, 0.3, 8, 32),
+        new THREE.MeshStandardMaterial({ color: 0xffffff, emissive: 0xffffff, emissiveIntensity: 0.3 })
+    );
+    originRing.rotation.x = Math.PI / 2;
+    const originPin = new THREE.Mesh(
+        new THREE.ConeGeometry(0.8, 4, 8),
+        new THREE.MeshStandardMaterial({ color: 0xffffff, emissive: 0xffffff, emissiveIntensity: 0.4 })
+    );
+    originPin.position.y = 2;
+    originGroup.add(originRing, originPin);
+    scene.add(originGroup);
+
+    /* ---------- fetch origin + trajectory from the real GCS ---------- */
+    async function loadOrigin() {
+        const pillText = document.getElementById('origin-pill-text');
+        const pillDot = document.querySelector('#origin-pill .dot');
+        try {
+            const res = await fetch('/api/origin');
+            const data = await res.json();
+            if (!data.initialized) {
+                pillText.textContent = 'Origin: waiting for GPS lock…';
+                pillDot.style.background = 'var(--orange)';
+                return;
+            }
+            ORIGIN_LAT = data.latitude;
+            ORIGIN_LON = data.longitude;
+            ORIGIN_ALT = data.altitude;
+            document.getElementById('origin-waiting').style.display = 'none';
+            document.getElementById('origin-body').style.display = 'block';
+            document.getElementById('origin-lat').textContent = ORIGIN_LAT.toFixed(6) + '°';
+            document.getElementById('origin-lon').textContent = ORIGIN_LON.toFixed(6) + '°';
+            document.getElementById('origin-alt').textContent = fmt(ORIGIN_ALT) + ' m';
+            pillText.textContent = `Origin: ${ORIGIN_LAT.toFixed(5)}, ${ORIGIN_LON.toFixed(5)}`;
+            pillDot.style.background = 'var(--green)';
+        } catch (err) {
+            pillText.textContent = 'Origin: fetch failed';
+            pillDot.style.background = 'var(--red)';
+            console.error('Failed to load origin:', err);
+        }
+    }
+
+    async function loadTrajectoryFromServer() {
+        try {
+            const res = await fetch('/api/trajectory');
+            const data = await res.json();
+            if (!data.vehicles || data.vehicles.length === 0) {
+                document.getElementById('vehicle-waiting').textContent = 'No reference trajectory loaded on the GCS yet.';
+                return;
+            }
+            buildVehicleVisuals(data.vehicles);
+        } catch (err) {
+            document.getElementById('vehicle-waiting').textContent = 'Failed to load trajectory from /api/trajectory.';
+            console.error('Failed to load trajectory:', err);
+        }
+    }
+
+    document.getElementById('origin-refresh').addEventListener('click', loadOrigin);
+    loadOrigin();
+    loadTrajectoryFromServer();
+
+    /* ---------- camera preset buttons ---------- */
+    document.getElementById('cam-reset').addEventListener('click', () => {
+        camera.position.set(140, 110, 140);
+        controls.target.set(0, 25, 0);
+    });
+    document.getElementById('cam-top').addEventListener('click', () => {
+        camera.position.set(0.1, 260, 0.1);
+        controls.target.set(0, 25, 0);
+    });
+    document.getElementById('cam-side').addEventListener('click', () => {
+        camera.position.set(220, 40, 0.1);
+        controls.target.set(0, 25, 0);
+    });
+
+    /* ---------- resize + render loop ---------- */
+    window.addEventListener('resize', () => {
+        camera.aspect = wrap.clientWidth / wrap.clientHeight;
+        camera.updateProjectionMatrix();
+        renderer.setSize(wrap.clientWidth, wrap.clientHeight);
+    });
+
+    let last = performance.now();
+    let renderFailed = false;
+    function showFatalError(err) {
+        console.error(err);
+        const banner = document.getElementById('error-banner');
+        const msg = String(err && err.message || err);
+        let hint = '';
+        if (/tainted|cross-origin|SecurityError|CORS/i.test(msg)) {
+            hint = ' This looks like a WebGL cross-origin texture block -- common when this page and the tiles/ folder are opened via file:// (double-click) rather than a real HTTP origin. ' +
+                'Fix: serve this folder locally, e.g. run <code>python3 -m http.server 8000</code> in the folder containing this file and the tiles/ folder, then open <code>http://localhost:8000/grs_3d_view_demo.html</code>.';
+        }
+        banner.innerHTML = `<strong>3D view stopped rendering:</strong> ${msg}${hint}`;
+        banner.style.display = 'block';
+    }
+    /* ---------- compass: track actual camera orientation ----------
+     * Projects the target and a point 50m due north of it through the real
+     * camera projection matrix and measures the resulting 2D screen angle,
+     * rather than hand-deriving it from camera yaw -- this stays correct
+     * under any orbit angle/tilt without needing to reason about camera
+     * basis-vector sign conventions.
+     */
+    const compassSvg = document.getElementById('compass-svg');
+    const compassNorthRef = new THREE.Vector3();
+    function updateCompass() {
+        const t = controls.target;
+        compassNorthRef.set(t.x, t.y, t.z - 50); // 50m north (north = -z in this scene)
+        const a = t.clone().project(camera);
+        const b = compassNorthRef.clone().project(camera);
+        const dx = b.x - a.x;
+        const dy = b.y - a.y; // NDC: +y is up, matching standard math convention
+        if (dx === 0 && dy === 0) return; // camera looking straight along the north axis -- keep last angle
+        // NDC x and y aren't on the same physical scale for a non-square
+        // viewport (NDC is [-1,1] on both axes regardless of aspect ratio), so
+        // the raw NDC delta angle is skewed unless corrected by camera.aspect
+        // (width/height) here -- confirmed by an independent pixel-space
+        // cross-check that only matched once this correction was added.
+        const angleDeg = THREE.MathUtils.radToDeg(Math.atan2(dx * camera.aspect, dy));
+        compassSvg.style.transform = `rotate(${angleDeg}deg)`;
+    }
+
+    function animate(now) {
+        if (renderFailed) return;
+        try {
+            last = now;
+            controls.update();
+            updateCompass();
+            renderer.render(scene, camera);
+        } catch (err) {
+            renderFailed = true;
+            showFatalError(err);
+            return;
+        }
+        requestAnimationFrame(animate);
+    }
+    requestAnimationFrame(animate);
+</script>
+</body>
+</html>
