@@ -89,7 +89,7 @@ GroundControlStation::GroundControlStation()
     m_controlInterface->setTrajectoryLoadedCallback([this]() {
         if (!m_dashboardServer) return;
 
-        static const char* uavColors[] = {"#4da3ff", "#ff9f45", "#a78bfa", "#2dd4bf"};
+        static const char* uavColors[] = {"#ef4444", "#f59e0b", "#a78bfa", "#2dd4bf"};
 
         TrajectorySnapshot snap;
         const int numUavs = m_controlInterface->numUavs();

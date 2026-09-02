@@ -2,194 +2,20 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>GRS Ground Station — Setup Orientation View</title>
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-    <style>
-        /* Palette matches GRS_GroundStation/dashboard/css/theme.css so this drops
-           into the existing dashboard without looking like a foreign panel. */
-        :root {
-            --bg: #0b0e14;
-            --panel: #12161f;
-            --card: #171c27;
-            --border: #232936;
-            --text: #e7ebf3;
-            --text-dim: #8890a0;
-            --blue: #4da3ff;
-            --green: #3ecf6e;
-            --red: #ff5d5d;
-            --orange: #ff9f45;
-            --radius: 8px;
-            --gap: 10px;
-        }
-        * { box-sizing: border-box; }
-        html, body {
-            height: 100%; margin: 0;
-            background: var(--bg); color: var(--text);
-            font-family: -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-            overflow: hidden;
-        }
-        body { display: flex; flex-direction: column; }
-
-        /* ---------- Topbar ---------- */
-        .topbar {
-            flex: 0 0 auto;
-            display: flex; align-items: center; gap: 20px;
-            padding: 10px 20px;
-            background: var(--panel);
-            border-bottom: 1px solid var(--border);
-        }
-        .brand { font-size: 16px; font-weight: 600; letter-spacing: 0.3px; display: flex; gap: 8px; align-items: center; }
-        .brand-mark { color: var(--blue); }
-        .brand-sep { color: var(--text-dim); font-weight: 400; }
-        .pill {
-            display: flex; align-items: center; gap: 7px;
-            padding: 4px 11px;
-            background: var(--card);
-            border: 1px solid var(--border);
-            border-radius: 999px;
-            font-size: 12px;
-            color: var(--text-dim);
-        }
-        .pill .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--text-dim); }
-        .pill.warn .dot { background: var(--orange); }
-        .pill.warn { color: var(--orange); border-color: rgba(255,159,69,0.35); }
-        .topbar-spacer { flex: 1; }
-        .topbar-readout { display: flex; gap: 18px; font-size: 12px; }
-        .ro-item { display: flex; flex-direction: column; gap: 2px; align-items: flex-end; min-width: 52px; }
-        .ro-label { color: var(--text-dim); font-size: 10px; }
-        .ro-value { font-variant-numeric: tabular-nums; font-size: 14px; }
-
-        /* ---------- Layout ---------- */
-        .main { flex: 1; display: flex; min-height: 0; }
-        #scene-wrap { flex: 1; position: relative; }
-        canvas { display: block; }
-
-        .sidebar {
-            flex: 0 0 300px;
-            background: var(--panel);
-            border-left: 1px solid var(--border);
-            display: flex; flex-direction: column;
-            overflow-y: auto;
-            padding: var(--gap);
-            gap: var(--gap);
-        }
-        .card {
-            background: var(--card);
-            border: 1px solid var(--border);
-            border-radius: var(--radius);
-            padding: 12px 14px;
-            margin-bottom: var(--gap);
-        }
-        .card h3 {
-            margin: 0 0 10px 0;
-            font-size: 12px;
-            color: var(--text-dim);
-            font-weight: 600;
-            letter-spacing: 0.3px;
-        }
-        .row { display: flex; justify-content: space-between; align-items: center; padding: 3px 0; font-size: 13px; }
-        .row .k { color: var(--text-dim); }
-        .row .v { font-variant-numeric: tabular-nums; }
-
-        /* radio group for waypoint density */
-        .opt-group { display: flex; flex-direction: column; gap: 6px; }
-        .opt {
-            display: flex; align-items: center; gap: 8px;
-            padding: 7px 9px;
-            border: 1px solid var(--border);
-            border-radius: 6px;
-            cursor: pointer;
-            font-size: 13px;
-            color: var(--text-dim);
-            transition: border-color .12s, color .12s, background .12s;
-        }
-        .opt:hover { border-color: #33507a; }
-        .opt.active { border-color: var(--blue); color: var(--text); background: rgba(77,163,255,0.08); }
-        .opt input { accent-color: var(--blue); }
-
-        /* vehicle toggle rows -- same shape as .opt but with a color swatch and
-           its own accent color per row instead of the shared blue */
-        .vopt {
-            display: flex; align-items: center; gap: 9px;
-            padding: 7px 9px;
-            border: 1px solid var(--border);
-            border-radius: 6px;
-            cursor: pointer;
-            font-size: 13px;
-            color: var(--text-dim);
-            transition: border-color .12s, color .12s, background .12s;
-        }
-        .vopt:hover { border-color: #33507a; }
-        .vopt.active { color: var(--text); background: rgba(255,255,255,0.03); }
-        .v-swatch { width: 10px; height: 10px; border-radius: 50%; flex: 0 0 auto; }
-
-        .btn {
-            background: var(--card);
-            border: 1px solid var(--border);
-            color: var(--text);
-            padding: 7px 12px;
-            border-radius: 6px;
-            font-size: 12px;
-            cursor: pointer;
-            transition: border-color .12s;
-        }
-        .btn:hover { border-color: var(--blue); }
-        .btn.primary { background: var(--blue); border-color: var(--blue); color: #08111f; font-weight: 600; }
-        .btn.primary:hover { filter: brightness(1.08); }
-        .btn-row { display: flex; gap: 8px; margin-top: 4px; }
-
-        input[type="range"] { width: 100%; accent-color: var(--blue); }
-
-        .empty-hint {
-            color: var(--text-dim);
-            font-size: 12.5px;
-            line-height: 1.5;
-        }
-
-        .legend { display: flex; align-items: center; gap: 8px; font-size: 11px; color: var(--text-dim); }
-        .legend-bar {
-            flex: 1; height: 8px; border-radius: 4px;
-            background: linear-gradient(90deg, #4da3ff, #3ecf6e, #ff9f45, #ff5d5d);
-        }
-
-        /* ---------- 3D overlay HUD ---------- */
-        .hud {
-            position: absolute; left: 14px; bottom: 14px;
-            display: flex; gap: 10px;
-            pointer-events: none;
-        }
-        .hud .pill { pointer-events: auto; }
-        .compass {
-            position: absolute; top: 14px; right: 14px;
-            width: 54px; height: 54px;
-            border-radius: 50%;
-            background: var(--card);
-            border: 1px solid var(--border);
-            display: flex; align-items: center; justify-content: center;
-            font-size: 11px; color: var(--text-dim);
-        }
-        .compass svg { width: 100%; height: 100%; transform-origin: 50% 50%; }
-
-        #tooltip {
-            position: absolute;
-            padding: 6px 9px;
-            background: var(--card);
-            border: 1px solid var(--border);
-            border-radius: 6px;
-            font-size: 11px;
-            color: var(--text-dim);
-            pointer-events: none;
-            display: none;
-            white-space: nowrap;
-        }
-
-        .section-gap { height: 4px; }
-    </style>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GRS Ground Station</title>
+    <link rel="stylesheet" href="css/theme.css">
 </head>
 <body>
 
 <div class="topbar">
-    <div class="brand"><span class="brand-mark">GRS</span><span class="brand-sep">/</span><span>Setup Orientation View</span></div>
+    <div class="brand">
+        <span class="brand-mark">◆</span>
+        <span class="brand-name">GRS</span>
+        <span class="brand-sep">/</span>
+        <span class="brand-page">MAP TRAJECTORY</span>
+    </div>
+
     <div class="pill" id="mode-pill"><span class="dot" style="background:var(--text-dim)"></span>Pre-flight setup check — not live tracking</div>
     <div class="topbar-spacer"></div>
     <div class="pill" id="origin-pill"><span class="dot"></span><span id="origin-pill-text">Origin: waiting…</span></div>
@@ -225,11 +51,10 @@
             <h3>WAYPOINT DISPLAY</h3>
             <div class="opt-group" id="density-group">
                 <label class="opt active" data-mode="all"><input type="radio" name="density" value="all" checked>All points</label>
-                <label class="opt" data-mode="every5"><input type="radio" name="density" value="every5">Every 5th point</label>
+                <label class="opt" data-mode="every2"><input type="radio" name="density" value="every2">Every 2th point</label>
                 <label class="opt" data-mode="line"><input type="radio" name="density" value="line">Line only</label>
             </div>
             <div class="section-gap"></div>
-            <div class="empty-hint">Each vehicle keeps its own color (see Trajectories above) rather than an altitude gradient, so 3 tracks stay easy to tell apart. Click any waypoint to see that vehicle's altitude and state at that point.</div>
         </div>
 
         <div class="card">
@@ -240,13 +65,7 @@
             </div>
             <div id="tile-settings" style="display:none">
                 <div class="section-gap"></div>
-                <span class="ro-label">Tiles folder (relative to this file)</span>
-                <input type="text" id="tiles-path" value="tiles" style="width:100%;margin-top:4px;background:var(--bg);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:5px 7px;font-size:12px;">
-                <div class="section-gap"></div>
-                <span class="ro-label">Zoom level</span>
-                <input type="number" id="tiles-zoom" value="17" min="10" max="20" style="width:100%;margin-top:4px;background:var(--bg);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:5px 7px;font-size:12px;">
-                <div class="section-gap"></div>
-                <span class="ro-label">Coverage radius (m) — match what you cached</span>
+                <span class="ro-label">Coverage radius (m), match what you cached</span>
                 <input type="number" id="tiles-radius" value="500" min="50" max="3000" step="50" style="width:100%;margin-top:4px;background:var(--bg);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:5px 7px;font-size:12px;">
                 <div class="btn-row">
                     <button class="btn primary" id="tiles-load" style="flex:1">Load tiles</button>
@@ -279,7 +98,7 @@
                 <div class="row"><span class="k">Longitude</span><span class="v" id="origin-lon">—</span></div>
                 <div class="row"><span class="k">Altitude</span><span class="v" id="origin-alt">—</span></div>
                 <div class="section-gap"></div>
-                <div class="empty-hint">Shown in the scene as the white marker at the local frame's (0,0,0) — everything (trajectories, tiles) is converted into this referential.</div>
+                <div class="empty-hint">Shown in the scene as the white marker at the local frame's (0,0,0), everything (trajectories, tiles) is converted into this referential.</div>
             </div>
             <div class="section-gap"></div>
             <button class="btn" id="origin-refresh" style="width:100%">Refresh</button>
@@ -294,12 +113,6 @@
             </div>
         </div>
 
-        <div class="card">
-            <h3>ABOUT THIS VIEW</h3>
-            <div class="empty-hint">
-                This page is for pre-flight setup verification, not flight tracking: confirming the navigation origin is where you expect, and that each vehicle's reference trajectory is oriented and shaped correctly before launch. It loads the origin once from <code>GET /api/origin</code> and each vehicle's reference path once from <code>GET /api/trajectory</code> — both static reads, no WebSocket, since none of this needs to update at flight telemetry rates. Switching "Ground layer" to cached map tiles reads PNGs from a local <code>tiles/</code> folder (the output of <code>precache_field_tiles.py</code>) and positions each one by converting its corners into the same local NED frame as the trajectories, using the origin above.
-            </div>
-        </div>
     </div>
 </div>
 
@@ -326,8 +139,7 @@
      *     { north, east, down, vx, vy, vz, roll, pitch, speed } , ... ] }, ... ] }
      *
      * "color" per vehicle is a "#rrggbb" string chosen server-side (or just
-     * hardcode a small palette client-side keyed by id/index if you'd rather
-     * not thread color through the backend at all).
+     * hardcode a small palette client-side keyed by id/index.
      */
     let ORIGIN_LAT = null, ORIGIN_LON = null, ORIGIN_ALT = null;
     const M_PER_DEG_LAT = 111320;
@@ -552,10 +364,8 @@
     });
 
     document.getElementById('tiles-load').addEventListener('click', () => {
-        const folder = document.getElementById('tiles-path').value.trim() || 'tiles';
-        const zoom = parseInt(document.getElementById('tiles-zoom').value, 10) || 17;
         const radiusM = parseFloat(document.getElementById('tiles-radius').value) || 500;
-        loadTileGround(folder, zoom, radiusM);
+        loadTileGround('tiles', 18, radiusM);
     });
 
     // compass axes at origin
@@ -573,13 +383,11 @@
     }
 
     /* ---------- per-vehicle trajectory lines + waypoint markers ----------
-     * Each vehicle gets a solid-color line/markers so multiple tracks stay
-     * visually distinct. No glyph/trail here -- this view is a static
-     * pre-flight check, not a live tracker, so nothing animates.
+     * Each vehicle gets a solid-color line/markers so multiple tracks stay visually distinct.
      */
     let vehicles = [];
     let currentDensityMode = 'all';
-    const DEFAULT_PALETTE = [0x4da3ff, 0xff9f45, 0x3ecf6e, 0xff5d5d, 0xa78bfa, 0x2dd4bf];
+    const DEFAULT_PALETTE = [0xef4444, 0xf59e0b, 0xa78bfa, 0x2dd4bf];
 
     function buildVehicleVisuals(vehiclesData) {
         // vehiclesData: [{ id, label, color?, points: [{north,east,down,vx,vy,vz,roll,pitch,speed}, ...] }, ...]
@@ -602,7 +410,7 @@
             const markerGroup = new THREE.Group();
             scene.add(markerGroup);
             const markerMeshes = [];
-            const sphereGeo = new THREE.SphereGeometry(1.1, 12, 12);
+            const sphereGeo = new THREE.SphereGeometry(0.5, 12, 12);
             traj.forEach((p) => {
                 const mat = new THREE.MeshStandardMaterial({ color, emissive: color, emissiveIntensity: 0.25 });
                 const mesh = new THREE.Mesh(sphereGeo, mat);
@@ -643,7 +451,7 @@
             v.markerMeshes.forEach((m, i) => {
                 if (!v.visible || mode === 'line') { m.visible = false; return; }
                 if (mode === 'all') { m.visible = true; return; }
-                if (mode === 'every5') { m.visible = (i % 5 === 0); return; }
+                if (mode === 'every2') { m.visible = (i % 2 === 0); return; }
             });
         });
     }
@@ -657,9 +465,7 @@
         });
     });
 
-    // Frame the camera to whatever trajectories actually loaded -- real
-    // hardware trajectories won't be the ~45-90m scale of the old demo data,
-    // so a fixed default camera position would clip or dwarf the real shape.
+    // Frame the camera to whatever trajectories actually loaded
     function fitViewToVehicles() {
         if (vehicles.length === 0) return;
         const box = new THREE.Box3();
@@ -747,15 +553,15 @@
      */
     const originGroup = new THREE.Group();
     const originRing = new THREE.Mesh(
-        new THREE.TorusGeometry(3, 0.3, 8, 32),
-        new THREE.MeshStandardMaterial({ color: 0xffffff, emissive: 0xffffff, emissiveIntensity: 0.3 })
+        new THREE.TorusGeometry(1.5, 0.15, 8, 32),
+        new THREE.MeshStandardMaterial({ color: 0x0000ff, emissive: 0x0000ff, emissiveIntensity: 0.3 })
     );
     originRing.rotation.x = Math.PI / 2;
     const originPin = new THREE.Mesh(
-        new THREE.ConeGeometry(0.8, 4, 8),
-        new THREE.MeshStandardMaterial({ color: 0xffffff, emissive: 0xffffff, emissiveIntensity: 0.4 })
+        new THREE.ConeGeometry(0.4, 2, 8),
+        new THREE.MeshStandardMaterial({ color: 0x0000ff, emissive: 0x0000ff, emissiveIntensity: 0.4 })
     );
-    originPin.position.y = 2;
+    originPin.position.y = 1;
     originGroup.add(originRing, originPin);
     scene.add(originGroup);
 
