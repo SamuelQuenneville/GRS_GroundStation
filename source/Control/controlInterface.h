@@ -41,6 +41,16 @@ public:
     // mode since there's no NMPC controller to report on.
     void setNmpcDebugCallback(std::function<void(const NMPCController::DebugInfo&)> cb);
 
+    void setOriginCallback(std::function<void(double latitudeDegrees, double longitudeDegrees, double altitude)> cb);
+    void setTrajectoryLoadedCallback(std::function<void()> cb);
+
+    // Passthrough accessors for setup/orientation tooling -- null-safe, since
+    // m_nmpc only exists in MPC control mode (see initialize()).
+    std::vector<NMPCController::TrajectoryPointView> getTrajectoryForVehicle(int vehicleIndex) const;
+    int numUavs() const;
+    bool trajectoryHasPayload() const;
+    bool getOrigin(double& latitudeDegrees, double& longitudeDegrees, double& altitude) const;
+
     void initMatlabConnection(const char* ip, uint16_t port);
     void setCommandsList(const std::map<uint8_t, std::vector<uavCommandsFlags>>& commandsList);
 
@@ -69,6 +79,8 @@ private:
 
     std::function<void(const std::map<uint8_t, uavCommandsFlags>&)> m_sendCommand;
     std::function<void(const NMPCController::DebugInfo&)> m_nmpcDebugCallback;
+    std::function<void(double, double, double)> m_originCallback;
+    std::function<void()> m_trajectoryLoadedCallback;
     std::map<uint8_t, uavStates> m_latestStates;
     std::mutex m_stateMutex;
 

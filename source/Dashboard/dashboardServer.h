@@ -44,6 +44,8 @@ public:
     void updatePayloadTelemetry(const PayloadTelemetrySnapshot& snapshot);
     void updateLauncherTelemetry(const LauncherTelemetrySnapshot& snapshot);
     void updateNmpcTelemetry(const NmpcTelemetrySnapshot& snapshot);
+    void setOrigin(const OriginSnapshot& snapshot);
+    void setTrajectory(const TrajectorySnapshot& snapshot);
 
     size_t connectedBrowserCount() const;
 
@@ -70,6 +72,10 @@ private:
 
     NmpcTelemetrySnapshot m_latestNmpcSnapshot;
     bool m_hasNmpcSnapshot = false;
+
+    OriginSnapshot m_originSnapshot;
+    TrajectorySnapshot m_trajectorySnapshot;
+    bool m_hasTrajectorySnapshot = false;
 
     std::atomic<bool> m_running{false};
     std::thread m_broadcastThread;

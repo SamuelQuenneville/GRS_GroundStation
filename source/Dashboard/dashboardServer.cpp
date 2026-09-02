@@ -24,6 +24,24 @@ DashboardServer::~DashboardServer() {
 void DashboardServer::start() {
     if (m_running.exchange(true)) return;
 
+    m_httpServer->Get("/api/origin", [this](const httplib::Request&, httplib::Response& res) {
+        OriginSnapshot snapshot;
+        {
+            std::lock_guard<std::mutex> lock(m_snapshotsMutex);
+            snapshot = m_originSnapshot;
+        }
+        res.set_content(snapshot.toJson(), "application/json");
+    });
+
+    m_httpServer->Get("/api/trajectory", [this](const httplib::Request&, httplib::Response& res) {
+        TrajectorySnapshot snapshot;
+        {
+            std::lock_guard<std::mutex> lock(m_snapshotsMutex);
+            if (m_hasTrajectorySnapshot) snapshot = m_trajectorySnapshot;
+        }
+        res.set_content(snapshot.toJson(), "application/json");
+    });
+
     m_httpServer->set_mount_point("/", m_staticRoot);
 
     m_httpServer->WebSocket("/ws", [this](const httplib::Request&, httplib::ws::WebSocket& ws) {
@@ -96,6 +114,17 @@ void DashboardServer::updateNmpcTelemetry(const NmpcTelemetrySnapshot& snapshot)
     std::lock_guard<std::mutex> lock(m_snapshotsMutex);
     m_latestNmpcSnapshot = snapshot;
     m_hasNmpcSnapshot = true;
+}
+
+void DashboardServer::setOrigin(const OriginSnapshot& snapshot) {
+    std::lock_guard<std::mutex> lock(m_snapshotsMutex);
+    m_originSnapshot = snapshot;
+}
+
+void DashboardServer::setTrajectory(const TrajectorySnapshot& snapshot) {
+    std::lock_guard<std::mutex> lock(m_snapshotsMutex);
+    m_trajectorySnapshot = snapshot;
+    m_hasTrajectorySnapshot = true;
 }
 
 size_t DashboardServer::connectedBrowserCount() const {

@@ -139,6 +139,40 @@ NMPCController::DebugInfo NMPCController::getDebugInfo() const {
     return info;
 }
 
+std::vector<NMPCController::TrajectoryPointView> NMPCController::getTrajectoryForVehicle(const int vehicleIndex) const {
+    std::lock_guard lock(m_solveMutex);  // same guard getDebugInfo() uses
+
+    int offset, blockSize;
+    if (vehicleIndex >= 0 && vehicleIndex < m_config.numUavs) {
+        offset = vehicleIndex * kUavBlockSize;
+        blockSize = kUavBlockSize;
+    } else if (hasPayload() && vehicleIndex == m_config.numUavs) {
+        offset = kUavBlockSize * m_config.numUavs;
+        blockSize = kPayloadBlockSize;
+    } else {
+        return {};
+    }
+
+    std::vector<TrajectoryPointView> points;
+    points.reserve(m_numTrajectoryPoints);
+    for (size_t i = 0; i < m_numTrajectoryPoints; ++i) {
+        const size_t rowStart = i * m_refStride + offset;
+        TrajectoryPointView p;
+        p.north = m_referenceTrajectory[rowStart + 0];
+        p.east  = m_referenceTrajectory[rowStart + 1];
+        p.down  = m_referenceTrajectory[rowStart + 2];
+        p.vx    = m_referenceTrajectory[rowStart + 3];
+        p.vy    = m_referenceTrajectory[rowStart + 4];
+        p.vz    = m_referenceTrajectory[rowStart + 5];
+        if (blockSize == kUavBlockSize) {
+            p.roll  = grs::radToDeg(m_referenceTrajectory[rowStart + 6]);
+            p.pitch = grs::radToDeg(m_referenceTrajectory[rowStart + 7]);
+        }
+        points.push_back(p);
+    }
+    return points;
+}
+
 void NMPCController::m_initializeSolverIO() {
     // Inputs
     m_x0.assign(solver_sparsity_in(0)[0], 0.0);

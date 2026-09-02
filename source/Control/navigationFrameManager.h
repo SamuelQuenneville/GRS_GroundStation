@@ -23,6 +23,14 @@ public:
 
     bool isInitialized() const;
 
+    // True once setOrigin() has established a geodetic reference -- distinct
+    // from isInitialized() above, which additionally requires
+    // initializeOffset() to have run against live UAV states. This is what
+    // "is there an origin to show" means for setup/orientation tooling: an
+    // operator who just set an origin should see it immediately.
+    bool hasOrigin() const;
+    bool getOrigin(double& latitudeDegrees, double& longitudeDegrees, double& altitude) const;
+
     void setOrigin(double latitudeDegrees, double longitudeDegrees, double altitude);
     void initializeOffset(std::map<uint8_t, uavStates>& states, bool sitl);
     std::map<uint8_t, uavStates> toNavigationFrame(std::map<uint8_t, uavStates>& states) const;

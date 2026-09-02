@@ -58,8 +58,30 @@ public:
     };
     DebugInfo getDebugInfo() const;
 
+    // Reference-trajectory readback for setup/orientation tooling (e.g. the
+    // dashboard's 3D view) -- deliberately a plain struct, same reasoning
+    // as DebugInfo above. Angles in degrees.
+    struct TrajectoryPointView {
+        double north = 0.0, east = 0.0, down = 0.0;
+        double vx = 0.0, vy = 0.0, vz = 0.0;
+        double roll = 0.0, pitch = 0.0;   // stays 0 for the payload, which has no attitude state (see below)
+    };
+
+    // vehicleIndex: 0..numUavs()-1 are UAVs, numUavs() itself is the
+    // payload if hasPayload() is true. Empty vector for an out-of-range index.
+    std::vector<TrajectoryPointView> getTrajectoryForVehicle(int vehicleIndex) const;
+    int numUavs() const { return m_config.numUavs; }
+    // See m_unpackLatestStates(): state layout is numUavs() blocks of 8
+    // (UAV: north,east,down,vN,vE,vD,roll,pitch), then -- only if this
+    // trajectory's nx accounts for it -- one block of 6 for the payload
+    // (no roll/pitch; it's towed, not independently attituded here).
+    bool hasPayload() const { return m_config.nx > kUavBlockSize * m_config.numUavs; }
+
 private:
     solverConfig m_config;
+
+    static constexpr int kUavBlockSize = 8;
+    static constexpr int kPayloadBlockSize = 6;
 
     std::vector<double> m_referenceTrajectory;
     size_t m_refStride; // nx+nu
