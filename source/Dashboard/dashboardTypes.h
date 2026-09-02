@@ -39,6 +39,21 @@ inline std::string toString(const HealthStatus s) {
 // (see setStatus() in app.js), not true/false -- so serialize it that way.
 inline std::string yesNo(const bool v) { return v ? "yes" : "no"; }
 
+// Joins already-serialized JSON fragments into a JSON array. JsonWriter
+// itself deliberately stays flat-object-only (see jsonWriter.h) -- this is
+// the one place multiple snapshots need array nesting, so it lives here
+// rather than growing JsonWriter's scope.
+inline std::string jsonArray(const std::vector<std::string>& items) {
+    std::ostringstream oss;
+    oss << "[";
+    for (size_t i = 0; i < items.size(); ++i) {
+        if (i) oss << ",";
+        oss << items[i];
+    }
+    oss << "]";
+    return oss.str();
+}
+
 struct UavHealth {
     HealthStatus imu     = HealthStatus::Ok;
     HealthStatus baro    = HealthStatus::Ok;
@@ -216,6 +231,70 @@ struct NmpcTelemetrySnapshot {
             .add("trackingNumber", static_cast<int>(trackingNumber))
             .add("trajectoryIndex", static_cast<int>(trajectoryIndex))
             .add("trajectoryTotal", static_cast<int>(trajectoryTotal));
+        return root.str();
+    }
+};
+
+struct TrajectoryPointJson {
+    double north = 0.0, east = 0.0, down = 0.0;
+    double vx = 0.0, vy = 0.0, vz = 0.0;
+    double roll = 0.0, pitch = 0.0;
+
+    std::string toJson() const {
+        JsonWriter root;
+        root.add("north", north).add("east", east).add("down", down)
+            .add("vx", vx).add("vy", vy).add("vz", vz)
+            .add("roll", roll).add("pitch", pitch);
+        return root.str();
+    }
+};
+
+struct TrajectoryVehicleSnapshot {
+    std::string id;      // e.g. "uav1", "payload"
+    std::string label;   // e.g. "UAV 1", "Payload"
+    std::string color;   // "#rrggbb", used directly by the 3D view
+    std::vector<TrajectoryPointJson> points;
+
+    std::string toJson() const {
+        std::vector<std::string> pointJsons;
+        pointJsons.reserve(points.size());
+        for (const auto& p : points) pointJsons.push_back(p.toJson());
+
+        JsonWriter root;
+        root.add("id", id).add("label", label).add("color", color)
+            .addRaw("points", jsonArray(pointJsons));
+        return root.str();
+    }
+};
+
+// Origin + reference trajectory, as read once by the setup/orientation 3D
+// view (dashboard/setup3d.html) via GET /api/origin and GET /api/trajectory
+// -- not pushed over the WebSocket like everything else here, since
+// neither changes at telemetry rates.
+struct OriginSnapshot {
+    bool hasOrigin = false;
+    double latitude = 0.0, longitude = 0.0, altitude = 0.0;
+
+    std::string toJson() const {
+        JsonWriter root;
+        root.add("initialized", hasOrigin);
+        if (hasOrigin) {
+            root.add("latitude", latitude).add("longitude", longitude).add("altitude", altitude);
+        }
+        return root.str();
+    }
+};
+
+struct TrajectorySnapshot {
+    std::vector<TrajectoryVehicleSnapshot> vehicles;
+
+    std::string toJson() const {
+        std::vector<std::string> vehicleJsons;
+        vehicleJsons.reserve(vehicles.size());
+        for (const auto& v : vehicles) vehicleJsons.push_back(v.toJson());
+
+        JsonWriter root;
+        root.addRaw("vehicles", jsonArray(vehicleJsons));
         return root.str();
     }
 };

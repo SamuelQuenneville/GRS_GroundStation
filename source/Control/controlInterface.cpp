@@ -51,6 +51,30 @@ void ControlInterface::setNmpcDebugCallback(std::function<void(const NMPCControl
     m_nmpcDebugCallback = std::move(cb);
 }
 
+void ControlInterface::setOriginCallback(std::function<void(double, double, double)> cb) {
+    m_originCallback = std::move(cb);
+}
+
+void ControlInterface::setTrajectoryLoadedCallback(std::function<void()> cb) {
+    m_trajectoryLoadedCallback = std::move(cb);
+}
+
+std::vector<NMPCController::TrajectoryPointView> ControlInterface::getTrajectoryForVehicle(const int vehicleIndex) const {
+    return m_nmpc ? m_nmpc->getTrajectoryForVehicle(vehicleIndex) : std::vector<NMPCController::TrajectoryPointView>{};
+}
+
+int ControlInterface::numUavs() const {
+    return m_nmpc ? m_nmpc->numUavs() : 0;
+}
+
+bool ControlInterface::trajectoryHasPayload() const {
+    return m_nmpc && m_nmpc->hasPayload();
+}
+
+bool ControlInterface::getOrigin(double& latitudeDegrees, double& longitudeDegrees, double& altitude) const {
+    return m_navFrameManager.getOrigin(latitudeDegrees, longitudeDegrees, altitude);
+}
+
 void ControlInterface::updateStates(const std::map<uint8_t, uavStates>& states) {
     std::lock_guard lock(m_stateMutex);
     m_latestStates = states;
@@ -71,10 +95,12 @@ void ControlInterface::initLaunch() const {
 
 void ControlInterface::loadTrajectory(const std::string& file) const {
     m_nmpc->loadTrajectory(file);
+    if (m_trajectoryLoadedCallback) m_trajectoryLoadedCallback();
 }
 
 void ControlInterface::setOrigin(const double latitudeDegrees, const double longitudeDegrees, const double altitude) {
     m_navFrameManager.setOrigin(latitudeDegrees, longitudeDegrees, altitude);
+    if (m_originCallback) m_originCallback(latitudeDegrees, longitudeDegrees, altitude);
 }
 
 void ControlInterface::debugConvert(const double latitudeDegrees, const double longitudeDegrees, const double altitude) const {

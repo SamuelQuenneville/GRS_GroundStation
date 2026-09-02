@@ -71,6 +71,60 @@ GroundControlStation::GroundControlStation()
         m_dashboardServer->updateNmpcTelemetry(snap);
     });
 
+    // Setup/orientation 3D view (dashboard/setup3d.html) reads these once
+    // via GET /api/origin and GET /api/trajectory, not the WebSocket --
+    // neither changes at telemetry rates, so just cache the latest and
+    // let the HTTP handler serve it on request.
+    m_controlInterface->setOriginCallback([this](const double lat, const double lon, const double alt) {
+        if (!m_dashboardServer) return;
+
+        OriginSnapshot snap;
+        snap.hasOrigin = true;
+        snap.latitude  = lat;
+        snap.longitude = lon;
+        snap.altitude  = alt;
+        m_dashboardServer->setOrigin(snap);
+    });
+
+    m_controlInterface->setTrajectoryLoadedCallback([this]() {
+        if (!m_dashboardServer) return;
+
+        static const char* uavColors[] = {"#4da3ff", "#ff9f45", "#a78bfa", "#2dd4bf"};
+
+        TrajectorySnapshot snap;
+        const int numUavs = m_controlInterface->numUavs();
+        for (int i = 0; i < numUavs; ++i) {
+            TrajectoryVehicleSnapshot vehicle;
+            vehicle.id    = "uav" + std::to_string(i + 1);
+            vehicle.label = "UAV " + std::to_string(i + 1);
+            vehicle.color = uavColors[i % 4];
+            for (const auto& p : m_controlInterface->getTrajectoryForVehicle(i)) {
+                TrajectoryPointJson pt;
+                pt.north = p.north; pt.east = p.east; pt.down = p.down;
+                pt.vx = p.vx; pt.vy = p.vy; pt.vz = p.vz;
+                pt.roll = p.roll; pt.pitch = p.pitch;
+                vehicle.points.push_back(pt);
+            }
+            snap.vehicles.push_back(vehicle);
+        }
+        if (m_controlInterface->trajectoryHasPayload()) {
+            TrajectoryVehicleSnapshot vehicle;
+            vehicle.id = "payload";
+            vehicle.label = "Payload";
+            vehicle.color = "#3ecf6e";
+            for (const auto& p : m_controlInterface->getTrajectoryForVehicle(numUavs)) {
+                TrajectoryPointJson pt;
+                pt.north = p.north; pt.east = p.east; pt.down = p.down;
+                pt.vx = p.vx; pt.vy = p.vy; pt.vz = p.vz;
+                pt.roll = p.roll; pt.pitch = p.pitch;   // stay 0, payload has no attitude state
+                vehicle.points.push_back(pt);
+            }
+            snap.vehicles.push_back(vehicle);
+        }
+
+        m_dashboardServer->setTrajectory(snap);
+    });
+
     m_controlDispatcher->attachCommunicationManager([this](const std::map<uint8_t, uavCommandsFlags>& cmds) {
         m_communicationManager->setUavCommands(cmds);
     });

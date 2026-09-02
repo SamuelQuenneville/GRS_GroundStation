@@ -16,6 +16,20 @@ bool NavigationFrameManager::isInitialized() const {
     return m_initialized;
 }
 
+// navigationFrameManager.cpp
+bool NavigationFrameManager::hasOrigin() const {
+    return m_geodeticConverter.isInitialized();
+}
+
+bool NavigationFrameManager::getOrigin(double& latitudeDegrees, double& longitudeDegrees, double& altitude) const {
+    if (!m_geodeticConverter.isInitialized()) return false;
+    double latRad, lonRad;
+    m_geodeticConverter.getReference(latRad, lonRad, altitude);
+    latitudeDegrees = grs::radToDeg(latRad);
+    longitudeDegrees = grs::radToDeg(lonRad);
+    return true;
+}
+
 void NavigationFrameManager::initializeOffset(std::map<uint8_t, uavStates>& states, bool sitl) {
 
     m_uavFrameOffsets.clear();
