@@ -22,6 +22,7 @@
 #include "Powertrain/powertrain.h"
 #include "navigationFrameManager.h"
 #include "NMPCController.h"
+#include "Trajectory/trajectoryGenerator.h"
 
 class ControlInterface {
 
@@ -57,6 +58,15 @@ public:
     void initLaunch() const;
 
     void loadTrajectory(const std::string& file) const;
+
+    // ADR-001 Phase 1: builds a trajectory in-process with TrajectoryGenerator
+    // (no MATLAB, no CSV round-trip) and loads it directly into the NMPC
+    // controller. Fires the same setTrajectoryLoadedCallback() as
+    // loadTrajectory(file), so the existing setup3d.html / GET /api/trajectory
+    // path picks it up with no dashboard changes. Field calibration
+    // (fieldHeadingDeg, live-GPS start pose) is Phase 2 -- config is used
+    // as-is here.
+    void generateTrajectory(const grs::trajgen::TrajectoryConfig& config) const;
     void setOrigin(double latitudeDegrees, double longitudeDegrees, double altitude);
     void debugConvert(double latitudeDegrees, double longitudeDegrees, double altitude) const;
 

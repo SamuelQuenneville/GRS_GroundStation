@@ -43,6 +43,7 @@ void ConsoleInterface::printCommands() {
                       << "  launch                --> Init launch sequence\n"
                       << "  fetchParams [ID]      --> Retrieve all parameter and create a .param file\n"
                       << "  loadTraj [FILE]       --> Load a reference trajectory via a .csv file\n"
+                      << "  genTraj               --> Generate a reference trajectory in-process (default config, no field calibration -- ADR-001 Phase 1)\n"
                       << "  setOrigin [WP]        --> Set the origin for the controller frame\n"
                       << "  listRtkPorts          --> List detected u-blox USB serial devices\n"
                       << "  startRtk [DEV] [BAUD] --> Start RTK base GPS (DEV='auto' to auto-detect), forward corrections to all UAVs (BAUD=0 to auto-detect)\n"
@@ -89,6 +90,9 @@ void ConsoleInterface::handleCommand(const std::string& command) const {
         }
     } else if (command.starts_with("loadTraj ")) {
         m_gcs.loadTrajectory(command.substr(9));
+    } else if (command == "genTraj") {
+        LOG_INFO("Generating trajectory in-process (default config)...");
+        m_gcs.generateTrajectory(grs::trajgen::TrajectoryConfig{});
     } else if (command.starts_with("setOrigin ")) {
         const std::string args = command.substr(10);
         double lat, lon, alt;

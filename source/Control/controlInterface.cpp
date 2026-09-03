@@ -98,6 +98,23 @@ void ControlInterface::loadTrajectory(const std::string& file) const {
     if (m_trajectoryLoadedCallback) m_trajectoryLoadedCallback();
 }
 
+void ControlInterface::generateTrajectory(const grs::trajgen::TrajectoryConfig& config) const {
+    if (!m_nmpc) {
+        LOG_ERROR("generateTrajectory: control mode [MPC] is required (no NMPC controller instantiated)");
+        return;
+    }
+
+    grs::trajgen::TrajectoryGenerator generator(config);
+    const auto mission = generator.generate();
+    // Phase 2 will apply field calibration here:
+    // grs::trajgen::TrajectoryGenerator::applyFieldCalibration(mission, config.fieldHeadingDeg, originOffset);
+
+    auto reference = grs::trajgen::TrajectoryGenerator::toSolverReference(mission, m_nmpc->hasPayload());
+    m_nmpc->setReferenceTrajectory(std::move(reference));
+
+    if (m_trajectoryLoadedCallback) m_trajectoryLoadedCallback();
+}
+
 void ControlInterface::setOrigin(const double latitudeDegrees, const double longitudeDegrees, const double altitude) {
     m_navFrameManager.setOrigin(latitudeDegrees, longitudeDegrees, altitude);
     if (m_originCallback) m_originCallback(latitudeDegrees, longitudeDegrees, altitude);

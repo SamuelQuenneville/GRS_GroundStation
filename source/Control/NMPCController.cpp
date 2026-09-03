@@ -61,8 +61,30 @@ void NMPCController::loadTrajectory(const std::string& file) {
         }
     }
 
+    m_onReferenceTrajectoryChanged();
+    LOG_INFO("Trajectory loaded from file, number of points = " + std::to_string(m_numTrajectoryPoints));
+}
+
+void NMPCController::setReferenceTrajectory(std::vector<double> referenceTrajectory) {
+    std::lock_guard lock(m_solveMutex); // same guard getTrajectoryForVehicle()/getDebugInfo() use
+
+    if (referenceTrajectory.size() % m_refStride != 0) {
+        throw std::runtime_error("setReferenceTrajectory: size (" + std::to_string(referenceTrajectory.size()) +
+            ") is not a multiple of nx+nu (" + std::to_string(m_refStride) + ") -- generator/solver layout mismatch");
+    }
+
+    m_referenceTrajectory = std::move(referenceTrajectory);
+    m_onReferenceTrajectoryChanged();
+    LOG_INFO("Trajectory generated in-process, number of points = " + std::to_string(m_numTrajectoryPoints));
+}
+
+void NMPCController::m_onReferenceTrajectoryChanged() {
+    // Mirrors exactly what loadTrajectory(file) already did with this value
+    // (see the constructor, which computes m_endIdxTraj once from
+    // m_numTrajectoryPoints == 0 before any trajectory is loaded --
+    // pre-existing behavior, left untouched here; not something this
+    // in-process entry point should silently change).
     m_numTrajectoryPoints = m_referenceTrajectory.size() / m_refStride;
-    LOG_INFO("Trajectory loaded, number of points = " + std::to_string(m_numTrajectoryPoints));
 }
 
 std::map<uint8_t, uavCommandsFlags> NMPCController::solve(const std::map<uint8_t, uavStates>& latestStates) {

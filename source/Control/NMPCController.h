@@ -39,6 +39,14 @@ public:
 
     void loadTrajectory(const std::string& file);
 
+    // In-process equivalent of loadTrajectory(file), for a trajectory built
+    // by TrajectoryGenerator (see source/Trajectory) rather than read from a
+    // CSV -- ADR-001 Phase 1. `referenceTrajectory` must already be in the
+    // solver's [x0 u0 x1 u1 ... xN uN] stride (TrajectoryGenerator::
+    // toSolverReference() produces exactly this layout) and sampled at the
+    // solver's dt; this does no resampling or validation of either.
+    void setReferenceTrajectory(std::vector<double> referenceTrajectory);
+
     // Main entry point: convert states → run solver → return commands
     std::map<uint8_t, uavCommandsFlags> solve(const std::map<uint8_t, uavStates>& latestStates);
     double lastSolveMs() const;
@@ -155,6 +163,10 @@ private:
     double m_unwrapYaw(uint8_t sysId, double yawRadWrapped);
 
     void m_unpackLatestStates(const std::map<uint8_t, uavStates>& latestStates, std::vector<double>& unpackStates);
+
+    // Shared tail of loadTrajectory()/setReferenceTrajectory(): recomputes
+    // m_numTrajectoryPoints/m_endIdxTraj from m_referenceTrajectory's size.
+    void m_onReferenceTrajectoryChanged();
 };
 
 #endif //NMPCCONTROLLER_H

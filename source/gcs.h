@@ -38,6 +38,7 @@ public:
     void initLaunch() const;
     void fetchParam(int sysId) const;
     void loadTrajectory(const std::string& file) const;
+    void generateTrajectory(const grs::trajgen::TrajectoryConfig& config) const;
     void setOrigin(double latitudeDegrees, double longitudeDegrees, double altitude) const;
     void debugConvert(double latitudeDegrees, double longitudeDegrees, double altitude) const;
 

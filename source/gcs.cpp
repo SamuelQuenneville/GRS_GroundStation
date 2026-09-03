@@ -270,6 +270,15 @@ void GroundControlStation::loadTrajectory(const std::string& file) const {
     }
 }
 
+void GroundControlStation::generateTrajectory(const grs::trajgen::TrajectoryConfig& config) const {
+    if (m_gcsConfig.controlMode == ControlMode::MPC) {
+        LOG_INFO("Generating trajectory in-process ...");
+        m_controlInterface->generateTrajectory(config);
+    } else {
+        LOG_WARNING("Control mode [MPC] is required to generate a trajectory!");
+    }
+}
+
 void GroundControlStation::setOrigin(const double latitudeDegrees, const double longitudeDegrees, const double altitude) const {
     m_controlInterface->setOrigin(latitudeDegrees, longitudeDegrees, altitude);
 }

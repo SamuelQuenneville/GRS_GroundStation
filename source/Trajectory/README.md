@@ -1,11 +1,19 @@
-# Trajectory (Phase 0 -- ADR-001)
+# Trajectory (ADR-001)
 
 C++ port of the [`trajectory_generation`](https://github.com/SamuelQuenneville/trajectory_generation)
 MATLAB project's core math: payload path, aircraft path/takeoff, tether
-forces, inverse dynamics. This is Phase 0 of ADR-001 ("Move Trajectory
-Generation into the GCS, Behind the 3D Map View") -- a drop-in, MATLAB-license-free
-replacement for how today's reference-trajectory CSVs get produced, with no
-change yet to the operator workflow or to `NMPCController::loadTrajectory()`.
+forces, inverse dynamics ("Move Trajectory Generation into the GCS, Behind
+the 3D Map View").
+
+**Phase 0** (math port, no workflow change) is done -- see Scope/Validating
+below. **Phase 1** (in-process wiring) is also done: `ControlInterface::
+generateTrajectory()` / `GroundControlStation::generateTrajectory()` build a
+trajectory with `TrajectoryGenerator` and load it directly into
+`NMPCController` via the new `setReferenceTrajectory()`, no CSV round-trip.
+It fires the same `setTrajectoryLoadedCallback()` `loadTrajectory(file)`
+does, so the existing `setup3d.html` / `GET /api/trajectory` view picks it
+up with no dashboard changes. Try it from the console with `genTraj` (uses
+`TrajectoryConfig`'s defaults -- no field calibration yet, that's Phase 2).
 
 ## Scope
 
