@@ -77,6 +77,17 @@ public:
     void setOrigin(double latitudeDegrees, double longitudeDegrees, double altitude);
     void debugConvert(double latitudeDegrees, double longitudeDegrees, double altitude) const;
 
+    // ADR-001 Phase 3: real launch-position capture for the trajectory
+    // generator sidebar. Mirrors exactly what m_controlLoop() feeds
+    // NMPCController every tick -- the latest telemetry, corrected into the
+    // NavigationFrameManager's NED frame -- so a captured "live" position is
+    // the same NED the rest of the system already trusts. Returns an empty
+    // map if the nav frame hasn't been initialized yet (no origin / no GPS
+    // lock), so callers can tell "no fix yet" from "fix at the origin".
+    // Payload convention, matching NMPCController::m_unpackLatestStates:
+    // when present, the payload is whichever entry has the highest sysId.
+    [[nodiscard]] std::map<uint8_t, uavStates> getLiveNavigationStates() const;
+
 private:
     NavigationFrameManager m_navFrameManager;
 
@@ -99,7 +110,7 @@ private:
     std::function<void(double, double, double)> m_originCallback;
     std::function<void()> m_trajectoryLoadedCallback;
     std::map<uint8_t, uavStates> m_latestStates;
-    std::mutex m_stateMutex;
+    mutable std::mutex m_stateMutex; // locked from const getLiveNavigationStates() too
 
     std::map<uint8_t, std::vector<uavCommandsFlags>> m_commandsList{};
 

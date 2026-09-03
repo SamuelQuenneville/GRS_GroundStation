@@ -88,6 +88,13 @@ private:
     static TrajectorySnapshot m_missionToTrajectorySnapshot(const grs::trajgen::GeneratedMission& mission);
     static grs::trajgen::TrajectoryConfig m_paramsToTrajectoryConfig(const TrajectoryGenerationParams& params);
 
+    // ADR-001 Phase 3: answers GET /api/trajectory/live-positions. Reads
+    // ControlInterface::getLiveNavigationStates() (already NED-corrected) and
+    // splits it into UAVs (sysId <= numUavs()) vs. payload (the highest
+    // remaining sysId, if any) -- same convention NMPCController's own
+    // state-unpacking already relies on.
+    LivePositionsSnapshot m_buildLivePositionsSnapshot() const;
+
     std::unique_ptr<CommunicationManager> m_communicationManager;
     std::unique_ptr<ControlDispatcher>    m_controlDispatcher;
     std::unique_ptr<ControlInterface>     m_controlInterface;

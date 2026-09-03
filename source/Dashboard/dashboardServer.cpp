@@ -91,6 +91,19 @@ void DashboardServer::start() {
         }
     });
 
+    m_httpServer->Get("/api/trajectory/live-positions", [this](const httplib::Request&, httplib::Response& res) {
+        std::function<LivePositionsSnapshot()> handler;
+        {
+            std::lock_guard<std::mutex> lock(m_snapshotsMutex);
+            handler = m_livePositionsHandler;
+        }
+        if (!handler) {
+            res.set_content(LivePositionsSnapshot{}.toJson(), "application/json"); // available=false
+            return;
+        }
+        res.set_content(handler().toJson(), "application/json");
+    });
+
     m_httpServer->set_mount_point("/", m_staticRoot);
 
     m_httpServer->set_post_routing_handler([](const httplib::Request&, httplib::Response& res) {
@@ -193,6 +206,11 @@ void DashboardServer::setTrajectoryGenerateHandler(std::function<TrajectorySnaps
 void DashboardServer::setTrajectoryApplyHandler(std::function<TrajectorySnapshot(const TrajectoryGenerationParams&)> handler) {
     std::lock_guard<std::mutex> lock(m_snapshotsMutex);
     m_trajectoryApplyHandler = std::move(handler);
+}
+
+void DashboardServer::setLivePositionsHandler(std::function<LivePositionsSnapshot()> handler) {
+    std::lock_guard<std::mutex> lock(m_snapshotsMutex);
+    m_livePositionsHandler = std::move(handler);
 }
 
 size_t DashboardServer::connectedBrowserCount() const {

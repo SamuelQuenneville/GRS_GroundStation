@@ -183,6 +183,10 @@ void GroundControlStation::setDashboard(DashboardServer* dashboard) {
         generateTrajectory(config);
         return m_buildTrajectorySnapshotFromController();
     });
+
+    m_dashboardServer->setLivePositionsHandler([this]() {
+        return m_buildLivePositionsSnapshot();
+    });
 }
 
 void GroundControlStation::start() {
@@ -376,8 +380,49 @@ grs::trajgen::TrajectoryConfig GroundControlStation::m_paramsToTrajectoryConfig(
     config.fieldHeadingDeg  = params.fieldHeadingDeg;
     config.originOffsetNed  = grs::Vec3d(params.originNorthOffsetMeters, params.originEastOffsetMeters, params.originDownOffsetMeters);
 
+    config.aircraftPath.phaseRad = {
+        grs::degToRad(params.uav1PhaseDeg),
+        grs::degToRad(params.uav2PhaseDeg),
+    };
+
+    config.tether.lengthAtLaunch       = params.tetherLengthAtLaunchMeters;
+    config.tether.payoutDurationSeconds = params.tetherPayoutDurationSeconds;
+
     config.finalize();
     return config;
+}
+
+LivePositionsSnapshot GroundControlStation::m_buildLivePositionsSnapshot() const {
+    LivePositionsSnapshot snap;
+
+    const auto states = m_controlInterface->getLiveNavigationStates();
+    if (states.empty()) return snap; // available stays false: no nav-frame fix yet
+
+    snap.available = true;
+    const int numUavs = m_controlInterface->numUavs();
+
+    for (const auto& [sysId, s] : states) {
+        LiveVehicleFix fix;
+        fix.north = s.northMeter;
+        fix.east  = s.eastMeter;
+        fix.down  = s.downMeter;
+
+        if (sysId <= numUavs) {
+            fix.id = "uav" + std::to_string(sysId);
+            fix.yawDeg = s.yawDegree;
+            snap.uavs.push_back(fix);
+        } else {
+            // Highest sysId(s) = payload, matching NMPCController's own
+            // "payload is last sysId" convention -- if more than one entry
+            // somehow lands above numUavs, the last iterated (highest sysId,
+            // std::map is ordered) wins, same tie-break as that convention.
+            fix.id = "payload";
+            snap.hasPayload = true;
+            snap.payload = fix;
+        }
+    }
+
+    return snap;
 }
 
 void GroundControlStation::setOrigin(const double latitudeDegrees, const double longitudeDegrees, const double altitude) const {

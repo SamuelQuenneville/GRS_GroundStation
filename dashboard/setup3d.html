@@ -76,11 +76,26 @@
             <div class="gen-row"><label for="gen-payloadMassKg">Payload mass (kg)</label><input type="number" id="gen-payloadMassKg" step="0.5"></div>
 
             <div class="section-gap"></div>
+            <span class="ro-label">Tether slip clutch — payout at launch</span>
+            <div class="gen-row"><label for="gen-tetherLengthAtLaunchMeters">Length at launch (m)</label><input type="number" id="gen-tetherLengthAtLaunchMeters" step="0.1"></div>
+            <div class="gen-row"><label for="gen-tetherPayoutDurationSeconds">Payout duration (s)</label><input type="number" id="gen-tetherPayoutDurationSeconds" step="0.1"></div>
+            <div class="empty-hint">If "Length at launch" is shorter than "Tether length" above, the generator ramps it smoothly to full length over the payout duration instead of assuming full length from t=0.</div>
+
+            <div class="section-gap"></div>
             <span class="ro-label">Field calibration — real launch site vs. MATLAB's idealized frame</span>
             <div class="gen-row"><label for="gen-fieldHeadingDeg">Field heading (deg)</label><input type="number" id="gen-fieldHeadingDeg" step="1"></div>
             <div class="gen-row"><label for="gen-originNorthOffsetMeters">Origin N offset (m)</label><input type="number" id="gen-originNorthOffsetMeters" step="0.5"></div>
             <div class="gen-row"><label for="gen-originEastOffsetMeters">Origin E offset (m)</label><input type="number" id="gen-originEastOffsetMeters" step="0.5"></div>
             <div class="gen-row"><label for="gen-originDownOffsetMeters">Origin D offset (m)</label><input type="number" id="gen-originDownOffsetMeters" step="0.5"></div>
+
+            <div class="section-gap"></div>
+            <span class="ro-label">Aircraft launch phase — bearing from payload to each UAV</span>
+            <div class="gen-row"><label for="gen-uav1PhaseDeg">UAV 1 phase (deg)</label><input type="number" id="gen-uav1PhaseDeg" step="1"></div>
+            <div class="gen-row"><label for="gen-uav2PhaseDeg">UAV 2 phase (deg)</label><input type="number" id="gen-uav2PhaseDeg" step="1"></div>
+
+            <div class="section-gap"></div>
+            <button class="btn" id="gen-capture-btn" style="width:100%">Capture live positions</button>
+            <div class="empty-hint" id="gen-capture-hint">Reads the UAVs' and payload's real live GPS fix and fills in the origin offset and phase angles above — review the values before generating.</div>
 
             <div class="section-gap"></div>
             <div class="btn-row">
@@ -609,6 +624,65 @@
     originGroup.add(originRing, originPin);
     scene.add(originGroup);
 
+    /* ---------- live UAV/payload markers (ADR-001 Phase 3) ----------
+     * Distinct from the reference-trajectory markers above: these track
+     * GET /api/trajectory/live-positions (real GPS-derived NED, polled
+     * periodically -- there's no WebSocket push for this, it's a one-shot
+     * read like /api/origin). Rendered as small bright diamonds so they
+     * don't get lost among the reference-trajectory dots; a thin vertical
+     * stem drops each marker to the ground plane, since GPS altitude alone
+     * can be hard to judge from an orbiting 3D camera.
+     */
+    const liveMarkersGroup = new THREE.Group();
+    scene.add(liveMarkersGroup);
+
+    function clearLiveMarkers() {
+        liveMarkersGroup.children.slice().forEach(obj => {
+            obj.traverse(o => { if (o.geometry) o.geometry.dispose(); if (o.material) o.material.dispose(); });
+            liveMarkersGroup.remove(obj);
+        });
+    }
+
+    function addLiveMarker(fix, color, label) {
+        const group = new THREE.Group();
+        const p = nedToScene(fix.north, fix.east, fix.down);
+
+        const mat = new THREE.MeshStandardMaterial({ color, emissive: color, emissiveIntensity: 0.6 });
+        const marker = new THREE.Mesh(new THREE.OctahedronGeometry(1.1), mat);
+        marker.position.copy(p);
+        group.add(marker);
+
+        // stem down to the ground plane so altitude reads clearly
+        const groundPt = nedToScene(fix.north, fix.east, 0);
+        const stemGeo = new THREE.BufferGeometry().setFromPoints([p, groundPt]);
+        group.add(new THREE.Line(stemGeo, new THREE.LineBasicMaterial({ color, transparent: true, opacity: 0.5 })));
+
+        group.userData = { label, fix };
+        liveMarkersGroup.add(group);
+    }
+
+    function renderLiveMarkers(snapshot) {
+        clearLiveMarkers();
+        if (!snapshot || !snapshot.available) return;
+        (snapshot.uavs || []).forEach((fix, i) => {
+            addLiveMarker(fix, DEFAULT_PALETTE[i % DEFAULT_PALETTE.length], fix.id.toUpperCase() + ' (live)');
+        });
+        if (snapshot.hasPayload) {
+            addLiveMarker(snapshot.payload, 0xffffff, 'Payload (live)');
+        }
+    }
+
+    let latestLiveFixes = null;
+    async function refreshLivePositions() {
+        try {
+            const res = await fetch('/api/trajectory/live-positions');
+            latestLiveFixes = await res.json();
+            renderLiveMarkers(latestLiveFixes);
+        } catch (err) {
+            console.error('Failed to load live positions:', err);
+        }
+    }
+
     /* ---------- fetch origin + trajectory from the real GCS ---------- */
     async function loadOrigin() {
         const pillText = document.getElementById('origin-pill-text');
@@ -671,7 +745,9 @@
         'climbDistanceMeters', 'climbVelMetersPerSecond', 'climbAccelMetersPerSecondSq',
         'moveDistanceMeters', 'moveVelMetersPerSecond', 'moveAccelMetersPerSecondSq', 'moveAngleDegrees',
         'holdTimeSeconds', 'tetherLengthMeters', 'payloadMassKg',
+        'tetherLengthAtLaunchMeters', 'tetherPayoutDurationSeconds',
         'fieldHeadingDeg', 'originNorthOffsetMeters', 'originEastOffsetMeters', 'originDownOffsetMeters',
+        'uav1PhaseDeg', 'uav2PhaseDeg',
     ];
 
     function readGeneratorParams() {
@@ -719,6 +795,66 @@
         return data;
     }
 
+    // Compass-bearing helpers (degrees, clockwise from North toward East,
+    // matching TrajectoryConfig's own "phase/heading, from North toward
+    // East" convention): atan2(East, North), not the usual atan2(y, x).
+    function bearingDeg(fromFix, toFix) {
+        const dNorth = toFix.north - fromFix.north;
+        const dEast = toFix.east - fromFix.east;
+        return THREE.MathUtils.radToDeg(Math.atan2(dEast, dNorth));
+    }
+    function wrapDeg180(deg) {
+        let d = deg % 360;
+        if (d > 180) d -= 360;
+        if (d < -180) d += 360;
+        return d;
+    }
+
+    document.getElementById('gen-capture-btn').addEventListener('click', async () => {
+        setGenStatus('Capturing live positions…', 'busy');
+        try {
+            const res = await fetch('/api/trajectory/live-positions');
+            const snap = await res.json();
+            latestLiveFixes = snap;
+            renderLiveMarkers(snap);
+
+            if (!snap.available) {
+                setGenStatus('No live fix yet — waiting for GPS lock / navigation origin.', 'error');
+                return;
+            }
+            if (!snap.hasPayload) {
+                setGenStatus('UAV markers updated, but no live payload GPS fix — origin/phase angles left unchanged.', 'error');
+                return;
+            }
+
+            const payload = snap.payload;
+            document.getElementById('gen-originNorthOffsetMeters').value = payload.north.toFixed(2);
+            document.getElementById('gen-originEastOffsetMeters').value = payload.east.toFixed(2);
+            document.getElementById('gen-originDownOffsetMeters').value = payload.down.toFixed(2);
+
+            // TrajectoryGenerator::applyFieldCalibration rotates the whole
+            // locally-generated mission (including these phase angles) by
+            // fieldHeadingDeg afterward, so the LOCAL phase fed into the
+            // generator must be the real bearing plus fieldHeadingDeg for the
+            // rotation to reproduce that real bearing again on Apply.
+            const fieldHeadingDeg = parseFloat(document.getElementById('gen-fieldHeadingDeg').value) || 0;
+            const uav1 = (snap.uavs || []).find(u => u.id === 'uav1');
+            const uav2 = (snap.uavs || []).find(u => u.id === 'uav2');
+            if (uav1) document.getElementById('gen-uav1PhaseDeg').value = wrapDeg180(bearingDeg(payload, uav1) + fieldHeadingDeg).toFixed(1);
+            if (uav2) document.getElementById('gen-uav2PhaseDeg').value = wrapDeg180(bearingDeg(payload, uav2) + fieldHeadingDeg).toFixed(1);
+
+            const missing = [!uav1 && 'UAV 1', !uav2 && 'UAV 2'].filter(Boolean);
+            if (missing.length) {
+                setGenStatus(`Captured origin from payload GPS, but no live fix for ${missing.join(' and ')} — its phase angle was left unchanged.`, 'preview');
+            } else {
+                setGenStatus('Captured live origin + phase angles — review the values above, then Generate preview.', 'preview');
+            }
+        } catch (err) {
+            console.error('Failed to capture live positions:', err);
+            setGenStatus(`Capture failed: ${err.message}`, 'error');
+        }
+    });
+
     document.getElementById('gen-preview-btn').addEventListener('click', async () => {
         setGenStatus('Generating preview…', 'busy');
         try {
@@ -747,6 +883,12 @@
     });
 
     loadGeneratorDefaults();
+
+    // Live UAV/payload markers: poll rather than push (see the block above) --
+    // 2s is frequent enough to watch the launcher setup without hammering
+    // the same GET the "Capture" button also uses on demand.
+    refreshLivePositions();
+    setInterval(refreshLivePositions, 2000);
 
     /* ---------- camera preset buttons ---------- */
     document.getElementById('cam-reset').addEventListener('click', () => {

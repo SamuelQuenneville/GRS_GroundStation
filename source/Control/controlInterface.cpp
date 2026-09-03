@@ -119,6 +119,17 @@ void ControlInterface::generateTrajectory(const grs::trajgen::TrajectoryConfig& 
     if (m_trajectoryLoadedCallback) m_trajectoryLoadedCallback();
 }
 
+std::map<uint8_t, uavStates> ControlInterface::getLiveNavigationStates() const {
+    if (!m_navFrameManager.isInitialized()) return {};
+
+    std::map<uint8_t, uavStates> states;
+    {
+        std::lock_guard lock(m_stateMutex);
+        states = m_latestStates;
+    }
+    return m_navFrameManager.toNavigationFrame(states);
+}
+
 void ControlInterface::setOrigin(const double latitudeDegrees, const double longitudeDegrees, const double altitude) {
     m_navFrameManager.setOrigin(latitudeDegrees, longitudeDegrees, altitude);
     if (m_originCallback) m_originCallback(latitudeDegrees, longitudeDegrees, altitude);

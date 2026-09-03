@@ -61,6 +61,12 @@ public:
     void setTrajectoryGenerateHandler(std::function<TrajectorySnapshot(const TrajectoryGenerationParams&)> handler);
     void setTrajectoryApplyHandler(std::function<TrajectorySnapshot(const TrajectoryGenerationParams&)> handler);
 
+    // ADR-001 Phase 3: "Capture live positions" in the generator sidebar --
+    // answers GET /api/trajectory/live-positions. Computed on demand (not
+    // cached/pushed) since it's only read on an explicit operator click, not
+    // at telemetry rates.
+    void setLivePositionsHandler(std::function<LivePositionsSnapshot()> handler);
+
     size_t connectedBrowserCount() const;
 
 private:
@@ -94,6 +100,7 @@ private:
     TrajectoryGenerationParams m_trajectoryGeneratorDefaults;
     std::function<TrajectorySnapshot(const TrajectoryGenerationParams&)> m_trajectoryGenerateHandler;
     std::function<TrajectorySnapshot(const TrajectoryGenerationParams&)> m_trajectoryApplyHandler;
+    std::function<LivePositionsSnapshot()> m_livePositionsHandler;
 
     std::atomic<bool> m_running{false};
     std::thread m_broadcastThread;

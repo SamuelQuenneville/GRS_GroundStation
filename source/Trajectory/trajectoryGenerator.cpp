@@ -63,6 +63,9 @@ std::vector<double> gradientUniform(const std::vector<double>& y, double dt) {
 
 double quinticSmoothstep(double tau) { return 6*tau*tau*tau*tau*tau - 15*tau*tau*tau*tau + 10*tau*tau*tau; }
 double quinticSmoothstepDeriv(double tau) { return 30*tau*tau*tau*tau - 60*tau*tau*tau + 30*tau*tau; }
+// d^2/dtau^2 of quinticSmoothstep -- needed for the tether slip-clutch payout
+// model's L''(t) (see generateAircraftTakeoff), nothing else uses it.
+double quinticSmoothstepSecondDeriv(double tau) { return 120*tau*tau*tau - 180*tau*tau + 60*tau; }
 
 // ---------------------------------------------------------------------------
 // core/+traj/makeLoiter.m, sCurveProfile.m
@@ -273,9 +276,36 @@ struct TakeoffMission {
 
 TakeoffMission generateAircraftTakeoff(const TrajectoryConfig& config, double phase) {
     const auto& ap = config.aircraftPath;
-    const double L = config.tether.length;
+    const double Lfinal = config.tether.length;
     const double dt = config.simDt;
     const double T = ap.takeoffTime;
+
+    // ---- Slip-clutch tether payout (see TrajectoryConfig::Tether comment) ----
+    // Scope of this model, deliberately: the angular guidance law below
+    // (theta/thetaDot/thetaDdot/psi/gamma -- the boundary-value-matched pitch
+    // profile and the resulting azimuth-rate ODE) is left exactly as
+    // validated against MATLAB, computed with `Lfinal` throughout, EXCEPT for
+    // theta0/the phase-1 rate formulas just below, which use the true
+    // launch-instant tether length `L0` since they describe the aircraft's
+    // actual physical elevation angle/rate right at t=0 -- using `Lfinal`
+    // there would be geometrically wrong the moment lengthAtLaunch != length.
+    // The payout itself (i.e. the tether's radial length actually changing
+    // over time) is applied only when converting the resulting spherical
+    // path (L(t), theta(t), psi(t)) to Cartesian position/velocity/
+    // acceleration below, via the ordinary product rule on L(t) -- a real
+    // outward-radial motion layered on top of the unchanged angular path,
+    // not a re-solve of the underlying boundary-value problem.
+    const double L0 = config.tether.lengthAtLaunch; // finalize() resolves <0 to Lfinal
+    const double Tpo = std::max(config.tether.payoutDurationSeconds, 0.0);
+    const double dL = Lfinal - L0;
+    auto payoutTau = [&](double time) { return Tpo > 1e-9 ? std::clamp(time / Tpo, 0.0, 1.0) : 1.0; };
+    auto lengthAt = [&](double time) { return L0 + dL * quinticSmoothstep(payoutTau(time)); };
+    auto lengthDotAt = [&](double time) {
+        return (Tpo > 1e-9 && time < Tpo) ? dL * quinticSmoothstepDeriv(payoutTau(time)) / Tpo : 0.0;
+    };
+    auto lengthDdotAt = [&](double time) {
+        return (Tpo > 1e-9 && time < Tpo) ? dL * quinticSmoothstepSecondDeriv(payoutTau(time)) / (Tpo * Tpo) : 0.0;
+    };
 
     const size_t n = static_cast<size_t>(std::floor(T / dt + 1e-9)) + 1;
     std::vector<double> t(n);
@@ -297,9 +327,9 @@ TakeoffMission generateAircraftTakeoff(const TrajectoryConfig& config, double ph
     const double gamma0 = grs::degToRad(ap.takeoffPitch0Deg) + ap.takeoffPitch0TrimRad;
     const double gammaRelax = ap.takeoffPitchDecayFrac * gamma0;
 
-    const double theta0 = std::asin(ap.z0 / L);
-    const double zTarget = std::sqrt(L*L - ap.radius*ap.radius);
-    const double thetaF = std::asin(zTarget / L);
+    const double theta0 = std::asin(ap.z0 / L0);
+    const double zTarget = std::sqrt(Lfinal*Lfinal - ap.radius*ap.radius);
+    const double thetaF = std::asin(zTarget / Lfinal);
 
     size_t iSwitch = 0;
     for (size_t i = 0; i < n; ++i) if (t[i] <= t1) iSwitch = i;
@@ -311,8 +341,8 @@ TakeoffMission generateAircraftTakeoff(const TrajectoryConfig& config, double ph
         const double s1 = quinticSmoothstep(tau1);
         gamma[i] = gamma0 + (gammaRelax - gamma0) * s1;
         const double ds1 = quinticSmoothstepDeriv(tau1);
-        thetaDotPhase1[i] = (v[i] * std::sin(gamma[i])) / (L * std::max(std::cos(theta0), 1e-6));
-        thetaDdot[i] = ((v[i] * (gammaRelax - gamma0) * ds1) / t1) / (L * std::max(std::cos(theta0), 1e-6));
+        thetaDotPhase1[i] = (v[i] * std::sin(gamma[i])) / (L0 * std::max(std::cos(theta0), 1e-6));
+        thetaDdot[i] = ((v[i] * (gammaRelax - gamma0) * ds1) / t1) / (L0 * std::max(std::cos(theta0), 1e-6));
         tPhase1[i] = t[i];
     }
     const std::vector<double> thetaPhase1 = [&]{
@@ -372,14 +402,14 @@ TakeoffMission generateAircraftTakeoff(const TrajectoryConfig& config, double ph
         theta[i] = b0 + b1*tau2 + b2*tau2_2 + b3*tau2_3 + b4*tau2_4 + b5*tau2_5 + b6*tau2_6 + b7*tau2_6*tau2;
         thetaDot[i] = (b1 + 2*b2*tau2 + 3*b3*tau2_2 + 4*b4*tau2_3 + 5*b5*tau2_4 + 6*b6*tau2_5 + 7*b7*tau2_6) / t2;
         thetaDdot[i] = (2*b2 + 6*b3*tau2 + 12*b4*tau2_2 + 20*b5*tau2_3 + 30*b6*tau2_4 + 42*b7*tau2_5) / (t2*t2);
-        const double ratio = (L * std::cos(theta[i]) * thetaDot[i]) / std::max(v[i], 1e-6);
+        const double ratio = (Lfinal * std::cos(theta[i]) * thetaDot[i]) / std::max(v[i], 1e-6);
         gamma[i] = std::asin(std::clamp(ratio, -1.0, 1.0));
     }
 
     // Azimuth
     std::vector<double> psiDot(n), psiDdotSrc(n);
     for (size_t i = 0; i < n; ++i) {
-        const double vOverL = v[i] / L;
+        const double vOverL = v[i] / Lfinal;
         const double under = std::max(vOverL*vOverL - thetaDot[i]*thetaDot[i], 0.0);
         psiDot[i] = config.aircraftPath.direction * std::sqrt(under) / std::max(std::cos(theta[i]), 1e-6);
     }
@@ -396,27 +426,48 @@ TakeoffMission generateAircraftTakeoff(const TrajectoryConfig& config, double ph
         const double cTheta = std::cos(theta[i]), sTheta = std::sin(theta[i]);
         const double cPsi = std::cos(psi[i]), sPsi = std::sin(psi[i]);
 
-        const double x = L*cTheta*cPsi, y = L*cTheta*sPsi, z = -L*sTheta;
-        const double vx = L*(-sTheta*thetaDot[i]*cPsi - cTheta*sPsi*psiDot[i]);
-        const double vy = L*(-sTheta*thetaDot[i]*sPsi + cTheta*cPsi*psiDot[i]);
-        const double vz = -L*(cTheta*thetaDot[i]);
-        const double ax = L*(
+        // Tether length at this sample and its time derivatives -- L0 (or
+        // Lfinal, whichever, since either way this collapses to a constant
+        // Lfinal with LDot=LDdot=0) whenever no payout is configured, making
+        // this an exact no-op vs. the original constant-L formulas below.
+        const double Lt = lengthAt(t[i]);
+        const double LDot = lengthDotAt(t[i]);
+        const double LDdot = lengthDdotAt(t[i]);
+
+        // Unit-tether-length (L=1) angular kinematics -- everything below is
+        // just L(t)*u + 2*L'(t)*uDot + L''(t)*u for the position, and the
+        // original per-axis bracket (unchanged) is exactly L''(t)*u's
+        // "acceleration of a unit vector" term, i.e. ordinary product rule
+        // applied to pos(t) = L(t) * u(theta(t), psi(t)).
+        const double x = cTheta*cPsi, y = cTheta*sPsi, z = -sTheta;
+        const double xDot = -sTheta*thetaDot[i]*cPsi - cTheta*sPsi*psiDot[i];
+        const double yDot = -sTheta*thetaDot[i]*sPsi + cTheta*cPsi*psiDot[i];
+        const double zDot = -(cTheta*thetaDot[i]);
+        const double xDdot =
             -cTheta*thetaDot[i]*thetaDot[i]*cPsi
             -sTheta*thetaDdot[i]*cPsi
             +2*sTheta*thetaDot[i]*sPsi*psiDot[i]
             -cTheta*cPsi*psiDot[i]*psiDot[i]
-            -cTheta*sPsi*psiDdot[i]);
-        const double ay = L*(
+            -cTheta*sPsi*psiDdot[i];
+        const double yDdot =
             -cTheta*thetaDot[i]*thetaDot[i]*sPsi
             -sTheta*thetaDdot[i]*sPsi
             -2*sTheta*thetaDot[i]*cPsi*psiDot[i]
             -cTheta*sPsi*psiDot[i]*psiDot[i]
-            +cTheta*cPsi*psiDdot[i]);
-        const double az = -L*(-sTheta*thetaDot[i]*thetaDot[i] + cTheta*thetaDdot[i]);
+            +cTheta*cPsi*psiDdot[i];
+        const double zDdot = -(-sTheta*thetaDot[i]*thetaDot[i] + cTheta*thetaDdot[i]);
 
-        out.payloadFrame[i].pos = {x, y, z};
-        out.payloadFrame[i].vel = {vx, vy, vz};
-        out.payloadFrame[i].acc = {ax, ay, az};
+        out.payloadFrame[i].pos = { Lt*x, Lt*y, Lt*z };
+        out.payloadFrame[i].vel = {
+            LDot*x + Lt*xDot,
+            LDot*y + Lt*yDot,
+            LDot*z + Lt*zDot,
+        };
+        out.payloadFrame[i].acc = {
+            LDdot*x + 2*LDot*xDot + Lt*xDdot,
+            LDdot*y + 2*LDot*yDot + Lt*yDdot,
+            LDdot*z + 2*LDot*zDot + Lt*zDdot,
+        };
 
         out.inertial[i].pos = out.payloadFrame[i].pos + config.payloadPath.x0;
         out.inertial[i].vel = out.payloadFrame[i].vel;

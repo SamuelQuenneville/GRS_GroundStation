@@ -311,11 +311,31 @@ struct TrajectoryGenerationParams {
     double tetherLengthMeters = 30.0;
     double payloadMassKg = 20.0;
 
-    // Field calibration (ADR-001's headline addition over the MATLAB source).
+    // Field calibration (ADR-001 Phase 2).
     double fieldHeadingDeg = 0.0;
     double originNorthOffsetMeters = 0.0;
     double originEastOffsetMeters = 0.0;
     double originDownOffsetMeters = 0.0;
+
+    // Real launch-position seeding (ADR-001 Phase 3). Fixed at two aircraft,
+    // same hard-coded scope as the rest of the generator. Defaults mirror the
+    // MATLAB source's assumed perfect 180-degree separation ({0, pi} in
+    // TrajectoryConfig::AircraftPath::phaseRad) -- a no-op until "Capture
+    // live positions" (or the operator) sets these to the real bearings.
+    // These are LOCAL/pre-field-heading-rotation angles: TrajectoryGenerator
+    // ::applyFieldCalibration rotates the whole generated mission (including
+    // these phase angles) by fieldHeadingDeg afterward, so the real-world
+    // bearing an operator measures on site is `localPhaseDeg + fieldHeadingDeg`
+    // (see trajectoryGenerator.cpp's rotationZ convention) -- the capture
+    // button in setup3d.html does that conversion, not this struct.
+    double uav1PhaseDeg = 0.0;
+    double uav2PhaseDeg = 180.0;
+
+    // Slip-clutch tether payout (ADR-001 Phase 3, see TrajectoryConfig::
+    // Tether). Defaults equal to tetherLengthMeters/TrajectoryConfig's own
+    // default, i.e. no payout modeled until set shorter than tetherLengthMeters.
+    double tetherLengthAtLaunchMeters = 30.0;
+    double tetherPayoutDurationSeconds = 1.5;
 
     std::string toJson() const {
         JsonWriter root;
@@ -334,7 +354,11 @@ struct TrajectoryGenerationParams {
             .add("fieldHeadingDeg", fieldHeadingDeg)
             .add("originNorthOffsetMeters", originNorthOffsetMeters)
             .add("originEastOffsetMeters", originEastOffsetMeters)
-            .add("originDownOffsetMeters", originDownOffsetMeters);
+            .add("originDownOffsetMeters", originDownOffsetMeters)
+            .add("uav1PhaseDeg", uav1PhaseDeg)
+            .add("uav2PhaseDeg", uav2PhaseDeg)
+            .add("tetherLengthAtLaunchMeters", tetherLengthAtLaunchMeters)
+            .add("tetherPayoutDurationSeconds", tetherPayoutDurationSeconds);
         return root.str();
     }
 
@@ -360,7 +384,53 @@ struct TrajectoryGenerationParams {
         p.originNorthOffsetMeters = reader.getNumber("originNorthOffsetMeters", p.originNorthOffsetMeters);
         p.originEastOffsetMeters = reader.getNumber("originEastOffsetMeters", p.originEastOffsetMeters);
         p.originDownOffsetMeters = reader.getNumber("originDownOffsetMeters", p.originDownOffsetMeters);
+        p.uav1PhaseDeg = reader.getNumber("uav1PhaseDeg", p.uav1PhaseDeg);
+        p.uav2PhaseDeg = reader.getNumber("uav2PhaseDeg", p.uav2PhaseDeg);
+        p.tetherLengthAtLaunchMeters = reader.getNumber("tetherLengthAtLaunchMeters", p.tetherLengthAtLaunchMeters);
+        p.tetherPayoutDurationSeconds = reader.getNumber("tetherPayoutDurationSeconds", p.tetherPayoutDurationSeconds);
         return p;
+    }
+};
+
+// One live vehicle fix -- real GPS-derived NED position (+ yaw for UAVs) at
+// the moment "Capture live positions" was clicked in the trajectory
+// generator sidebar (ADR-001 Phase 3). Same NED frame as everything else
+// here (relative to the NavigationFrameManager origin), so it's directly
+// comparable to TrajectoryPointJson / OriginSnapshot without conversion.
+struct LiveVehicleFix {
+    std::string id;      // e.g. "uav1", "payload"
+    double north = 0.0, east = 0.0, down = 0.0;
+    double yawDeg = 0.0; // 0 for the payload, which has no independent heading
+
+    std::string toJson() const {
+        JsonWriter root;
+        root.add("id", id).add("north", north).add("east", east).add("down", down).add("yawDeg", yawDeg);
+        return root.str();
+    }
+};
+
+// `available` is false until the nav frame has a GPS-derived offset for at
+// least one UAV (see NavigationFrameManager::isInitialized()) -- e.g. before
+// GPS lock, or before controlMode==MPC has even started. `hasPayload` is
+// separate: the payload may have its own real GPS link (ADR-001 Phase 3) but
+// not be reporting yet even while the UAVs are.
+struct LivePositionsSnapshot {
+    bool available = false;
+    std::vector<LiveVehicleFix> uavs;
+    bool hasPayload = false;
+    LiveVehicleFix payload;
+
+    std::string toJson() const {
+        std::vector<std::string> uavJsons;
+        uavJsons.reserve(uavs.size());
+        for (const auto& u : uavs) uavJsons.push_back(u.toJson());
+
+        JsonWriter root;
+        root.add("available", available)
+            .addRaw("uavs", jsonArray(uavJsons))
+            .add("hasPayload", hasPayload);
+        if (hasPayload) root.addRaw("payload", payload.toJson());
+        return root.str();
     }
 };
 

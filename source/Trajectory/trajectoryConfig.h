@@ -58,9 +58,23 @@ struct TrajectoryConfig {
 
     // ---- Tether ----
     struct Tether {
-        double length = 30;        // Tether length [m]
+        double length = 30;        // Tether length [m] -- final/nominal, once fully paid out
         double linearMass = 0.0005; // Tether linear mass [kg/m]
         int nSegments = 10;        // Number of segments for discretization
+
+        // ---- Slip-clutch payout (new vs. MATLAB; Phase 3) ----
+        // The launcher's slip clutch pays out ~1m of tether as it goes taut,
+        // so the aircraft is on a *shorter* tether right at launch than the
+        // nominal `length` above. Modeled as a smooth ramp from
+        // `lengthAtLaunch` (t=0) to `length` (t=payoutDurationSeconds, held
+        // thereafter) purely in TrajectoryGenerator::generateAircraftTakeoff's
+        // spherical->Cartesian reconstruction -- see that function's comments
+        // for exactly what is and isn't re-derived for a time-varying radius.
+        // Sentinel: a negative `lengthAtLaunch` means "not set", resolved to
+        // `length` by finalize() below -- i.e. a no-op (no payout modeled)
+        // unless a caller explicitly sets it shorter than `length`.
+        double lengthAtLaunch = -1.0;       // Tether length at t=0 [m]; <0 = same as `length`
+        double payoutDurationSeconds = 1.5; // Time to ramp lengthAtLaunch -> length [s]; only matters if lengthAtLaunch < length
 
         // Derived (computed by TrajectoryConfig::finalize(), mirrors config.m
         // deriving config.tether.segment.* from length/linearMass/nSegments).
@@ -127,6 +141,8 @@ struct TrajectoryConfig {
     // linCoordNorm. Call once after setting the raw tether fields (or after
     // loading from YAML).
     void finalize() {
+        if (tether.lengthAtLaunch < 0.0) tether.lengthAtLaunch = tether.length;
+
         tether.segmentMass.assign(tether.nSegments, (tether.length * tether.linearMass) / tether.nSegments);
         tether.segmentLength.assign(tether.nSegments, tether.length / tether.nSegments);
         tether.segmentLinCoordNorm.resize(tether.nSegments);
