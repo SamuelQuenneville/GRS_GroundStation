@@ -448,7 +448,35 @@
     let currentDensityMode = 'all';
     const DEFAULT_PALETTE = [0xef4444, 0xf59e0b, 0xa78bfa, 0x2dd4bf];
 
+    // Removes every Three.js object the previous buildVehicleVisuals() call
+    // added to the scene. Without this, each call (a fresh "Generate
+    // preview", "Apply", or the initial GET /api/trajectory load) just piles
+    // a new trajLine + markerGroup on top of the old ones -- they're never
+    // reachable again through `vehicles` (that array gets reassigned below),
+    // but Three.js keeps rendering them since they're still in `scene`. Two
+    // symptoms of the same bug: a second "Generate preview" looked like it
+    // did nothing (the old trajectory was still there, now with a new one
+    // drawn through it), and a small change (like a 1m tether-payout tweak)
+    // was invisible under the old, unchanged trajectory still rendered
+    // underneath it.
+    function clearVehicleVisuals() {
+        vehicles.forEach(v => {
+            scene.remove(v.trajLine);
+            v.trajLine.geometry.dispose();
+            v.trajLine.material.dispose();
+
+            scene.remove(v.markerGroup);
+            v.markerMeshes.forEach(m => {
+                m.geometry.dispose();
+                m.material.dispose();
+            });
+        });
+        vehicles = [];
+    }
+
     function buildVehicleVisuals(vehiclesData) {
+        clearVehicleVisuals();
+
         // vehiclesData: [{ id, label, color?, points: [{north,east,down,vx,vy,vz,roll,pitch,speed}, ...] }, ...]
         vehicles = vehiclesData.map((cfg, i) => {
             const color = new THREE.Color(cfg.color ?? DEFAULT_PALETTE[i % DEFAULT_PALETTE.length]);
