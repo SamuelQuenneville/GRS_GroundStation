@@ -44,6 +44,10 @@ void DashboardServer::start() {
 
     m_httpServer->set_mount_point("/", m_staticRoot);
 
+    m_httpServer->set_post_routing_handler([](const httplib::Request&, httplib::Response& res) {
+        res.set_header("Cache-Control", "no-cache");
+    });
+
     m_httpServer->WebSocket("/ws", [this](const httplib::Request&, httplib::ws::WebSocket& ws) {
         {
             std::lock_guard<std::mutex> lock(m_clientsMutex);
