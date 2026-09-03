@@ -12,6 +12,7 @@
 #pragma once
 
 #include <atomic>
+#include <functional>
 #include <memory>
 #include <mutex>
 #include <thread>
@@ -47,6 +48,19 @@ public:
     void setOrigin(const OriginSnapshot& snapshot);
     void setTrajectory(const TrajectorySnapshot& snapshot);
 
+    // ADR-001 Phase 2: trajectory-generation sidebar on setup3d.html.
+    // `defaults` seeds the UI (GET /api/trajectory/generator-defaults).
+    // `generateHandler` answers POST /api/trajectory/generate -- pure
+    // preview, must not mutate controller state. `applyHandler` answers
+    // POST /api/trajectory/apply -- commits, and its return value is what's
+    // sent back as this request's response (callers typically re-derive it
+    // from the now-updated controller rather than reusing the preview, so
+    // the response reflects what's actually loaded). Both handlers may
+    // throw; the exception's what() is returned as a 400 JSON error body.
+    void setTrajectoryGeneratorDefaults(const TrajectoryGenerationParams& defaults);
+    void setTrajectoryGenerateHandler(std::function<TrajectorySnapshot(const TrajectoryGenerationParams&)> handler);
+    void setTrajectoryApplyHandler(std::function<TrajectorySnapshot(const TrajectoryGenerationParams&)> handler);
+
     size_t connectedBrowserCount() const;
 
 private:
@@ -76,6 +90,10 @@ private:
     OriginSnapshot m_originSnapshot;
     TrajectorySnapshot m_trajectorySnapshot;
     bool m_hasTrajectorySnapshot = false;
+
+    TrajectoryGenerationParams m_trajectoryGeneratorDefaults;
+    std::function<TrajectorySnapshot(const TrajectoryGenerationParams&)> m_trajectoryGenerateHandler;
+    std::function<TrajectorySnapshot(const TrajectoryGenerationParams&)> m_trajectoryApplyHandler;
 
     std::atomic<bool> m_running{false};
     std::thread m_broadcastThread;

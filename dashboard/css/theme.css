@@ -85,6 +85,28 @@ body {
 .topbar-spacer { flex: 1; }
 .ro-label { color: var(--text-dim); font-size: 10px; }
 
+/* Trajectory-generator sidebar (ADR-001 Phase 2): compact label+number-input
+   rows, styled to match the existing tiles-radius input rather than the
+   default OS widget. */
+.gen-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 8px;
+    padding: 3px 0;
+}
+.gen-row label { color: var(--text-dim); font-size: 12px; }
+.gen-row input[type="number"] {
+    width: 84px;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    color: var(--text);
+    border-radius: 6px;
+    padding: 4px 6px;
+    font-size: 12px;
+    text-align: right;
+}
+
 .clock {
     font-variant-numeric: tabular-nums;
     color: var(--text-dim);

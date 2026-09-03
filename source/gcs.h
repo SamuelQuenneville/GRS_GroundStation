@@ -72,6 +72,22 @@ private:
     static std::string m_gpsFixToString(mavsdk::Telemetry::FixType fix);
     static std::string m_catapultStateToString(CatapultState state);
 
+    // ADR-001 Phase 2: shared conversion helpers between the trajectory
+    // generator/controller and the dashboard's JSON snapshot types.
+    // m_buildTrajectorySnapshotFromController() reads back whatever's
+    // currently loaded in the NMPC controller (used by both the existing
+    // setTrajectoryLoadedCallback and the /api/trajectory/apply response, so
+    // "Apply" always reflects what's actually loaded rather than the preview
+    // that was requested). m_missionToTrajectorySnapshot() instead converts a
+    // freshly-generated, not-yet-applied GeneratedMission -- used for
+    // /api/trajectory/generate's pure preview. m_paramsToTrajectoryConfig()
+    // maps the dashboard's flat TrajectoryGenerationParams onto a full
+    // grs::trajgen::TrajectoryConfig (starting from its defaults, so any
+    // field the sidebar doesn't expose keeps its config.m-mirrored value).
+    TrajectorySnapshot m_buildTrajectorySnapshotFromController() const;
+    static TrajectorySnapshot m_missionToTrajectorySnapshot(const grs::trajgen::GeneratedMission& mission);
+    static grs::trajgen::TrajectoryConfig m_paramsToTrajectoryConfig(const TrajectoryGenerationParams& params);
+
     std::unique_ptr<CommunicationManager> m_communicationManager;
     std::unique_ptr<ControlDispatcher>    m_controlDispatcher;
     std::unique_ptr<ControlInterface>     m_controlInterface;

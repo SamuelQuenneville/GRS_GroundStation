@@ -15,6 +15,18 @@ does, so the existing `setup3d.html` / `GET /api/trajectory` view picks it
 up with no dashboard changes. Try it from the console with `genTraj` (uses
 `TrajectoryConfig`'s defaults -- no field calibration yet, that's Phase 2).
 
+**Phase 2** (field-calibration UI) is also done: `setup3d.html` has a
+GENERATOR sidebar card exposing the operator-adjustable subset of
+`TrajectoryConfig` as `TrajectoryGenerationParams` (see `dashboardTypes.h`),
+including `fieldHeadingDeg` and the NED `originOffsetNed` triple. "Generate
+preview" hits `POST /api/trajectory/generate` -- pure computation via
+`ControlInterface::previewTrajectory()`, doesn't touch the NMPC controller --
+and draws the result with the same `buildVehicleVisuals()` the read-only view
+already used. "Apply to controller" hits `POST /api/trajectory/apply`, which
+calls `GroundControlStation::generateTrajectory()` (same path as `genTraj`)
+and then re-reads `GET /api/trajectory` so the view always reflects what's
+actually loaded, not just what was last previewed.
+
 ## Scope
 
 - Ported: `core/+traj/*` (payload path, aircraft path, aircraft takeoff,

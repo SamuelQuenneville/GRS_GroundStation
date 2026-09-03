@@ -8,6 +8,7 @@
 
 #include "gcs.h"
 
+#include <algorithm>
 #include <cmath>
 #include <ranges>
 
@@ -88,41 +89,7 @@ GroundControlStation::GroundControlStation()
 
     m_controlInterface->setTrajectoryLoadedCallback([this]() {
         if (!m_dashboardServer) return;
-
-        static const char* uavColors[] = {"#ef4444", "#f59e0b", "#a78bfa", "#2dd4bf"};
-
-        TrajectorySnapshot snap;
-        const int numUavs = m_controlInterface->numUavs();
-        for (int i = 0; i < numUavs; ++i) {
-            TrajectoryVehicleSnapshot vehicle;
-            vehicle.id    = "uav" + std::to_string(i + 1);
-            vehicle.label = "UAV " + std::to_string(i + 1);
-            vehicle.color = uavColors[i % 4];
-            for (const auto& p : m_controlInterface->getTrajectoryForVehicle(i)) {
-                TrajectoryPointJson pt;
-                pt.north = p.north; pt.east = p.east; pt.down = p.down;
-                pt.vx = p.vx; pt.vy = p.vy; pt.vz = p.vz;
-                pt.roll = p.roll; pt.pitch = p.pitch;
-                vehicle.points.push_back(pt);
-            }
-            snap.vehicles.push_back(vehicle);
-        }
-        if (m_controlInterface->trajectoryHasPayload()) {
-            TrajectoryVehicleSnapshot vehicle;
-            vehicle.id = "payload";
-            vehicle.label = "Payload";
-            vehicle.color = "#3ecf6e";
-            for (const auto& p : m_controlInterface->getTrajectoryForVehicle(numUavs)) {
-                TrajectoryPointJson pt;
-                pt.north = p.north; pt.east = p.east; pt.down = p.down;
-                pt.vx = p.vx; pt.vy = p.vy; pt.vz = p.vz;
-                pt.roll = p.roll; pt.pitch = p.pitch;   // stay 0, payload has no attitude state
-                vehicle.points.push_back(pt);
-            }
-            snap.vehicles.push_back(vehicle);
-        }
-
-        m_dashboardServer->setTrajectory(snap);
+        m_dashboardServer->setTrajectory(m_buildTrajectorySnapshotFromController());
     });
 
     m_controlDispatcher->attachCommunicationManager([this](const std::map<uint8_t, uavCommandsFlags>& cmds) {
@@ -194,6 +161,28 @@ void GroundControlStation::initialize(const gcsConfig& config)
 
 void GroundControlStation::setDashboard(DashboardServer* dashboard) {
     m_dashboardServer = dashboard;
+    if (!m_dashboardServer) return;
+
+    m_dashboardServer->setTrajectoryGeneratorDefaults(TrajectoryGenerationParams{});
+
+    // Pure preview: computes a mission and converts it, without touching
+    // m_controlInterface/m_nmpc at all. Safe to call before the controller
+    // is even running.
+    m_dashboardServer->setTrajectoryGenerateHandler([this](const TrajectoryGenerationParams& params) {
+        const auto config = m_paramsToTrajectoryConfig(params);
+        const auto mission = m_controlInterface->previewTrajectory(config);
+        return m_missionToTrajectorySnapshot(mission);
+    });
+
+    // Commits: loads the generated trajectory into the NMPC controller, then
+    // re-reads it back out (rather than reusing the just-generated mission)
+    // so the response -- and the WebSocket-independent GET /api/trajectory
+    // path -- always reflect what's actually loaded in the controller.
+    m_dashboardServer->setTrajectoryApplyHandler([this](const TrajectoryGenerationParams& params) {
+        const auto config = m_paramsToTrajectoryConfig(params);
+        generateTrajectory(config);
+        return m_buildTrajectorySnapshotFromController();
+    });
 }
 
 void GroundControlStation::start() {
@@ -277,6 +266,118 @@ void GroundControlStation::generateTrajectory(const grs::trajgen::TrajectoryConf
     } else {
         LOG_WARNING("Control mode [MPC] is required to generate a trajectory!");
     }
+}
+
+TrajectorySnapshot GroundControlStation::m_buildTrajectorySnapshotFromController() const {
+    static const char* uavColors[] = {"#ef4444", "#f59e0b", "#a78bfa", "#2dd4bf"};
+
+    TrajectorySnapshot snap;
+    const int numUavs = m_controlInterface->numUavs();
+    for (int i = 0; i < numUavs; ++i) {
+        TrajectoryVehicleSnapshot vehicle;
+        vehicle.id    = "uav" + std::to_string(i + 1);
+        vehicle.label = "UAV " + std::to_string(i + 1);
+        vehicle.color = uavColors[i % 4];
+        for (const auto& p : m_controlInterface->getTrajectoryForVehicle(i)) {
+            TrajectoryPointJson pt;
+            pt.north = p.north; pt.east = p.east; pt.down = p.down;
+            pt.vx = p.vx; pt.vy = p.vy; pt.vz = p.vz;
+            pt.roll = p.roll; pt.pitch = p.pitch;
+            vehicle.points.push_back(pt);
+        }
+        snap.vehicles.push_back(vehicle);
+    }
+    if (m_controlInterface->trajectoryHasPayload()) {
+        TrajectoryVehicleSnapshot vehicle;
+        vehicle.id = "payload";
+        vehicle.label = "Payload";
+        vehicle.color = "#3ecf6e";
+        for (const auto& p : m_controlInterface->getTrajectoryForVehicle(numUavs)) {
+            TrajectoryPointJson pt;
+            pt.north = p.north; pt.east = p.east; pt.down = p.down;
+            pt.vx = p.vx; pt.vy = p.vy; pt.vz = p.vz;
+            pt.roll = p.roll; pt.pitch = p.pitch;   // stay 0, payload has no attitude state
+            vehicle.points.push_back(pt);
+        }
+        snap.vehicles.push_back(vehicle);
+    }
+
+    return snap;
+}
+
+TrajectorySnapshot GroundControlStation::m_missionToTrajectorySnapshot(const grs::trajgen::GeneratedMission& mission) {
+    static const char* uavColors[] = {"#ef4444", "#f59e0b", "#a78bfa", "#2dd4bf"};
+
+    TrajectorySnapshot snap;
+    const size_t numUavs = mission.aircraft.size();
+    for (size_t i = 0; i < numUavs; ++i) {
+        TrajectoryVehicleSnapshot vehicle;
+        vehicle.id    = "uav" + std::to_string(i + 1);
+        vehicle.label = "UAV " + std::to_string(i + 1);
+        vehicle.color = uavColors[i % 4];
+
+        const auto& timeline = mission.aircraft[i].inertial;
+        const auto& controls = mission.controls[i];
+        const size_t n = std::min(timeline.size(), controls.size());
+        vehicle.points.reserve(n);
+        for (size_t s = 0; s < n; ++s) {
+            const auto& k = timeline[s];
+            const auto& c = controls[s];
+            TrajectoryPointJson pt;
+            pt.north = k.pos[0]; pt.east = k.pos[1]; pt.down = k.pos[2];
+            pt.vx = k.vel[0]; pt.vy = k.vel[1]; pt.vz = k.vel[2];
+            // Matches toSolverReference()/getTrajectoryForVehicle(): roll/pitch
+            // stay in radians here too, so a preview and its post-Apply
+            // reload (GET /api/trajectory) render identically.
+            pt.roll = c.rollRad; pt.pitch = c.pitchRad;
+            vehicle.points.push_back(pt);
+        }
+        snap.vehicles.push_back(vehicle);
+    }
+
+    if (!mission.payload.empty()) {
+        TrajectoryVehicleSnapshot vehicle;
+        vehicle.id = "payload";
+        vehicle.label = "Payload";
+        vehicle.color = "#3ecf6e";
+        vehicle.points.reserve(mission.payload.size());
+        for (const auto& k : mission.payload) {
+            TrajectoryPointJson pt;
+            pt.north = k.pos[0]; pt.east = k.pos[1]; pt.down = k.pos[2];
+            pt.vx = k.vel[0]; pt.vy = k.vel[1]; pt.vz = k.vel[2];
+            pt.roll = 0.0; pt.pitch = 0.0; // payload has no attitude state
+            vehicle.points.push_back(pt);
+        }
+        snap.vehicles.push_back(vehicle);
+    }
+
+    return snap;
+}
+
+grs::trajgen::TrajectoryConfig GroundControlStation::m_paramsToTrajectoryConfig(const TrajectoryGenerationParams& params) {
+    grs::trajgen::TrajectoryConfig config; // start from config.m-mirrored defaults
+
+    config.aircraftPath.radius  = params.radiusMeters;
+    config.aircraftPath.velMean = params.velMeanMetersPerSecond;
+
+    config.payloadPath.distanceClimb = params.climbDistanceMeters;
+    config.payloadPath.velClimb      = params.climbVelMetersPerSecond;
+    config.payloadPath.accClimb      = params.climbAccelMetersPerSecondSq;
+
+    config.payloadPath.distanceMove  = params.moveDistanceMeters;
+    config.payloadPath.velMove       = params.moveVelMetersPerSecond;
+    config.payloadPath.accMove       = params.moveAccelMetersPerSecondSq;
+    config.payloadPath.angleMoveDeg  = params.moveAngleDegrees;
+
+    config.payloadPath.timehold = params.holdTimeSeconds;
+    config.tether.length        = params.tetherLengthMeters;
+    config.payload.mass         = params.payloadMassKg;
+
+    config.fieldHeadingDeg  = params.fieldHeadingDeg;
+    config.originOffsetNed  = grs::Vec3d(params.originNorthOffsetMeters, params.originEastOffsetMeters, params.originDownOffsetMeters);
+
+    config.finalize();
+    return config;
 }
 
 void GroundControlStation::setOrigin(const double latitudeDegrees, const double longitudeDegrees, const double altitude) const {

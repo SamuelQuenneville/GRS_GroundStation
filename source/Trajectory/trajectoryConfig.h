@@ -113,8 +113,14 @@ struct TrajectoryConfig {
         double takeoffPitchDecayFrac = 0.4; // Fraction of initial pitch to decay to
     } aircraftPath;
 
-    // ---- Field calibration (new vs. MATLAB; Phase 2 concern, no-op today) ----
+    // ---- Field calibration (new vs. MATLAB; Phase 2) ----
+    // Both no-ops at their defaults, so TrajectoryGenerator::generate() output
+    // is unaffected until a caller opts in. Applied post-generation by
+    // TrajectoryGenerator::applyFieldCalibration() -- see that function's
+    // comment in trajectoryGenerator.h for why this stays out of the core
+    // math instead of being threaded through generate() itself.
     double fieldHeadingDeg = 0.0;
+    Vec3d originOffsetNed = Vec3d::zeros(); // e.g. live GPS launch point, NED relative to the NavigationFrameManager origin
 
     // Populates tether.segment* from tether.length/linearMass/nSegments --
     // mirrors config.m's derivation of config.tether.segment.mass/length/

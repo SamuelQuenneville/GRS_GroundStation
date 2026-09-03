@@ -115,6 +115,7 @@ set(GRS_DASHBOARD
         source/Dashboard/dashboardServer.h
         source/Dashboard/dashboardTypes.h
         source/Dashboard/jsonWriter.h
+        source/Dashboard/jsonReader.h
         source/Dashboard/browserLauncher.h
 
 )

@@ -22,6 +22,7 @@
 
 #include <string>
 
+#include "jsonReader.h"
 #include "jsonWriter.h"
 
 enum class HealthStatus { Ok, Warn, Fail };
@@ -282,6 +283,84 @@ struct OriginSnapshot {
             root.add("latitude", latitude).add("longitude", longitude).add("altitude", altitude);
         }
         return root.str();
+    }
+};
+
+// Operator-adjustable subset of grs::trajgen::TrajectoryConfig, for the
+// dashboard's trajectory-generation sidebar (ADR-001 Phase 2). Deliberately
+// flat and self-contained -- dashboardTypes.h stays independent of
+// Trajectory/, same reasoning as DebugInfo/TrajectoryPointView above; gcs.cpp
+// is what maps this to/from an actual TrajectoryConfig. Defaults here mirror
+// TrajectoryConfig's own defaults (which mirror config.m) so a client that
+// never calls GET /api/trajectory/generator-defaults still gets a sane
+// trajectory; keep the two in sync if either changes.
+struct TrajectoryGenerationParams {
+    double radiusMeters = 26.0;
+    double velMeanMetersPerSecond = 28.0;
+
+    double climbDistanceMeters = 25.0;
+    double climbVelMetersPerSecond = 1.0;
+    double climbAccelMetersPerSecondSq = 0.25;
+
+    double moveDistanceMeters = 60.0;
+    double moveVelMetersPerSecond = 3.0;
+    double moveAccelMetersPerSecondSq = 0.25;
+    double moveAngleDegrees = 65.0; // local mission heading (payload move direction), distinct from fieldHeadingDeg below
+
+    double holdTimeSeconds = 5.0;
+    double tetherLengthMeters = 30.0;
+    double payloadMassKg = 20.0;
+
+    // Field calibration (ADR-001's headline addition over the MATLAB source).
+    double fieldHeadingDeg = 0.0;
+    double originNorthOffsetMeters = 0.0;
+    double originEastOffsetMeters = 0.0;
+    double originDownOffsetMeters = 0.0;
+
+    std::string toJson() const {
+        JsonWriter root;
+        root.add("radiusMeters", radiusMeters)
+            .add("velMeanMetersPerSecond", velMeanMetersPerSecond)
+            .add("climbDistanceMeters", climbDistanceMeters)
+            .add("climbVelMetersPerSecond", climbVelMetersPerSecond)
+            .add("climbAccelMetersPerSecondSq", climbAccelMetersPerSecondSq)
+            .add("moveDistanceMeters", moveDistanceMeters)
+            .add("moveVelMetersPerSecond", moveVelMetersPerSecond)
+            .add("moveAccelMetersPerSecondSq", moveAccelMetersPerSecondSq)
+            .add("moveAngleDegrees", moveAngleDegrees)
+            .add("holdTimeSeconds", holdTimeSeconds)
+            .add("tetherLengthMeters", tetherLengthMeters)
+            .add("payloadMassKg", payloadMassKg)
+            .add("fieldHeadingDeg", fieldHeadingDeg)
+            .add("originNorthOffsetMeters", originNorthOffsetMeters)
+            .add("originEastOffsetMeters", originEastOffsetMeters)
+            .add("originDownOffsetMeters", originDownOffsetMeters);
+        return root.str();
+    }
+
+    // Missing fields fall back to this same struct's defaults (see class
+    // comment) -- so a partial body (e.g. only fieldHeadingDeg changed)
+    // still produces a complete, reasonable set of parameters.
+    static TrajectoryGenerationParams fromJson(const std::string& body) {
+        const JsonReader reader(body);
+        TrajectoryGenerationParams p;
+        p.radiusMeters = reader.getNumber("radiusMeters", p.radiusMeters);
+        p.velMeanMetersPerSecond = reader.getNumber("velMeanMetersPerSecond", p.velMeanMetersPerSecond);
+        p.climbDistanceMeters = reader.getNumber("climbDistanceMeters", p.climbDistanceMeters);
+        p.climbVelMetersPerSecond = reader.getNumber("climbVelMetersPerSecond", p.climbVelMetersPerSecond);
+        p.climbAccelMetersPerSecondSq = reader.getNumber("climbAccelMetersPerSecondSq", p.climbAccelMetersPerSecondSq);
+        p.moveDistanceMeters = reader.getNumber("moveDistanceMeters", p.moveDistanceMeters);
+        p.moveVelMetersPerSecond = reader.getNumber("moveVelMetersPerSecond", p.moveVelMetersPerSecond);
+        p.moveAccelMetersPerSecondSq = reader.getNumber("moveAccelMetersPerSecondSq", p.moveAccelMetersPerSecondSq);
+        p.moveAngleDegrees = reader.getNumber("moveAngleDegrees", p.moveAngleDegrees);
+        p.holdTimeSeconds = reader.getNumber("holdTimeSeconds", p.holdTimeSeconds);
+        p.tetherLengthMeters = reader.getNumber("tetherLengthMeters", p.tetherLengthMeters);
+        p.payloadMassKg = reader.getNumber("payloadMassKg", p.payloadMassKg);
+        p.fieldHeadingDeg = reader.getNumber("fieldHeadingDeg", p.fieldHeadingDeg);
+        p.originNorthOffsetMeters = reader.getNumber("originNorthOffsetMeters", p.originNorthOffsetMeters);
+        p.originEastOffsetMeters = reader.getNumber("originEastOffsetMeters", p.originEastOffsetMeters);
+        p.originDownOffsetMeters = reader.getNumber("originDownOffsetMeters", p.originDownOffsetMeters);
+        return p;
     }
 };
 

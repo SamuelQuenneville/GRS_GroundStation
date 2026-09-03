@@ -47,6 +47,50 @@
             </div>
         </div>
 
+        <div class="card" id="generator-card">
+            <h3>GENERATOR</h3>
+            <div class="empty-hint">Builds a fresh reference trajectory in-process (ADR-001) instead of importing a MATLAB CSV. "Generate preview" only draws it here; "Apply to controller" commits it to the NMPC solver.</div>
+            <div class="section-gap"></div>
+
+            <span class="ro-label">Aircraft path</span>
+            <div class="gen-row"><label for="gen-radiusMeters">Loiter radius (m)</label><input type="number" id="gen-radiusMeters" step="0.5"></div>
+            <div class="gen-row"><label for="gen-velMeanMetersPerSecond">Mean speed (m/s)</label><input type="number" id="gen-velMeanMetersPerSecond" step="0.5"></div>
+
+            <div class="section-gap"></div>
+            <span class="ro-label">Payload — climb</span>
+            <div class="gen-row"><label for="gen-climbDistanceMeters">Distance (m)</label><input type="number" id="gen-climbDistanceMeters" step="0.5"></div>
+            <div class="gen-row"><label for="gen-climbVelMetersPerSecond">Velocity (m/s)</label><input type="number" id="gen-climbVelMetersPerSecond" step="0.1"></div>
+            <div class="gen-row"><label for="gen-climbAccelMetersPerSecondSq">Accel (m/s²)</label><input type="number" id="gen-climbAccelMetersPerSecondSq" step="0.05"></div>
+
+            <div class="section-gap"></div>
+            <span class="ro-label">Payload — move</span>
+            <div class="gen-row"><label for="gen-moveDistanceMeters">Distance (m)</label><input type="number" id="gen-moveDistanceMeters" step="0.5"></div>
+            <div class="gen-row"><label for="gen-moveVelMetersPerSecond">Velocity (m/s)</label><input type="number" id="gen-moveVelMetersPerSecond" step="0.1"></div>
+            <div class="gen-row"><label for="gen-moveAccelMetersPerSecondSq">Accel (m/s²)</label><input type="number" id="gen-moveAccelMetersPerSecondSq" step="0.05"></div>
+            <div class="gen-row"><label for="gen-moveAngleDegrees">Heading (deg)</label><input type="number" id="gen-moveAngleDegrees" step="1"></div>
+
+            <div class="section-gap"></div>
+            <span class="ro-label">Mission</span>
+            <div class="gen-row"><label for="gen-holdTimeSeconds">Hold time (s)</label><input type="number" id="gen-holdTimeSeconds" step="0.5"></div>
+            <div class="gen-row"><label for="gen-tetherLengthMeters">Tether length (m)</label><input type="number" id="gen-tetherLengthMeters" step="0.5"></div>
+            <div class="gen-row"><label for="gen-payloadMassKg">Payload mass (kg)</label><input type="number" id="gen-payloadMassKg" step="0.5"></div>
+
+            <div class="section-gap"></div>
+            <span class="ro-label">Field calibration — real launch site vs. MATLAB's idealized frame</span>
+            <div class="gen-row"><label for="gen-fieldHeadingDeg">Field heading (deg)</label><input type="number" id="gen-fieldHeadingDeg" step="1"></div>
+            <div class="gen-row"><label for="gen-originNorthOffsetMeters">Origin N offset (m)</label><input type="number" id="gen-originNorthOffsetMeters" step="0.5"></div>
+            <div class="gen-row"><label for="gen-originEastOffsetMeters">Origin E offset (m)</label><input type="number" id="gen-originEastOffsetMeters" step="0.5"></div>
+            <div class="gen-row"><label for="gen-originDownOffsetMeters">Origin D offset (m)</label><input type="number" id="gen-originDownOffsetMeters" step="0.5"></div>
+
+            <div class="section-gap"></div>
+            <div class="btn-row">
+                <button class="btn" id="gen-preview-btn" style="flex:1">Generate preview</button>
+                <button class="btn primary" id="gen-apply-btn" style="flex:1">Apply to controller</button>
+            </div>
+            <div class="section-gap"></div>
+            <div class="pill" id="gen-status-pill"><span class="dot" style="background:var(--text-dim)"></span><span id="gen-status-text">No preview generated yet</span></div>
+        </div>
+
         <div class="card">
             <h3>WAYPOINT DISPLAY</h3>
             <div class="opt-group" id="density-group">
@@ -612,6 +656,97 @@
     document.getElementById('origin-refresh').addEventListener('click', loadOrigin);
     loadOrigin();
     loadTrajectoryFromServer();
+
+    /* ---------- ADR-001 Phase 2: trajectory generator sidebar ----------
+     * GET  /api/trajectory/generator-defaults -> flat TrajectoryGenerationParams JSON, seeds the inputs.
+     * POST /api/trajectory/generate  -> pure preview, same { vehicles: [...] } shape as GET /api/trajectory.
+     *                                    Does NOT touch the controller.
+     * POST /api/trajectory/apply     -> commits the generated trajectory to the NMPC controller and
+     *                                    returns what's now actually loaded there.
+     * Both POST endpoints answer 503 (generator unavailable, e.g. controlMode != MPC) or 400
+     * (bad params) with { error: "..." } -- surfaced in the status pill rather than thrown away.
+     */
+    const GEN_FIELDS = [
+        'radiusMeters', 'velMeanMetersPerSecond',
+        'climbDistanceMeters', 'climbVelMetersPerSecond', 'climbAccelMetersPerSecondSq',
+        'moveDistanceMeters', 'moveVelMetersPerSecond', 'moveAccelMetersPerSecondSq', 'moveAngleDegrees',
+        'holdTimeSeconds', 'tetherLengthMeters', 'payloadMassKg',
+        'fieldHeadingDeg', 'originNorthOffsetMeters', 'originEastOffsetMeters', 'originDownOffsetMeters',
+    ];
+
+    function readGeneratorParams() {
+        const params = {};
+        GEN_FIELDS.forEach(f => {
+            params[f] = parseFloat(document.getElementById('gen-' + f).value);
+        });
+        return params;
+    }
+
+    function setGeneratorInputs(params) {
+        GEN_FIELDS.forEach(f => {
+            if (params[f] === undefined) return;
+            document.getElementById('gen-' + f).value = params[f];
+        });
+    }
+
+    function setGenStatus(text, kind) {
+        // kind: 'idle' | 'busy' | 'preview' | 'applied' | 'error'
+        const dot = document.querySelector('#gen-status-pill .dot');
+        document.getElementById('gen-status-text').textContent = text;
+        const color = { idle: 'var(--text-dim)', busy: 'var(--text-dim)', preview: 'var(--orange)',
+                         applied: 'var(--green)', error: 'var(--red)' }[kind] ?? 'var(--text-dim)';
+        dot.style.background = color;
+    }
+
+    async function loadGeneratorDefaults() {
+        try {
+            const res = await fetch('/api/trajectory/generator-defaults');
+            const data = await res.json();
+            setGeneratorInputs(data);
+        } catch (err) {
+            console.error('Failed to load trajectory generator defaults:', err);
+        }
+    }
+
+    async function postGenerator(path) {
+        const res = await fetch(path, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(readGeneratorParams()),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+        return data;
+    }
+
+    document.getElementById('gen-preview-btn').addEventListener('click', async () => {
+        setGenStatus('Generating preview…', 'busy');
+        try {
+            const data = await postGenerator('/api/trajectory/generate');
+            buildVehicleVisuals(data.vehicles || []);
+            setGenStatus('Preview shown below — not applied to the controller yet.', 'preview');
+        } catch (err) {
+            console.error('Trajectory preview failed:', err);
+            setGenStatus(`Preview failed: ${err.message}`, 'error');
+        }
+    });
+
+    document.getElementById('gen-apply-btn').addEventListener('click', async () => {
+        setGenStatus('Applying to controller…', 'busy');
+        try {
+            await postGenerator('/api/trajectory/apply');
+            // Re-derive the view from GET /api/trajectory (the same path the
+            // live controller/dashboard already uses) rather than the POST's
+            // own response, so this always shows what's actually loaded.
+            await loadTrajectoryFromServer();
+            setGenStatus('Applied — this is now the controller\'s active reference trajectory.', 'applied');
+        } catch (err) {
+            console.error('Trajectory apply failed:', err);
+            setGenStatus(`Apply failed: ${err.message}`, 'error');
+        }
+    });
+
+    loadGeneratorDefaults();
 
     /* ---------- camera preset buttons ---------- */
     document.getElementById('cam-reset').addEventListener('click', () => {

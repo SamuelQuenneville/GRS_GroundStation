@@ -42,6 +42,55 @@ void DashboardServer::start() {
         res.set_content(snapshot.toJson(), "application/json");
     });
 
+    m_httpServer->Get("/api/trajectory/generator-defaults", [this](const httplib::Request&, httplib::Response& res) {
+        TrajectoryGenerationParams defaults;
+        {
+            std::lock_guard<std::mutex> lock(m_snapshotsMutex);
+            defaults = m_trajectoryGeneratorDefaults;
+        }
+        res.set_content(defaults.toJson(), "application/json");
+    });
+
+    m_httpServer->Post("/api/trajectory/generate", [this](const httplib::Request& req, httplib::Response& res) {
+        std::function<TrajectorySnapshot(const TrajectoryGenerationParams&)> handler;
+        {
+            std::lock_guard<std::mutex> lock(m_snapshotsMutex);
+            handler = m_trajectoryGenerateHandler;
+        }
+        if (!handler) {
+            res.status = 503;
+            res.set_content(JsonWriter().add("error", "trajectory generator not available").str(), "application/json");
+            return;
+        }
+        try {
+            const auto params = TrajectoryGenerationParams::fromJson(req.body);
+            res.set_content(handler(params).toJson(), "application/json");
+        } catch (const std::exception& e) {
+            res.status = 400;
+            res.set_content(JsonWriter().add("error", std::string(e.what())).str(), "application/json");
+        }
+    });
+
+    m_httpServer->Post("/api/trajectory/apply", [this](const httplib::Request& req, httplib::Response& res) {
+        std::function<TrajectorySnapshot(const TrajectoryGenerationParams&)> handler;
+        {
+            std::lock_guard<std::mutex> lock(m_snapshotsMutex);
+            handler = m_trajectoryApplyHandler;
+        }
+        if (!handler) {
+            res.status = 503;
+            res.set_content(JsonWriter().add("error", "trajectory generator not available").str(), "application/json");
+            return;
+        }
+        try {
+            const auto params = TrajectoryGenerationParams::fromJson(req.body);
+            res.set_content(handler(params).toJson(), "application/json");
+        } catch (const std::exception& e) {
+            res.status = 400;
+            res.set_content(JsonWriter().add("error", std::string(e.what())).str(), "application/json");
+        }
+    });
+
     m_httpServer->set_mount_point("/", m_staticRoot);
 
     m_httpServer->set_post_routing_handler([](const httplib::Request&, httplib::Response& res) {
@@ -129,6 +178,21 @@ void DashboardServer::setTrajectory(const TrajectorySnapshot& snapshot) {
     std::lock_guard<std::mutex> lock(m_snapshotsMutex);
     m_trajectorySnapshot = snapshot;
     m_hasTrajectorySnapshot = true;
+}
+
+void DashboardServer::setTrajectoryGeneratorDefaults(const TrajectoryGenerationParams& defaults) {
+    std::lock_guard<std::mutex> lock(m_snapshotsMutex);
+    m_trajectoryGeneratorDefaults = defaults;
+}
+
+void DashboardServer::setTrajectoryGenerateHandler(std::function<TrajectorySnapshot(const TrajectoryGenerationParams&)> handler) {
+    std::lock_guard<std::mutex> lock(m_snapshotsMutex);
+    m_trajectoryGenerateHandler = std::move(handler);
+}
+
+void DashboardServer::setTrajectoryApplyHandler(std::function<TrajectorySnapshot(const TrajectoryGenerationParams&)> handler) {
+    std::lock_guard<std::mutex> lock(m_snapshotsMutex);
+    m_trajectoryApplyHandler = std::move(handler);
 }
 
 size_t DashboardServer::connectedBrowserCount() const {

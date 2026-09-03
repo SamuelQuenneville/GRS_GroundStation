@@ -59,14 +59,21 @@ public:
 
     void loadTrajectory(const std::string& file) const;
 
-    // ADR-001 Phase 1: builds a trajectory in-process with TrajectoryGenerator
-    // (no MATLAB, no CSV round-trip) and loads it directly into the NMPC
-    // controller. Fires the same setTrajectoryLoadedCallback() as
-    // loadTrajectory(file), so the existing setup3d.html / GET /api/trajectory
-    // path picks it up with no dashboard changes. Field calibration
-    // (fieldHeadingDeg, live-GPS start pose) is Phase 2 -- config is used
-    // as-is here.
+    // ADR-001 Phase 1/2: builds a trajectory in-process with
+    // TrajectoryGenerator (no MATLAB, no CSV round-trip), applies field
+    // calibration (config.fieldHeadingDeg / originOffsetNed -- no-ops at
+    // their defaults), and loads it directly into the NMPC controller.
+    // Fires the same setTrajectoryLoadedCallback() as loadTrajectory(file),
+    // so the existing setup3d.html / GET /api/trajectory path picks it up
+    // with no dashboard changes.
     void generateTrajectory(const grs::trajgen::TrajectoryConfig& config) const;
+
+    // Pure computation, does not touch the NMPC controller -- for the
+    // dashboard's generate/preview step (POST /api/trajectory/generate)
+    // before the operator commits with generateTrajectory()/"Apply". Safe to
+    // call even before initialize() (unlike generateTrajectory(), it doesn't
+    // need m_nmpc).
+    [[nodiscard]] grs::trajgen::GeneratedMission previewTrajectory(const grs::trajgen::TrajectoryConfig& config) const;
     void setOrigin(double latitudeDegrees, double longitudeDegrees, double altitude);
     void debugConvert(double latitudeDegrees, double longitudeDegrees, double altitude) const;
 

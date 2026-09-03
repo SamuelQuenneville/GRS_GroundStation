@@ -98,16 +98,20 @@ void ControlInterface::loadTrajectory(const std::string& file) const {
     if (m_trajectoryLoadedCallback) m_trajectoryLoadedCallback();
 }
 
+grs::trajgen::GeneratedMission ControlInterface::previewTrajectory(const grs::trajgen::TrajectoryConfig& config) const {
+    grs::trajgen::TrajectoryGenerator generator(config);
+    auto mission = generator.generate();
+    grs::trajgen::TrajectoryGenerator::applyFieldCalibration(mission, config.fieldHeadingDeg, config.originOffsetNed);
+    return mission;
+}
+
 void ControlInterface::generateTrajectory(const grs::trajgen::TrajectoryConfig& config) const {
     if (!m_nmpc) {
         LOG_ERROR("generateTrajectory: control mode [MPC] is required (no NMPC controller instantiated)");
         return;
     }
 
-    grs::trajgen::TrajectoryGenerator generator(config);
-    const auto mission = generator.generate();
-    // Phase 2 will apply field calibration here:
-    // grs::trajgen::TrajectoryGenerator::applyFieldCalibration(mission, config.fieldHeadingDeg, originOffset);
+    const auto mission = previewTrajectory(config);
 
     auto reference = grs::trajgen::TrajectoryGenerator::toSolverReference(mission, m_nmpc->hasPayload());
     m_nmpc->setReferenceTrajectory(std::move(reference));
