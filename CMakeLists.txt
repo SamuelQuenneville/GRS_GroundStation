@@ -155,6 +155,16 @@ set(GRS_POWERTRAIN
         source/Powertrain/powertrain.h
 )
 
+# Phase 0 of ADR-001: C++ port of trajectory_generation (MATLAB) -- payload
+# path, aircraft path/takeoff, tether forces, inverse dynamics. Standalone
+# (only depends on Mathematics/), so it links into the main binary without
+# pulling in MAVSDK/CasADi headers.
+set(GRS_TRAJECTORY
+        source/Trajectory/trajectoryConfig.h
+        source/Trajectory/trajectoryGenerator.h
+        source/Trajectory/trajectoryGenerator.cpp
+)
+
 set(GRS_UTIL
         source/Util/profilingTimer.h
         source/Util/parseUtils.h
@@ -184,10 +194,21 @@ add_executable(GRS_GroundStation
         ${GRS_LOG}
         ${GRS_MATHEMATICS}
         ${GRS_POWERTRAIN}
+        ${GRS_TRAJECTORY}
         ${GRS_UTIL}
         ${GRS_USERINPUTS}
         ${GRS_GPSDRIVERS}
 )
+
+# Standalone regression harness comparing TrajectoryGenerator's output
+# against Octave-run MATLAB golden CSVs (source/Trajectory/tests/golden/).
+# Only needs Mathematics/ + Trajectory/, so it builds without MAVSDK/CasADi.
+add_executable(trajectory_generator_tests EXCLUDE_FROM_ALL
+        source/Trajectory/tests/validate_trajectory.cpp
+        ${GRS_TRAJECTORY}
+        ${GRS_MATHEMATICS}
+)
+target_include_directories(trajectory_generator_tests PRIVATE source)
 
 find_library(BLASFEO_LIB blasfeo PATHS ${CASADI_DIR} REQUIRED)
 find_library(FATROP_LIB fatrop PATHS ${CASADI_DIR} REQUIRED)
