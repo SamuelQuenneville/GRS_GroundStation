@@ -366,10 +366,9 @@ TrajectorySnapshot GroundControlStation::m_missionToTrajectorySnapshot(const grs
             TrajectoryPointJson pt;
             pt.north = k.pos[0]; pt.east = k.pos[1]; pt.down = k.pos[2];
             pt.vx = k.vel[0]; pt.vy = k.vel[1]; pt.vz = k.vel[2];
-            // Matches toSolverReference()/getTrajectoryForVehicle(): roll/pitch
-            // stay in radians here too, so a preview and its post-Apply
-            // reload (GET /api/trajectory) render identically.
-            pt.roll = c.rollRad; pt.pitch = c.pitchRad;
+
+            pt.roll = grs::radToDeg(c.rollRad);
+            pt.pitch = grs::radToDeg(c.pitchRad);
             vehicle.points.push_back(pt);
         }
         snap.vehicles.push_back(vehicle);
