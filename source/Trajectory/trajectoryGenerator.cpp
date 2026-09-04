@@ -914,4 +914,38 @@ std::vector<double> TrajectoryGenerator::toSolverReference(const GeneratedMissio
     return out;
 }
 
+GeneratedMission TrajectoryGenerator::extractSubset(const GeneratedMission& mission, const SubsetSelection& selection) {
+    const size_t n = (selection.maxSamples > 0)
+        ? std::min(selection.maxSamples, mission.time.size())
+        : mission.time.size();
+
+    std::vector<size_t> indices;
+    if (selection.uavIndices.has_value()) {
+        indices = *selection.uavIndices;
+    } else {
+        indices.resize(mission.aircraft.size());
+        std::iota(indices.begin(), indices.end(), 0);
+    }
+
+    GeneratedMission out;
+    out.time.assign(mission.time.begin(), mission.time.begin() + n);
+    out.payload.assign(mission.payload.begin(), mission.payload.begin() + n);
+
+    out.aircraft.reserve(indices.size());
+    out.controls.reserve(indices.size());
+    for (const size_t idx : indices) {
+        if (idx >= mission.aircraft.size()) continue; // defensive: ignore an out-of-range index rather than throwing
+
+        AircraftTimeline timeline;
+        const auto& src = mission.aircraft[idx];
+        timeline.payloadFrame.assign(src.payloadFrame.begin(), src.payloadFrame.begin() + n);
+        timeline.inertial.assign(src.inertial.begin(), src.inertial.begin() + n);
+        out.aircraft.push_back(std::move(timeline));
+
+        out.controls.emplace_back(mission.controls[idx].begin(), mission.controls[idx].begin() + n);
+    }
+
+    return out;
+}
+
 }

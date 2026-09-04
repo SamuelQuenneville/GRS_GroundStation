@@ -98,22 +98,25 @@ void ControlInterface::loadTrajectory(const std::string& file) const {
     if (m_trajectoryLoadedCallback) m_trajectoryLoadedCallback();
 }
 
-grs::trajgen::GeneratedMission ControlInterface::previewTrajectory(const grs::trajgen::TrajectoryConfig& config) const {
+grs::trajgen::GeneratedMission ControlInterface::previewTrajectory(const grs::trajgen::TrajectoryConfig& config,
+    const grs::trajgen::SubsetSelection& selection) const {
     grs::trajgen::TrajectoryGenerator generator(config);
     auto mission = generator.generate();
     grs::trajgen::TrajectoryGenerator::applyFieldCalibration(mission, config.fieldHeadingDeg, config.originOffsetNed);
-    return mission;
+    return grs::trajgen::TrajectoryGenerator::extractSubset(mission, selection);
 }
 
-void ControlInterface::generateTrajectory(const grs::trajgen::TrajectoryConfig& config) const {
+void ControlInterface::generateTrajectory(const grs::trajgen::TrajectoryConfig& config,
+    const grs::trajgen::SubsetSelection& selection) const {
     if (!m_nmpc) {
         LOG_ERROR("generateTrajectory: control mode [MPC] is required (no NMPC controller instantiated)");
         return;
     }
 
-    const auto mission = previewTrajectory(config);
+    const auto mission = previewTrajectory(config, selection);
 
-    auto reference = grs::trajgen::TrajectoryGenerator::toSolverReference(mission, m_nmpc->hasPayload());
+    const bool hasPayload = selection.includePayload.value_or(m_nmpc->hasPayload());
+    auto reference = grs::trajgen::TrajectoryGenerator::toSolverReference(mission, hasPayload);
     m_nmpc->setReferenceTrajectory(std::move(reference));
 
     if (m_trajectoryLoadedCallback) m_trajectoryLoadedCallback();

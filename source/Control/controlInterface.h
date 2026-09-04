@@ -66,14 +66,23 @@ public:
     // Fires the same setTrajectoryLoadedCallback() as loadTrajectory(file),
     // so the existing setup3d.html / GET /api/trajectory path picks it up
     // with no dashboard changes.
-    void generateTrajectory(const grs::trajgen::TrajectoryConfig& config) const;
+    //
+    // ADR-001 Phase 4: `selection` narrows the generated mission before it's
+    // sent to the controller -- e.g. one UAV, no payload, only through the
+    // first loiter, for exercising a reduced-order NMPC build. The default
+    // (no selection) is a strict no-op: full mission, and `hasPayload`
+    // deferred to the loaded NMPCController's own hasPayload(), exactly like
+    // before this existed.
+    void generateTrajectory(const grs::trajgen::TrajectoryConfig& config,
+        const grs::trajgen::SubsetSelection& selection = {}) const;
 
     // Pure computation, does not touch the NMPC controller -- for the
     // dashboard's generate/preview step (POST /api/trajectory/generate)
     // before the operator commits with generateTrajectory()/"Apply". Safe to
     // call even before initialize() (unlike generateTrajectory(), it doesn't
-    // need m_nmpc).
-    [[nodiscard]] grs::trajgen::GeneratedMission previewTrajectory(const grs::trajgen::TrajectoryConfig& config) const;
+    // need m_nmpc). See generateTrajectory() above for what `selection` does.
+    [[nodiscard]] grs::trajgen::GeneratedMission previewTrajectory(const grs::trajgen::TrajectoryConfig& config,
+        const grs::trajgen::SubsetSelection& selection = {}) const;
     void setOrigin(double latitudeDegrees, double longitudeDegrees, double altitude);
     void debugConvert(double latitudeDegrees, double longitudeDegrees, double altitude) const;
 

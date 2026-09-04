@@ -94,6 +94,15 @@
             <div class="gen-row"><label for="gen-uav2PhaseDeg">UAV 2 phase (deg)</label><input type="number" id="gen-uav2PhaseDeg" step="1"></div>
 
             <div class="section-gap"></div>
+            <span class="ro-label">Testing — reduced-order NMPC build</span>
+            <div class="gen-row"><label for="gen-testEnabled">Enable</label><input type="checkbox" id="gen-testEnabled"></div>
+            <div class="gen-row"><label for="gen-testIncludeUav1">Include UAV 1</label><input type="checkbox" id="gen-testIncludeUav1"></div>
+            <div class="gen-row"><label for="gen-testIncludeUav2">Include UAV 2</label><input type="checkbox" id="gen-testIncludeUav2"></div>
+            <div class="gen-row"><label for="gen-testIncludePayload">Include payload</label><input type="checkbox" id="gen-testIncludePayload"></div>
+            <div class="gen-row"><label for="gen-testMaxDurationSeconds">Max duration (s)</label><input type="number" id="gen-testMaxDurationSeconds" step="1" min="0"></div>
+            <div class="empty-hint" id="gen-test-hint">Narrows the same generated mission before it's sent to the controller — e.g. one UAV, no payload, only through the first loiter — for exercising a reduced-order NMPC build without a second config. Leave "Enable" off for the normal full-mission behavior. "Max duration" ≤ 0 means no cutoff.</div>
+
+            <div class="section-gap"></div>
             <button class="btn" id="gen-capture-btn" style="width:100%">Capture live positions</button>
             <div class="empty-hint" id="gen-capture-hint">Reads the UAVs' and payload's real live GPS fix and fills in the origin offset and phase angles above — review the values before generating.</div>
 
@@ -776,12 +785,20 @@
         'tetherLengthAtLaunchMeters', 'tetherPayoutDurationSeconds',
         'fieldHeadingDeg', 'originNorthOffsetMeters', 'originEastOffsetMeters', 'originDownOffsetMeters',
         'uav1PhaseDeg', 'uav2PhaseDeg',
+        'testMaxDurationSeconds',
     ];
+
+    // ADR-001 Phase 4: reduced-order testing checkboxes -- read/written via
+    // .checked rather than parseFloat(...).value like GEN_FIELDS above.
+    const GEN_BOOL_FIELDS = ['testEnabled', 'testIncludeUav1', 'testIncludeUav2', 'testIncludePayload'];
 
     function readGeneratorParams() {
         const params = {};
         GEN_FIELDS.forEach(f => {
             params[f] = parseFloat(document.getElementById('gen-' + f).value);
+        });
+        GEN_BOOL_FIELDS.forEach(f => {
+            params[f] = document.getElementById('gen-' + f).checked;
         });
         return params;
     }
@@ -791,6 +808,21 @@
             if (params[f] === undefined) return;
             document.getElementById('gen-' + f).value = params[f];
         });
+        GEN_BOOL_FIELDS.forEach(f => {
+            if (params[f] === undefined) return;
+            document.getElementById('gen-' + f).checked = !!params[f];
+        });
+    }
+
+    // Guards against a degenerate "testing enabled, but neither UAV
+    // selected" submission -- 0 aircraft would otherwise silently "succeed"
+    // (an empty subset is a valid, if useless, SubsetSelection). Returns an
+    // error string, or null when the current inputs are fine to submit.
+    function validateGeneratorParams(params) {
+        if (params.testEnabled && !params.testIncludeUav1 && !params.testIncludeUav2) {
+            return 'Testing is enabled but neither UAV is included — pick at least one.';
+        }
+        return null;
     }
 
     function setGenStatus(text, kind) {
@@ -813,10 +845,14 @@
     }
 
     async function postGenerator(path) {
+        const params = readGeneratorParams();
+        const validationError = validateGeneratorParams(params);
+        if (validationError) throw new Error(validationError);
+
         const res = await fetch(path, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(readGeneratorParams()),
+            body: JSON.stringify(params),
         });
         const data = await res.json();
         if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);

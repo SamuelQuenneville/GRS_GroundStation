@@ -170,8 +170,11 @@ void GroundControlStation::setDashboard(DashboardServer* dashboard) {
     // is even running.
     m_dashboardServer->setTrajectoryGenerateHandler([this](const TrajectoryGenerationParams& params) {
         const auto config = m_paramsToTrajectoryConfig(params);
-        const auto mission = m_controlInterface->previewTrajectory(config);
-        return m_missionToTrajectorySnapshot(mission);
+        const auto selection = m_paramsToSubsetSelection(params, config.simDt);
+        const auto mission = m_controlInterface->previewTrajectory(config, selection);
+        const auto& sourceUavIndices = selection.uavIndices.value_or(std::vector<size_t>{});
+        const bool includePayload = selection.includePayload.value_or(!mission.payload.empty());
+        return m_missionToTrajectorySnapshot(mission, sourceUavIndices, includePayload);
     });
 
     // Commits: loads the generated trajectory into the NMPC controller, then
@@ -180,7 +183,8 @@ void GroundControlStation::setDashboard(DashboardServer* dashboard) {
     // path -- always reflect what's actually loaded in the controller.
     m_dashboardServer->setTrajectoryApplyHandler([this](const TrajectoryGenerationParams& params) {
         const auto config = m_paramsToTrajectoryConfig(params);
-        generateTrajectory(config);
+        const auto selection = m_paramsToSubsetSelection(params, config.simDt);
+        generateTrajectory(config, selection);
         return m_buildTrajectorySnapshotFromController();
     });
 
@@ -263,10 +267,11 @@ void GroundControlStation::loadTrajectory(const std::string& file) const {
     }
 }
 
-void GroundControlStation::generateTrajectory(const grs::trajgen::TrajectoryConfig& config) const {
+void GroundControlStation::generateTrajectory(const grs::trajgen::TrajectoryConfig& config,
+    const grs::trajgen::SubsetSelection& selection) const {
     if (m_gcsConfig.controlMode == ControlMode::MPC) {
         LOG_INFO("Generating trajectory in-process ...");
-        m_controlInterface->generateTrajectory(config);
+        m_controlInterface->generateTrajectory(config, selection);
     } else {
         LOG_WARNING("Control mode [MPC] is required to generate a trajectory!");
     }
@@ -309,16 +314,22 @@ TrajectorySnapshot GroundControlStation::m_buildTrajectorySnapshotFromController
     return snap;
 }
 
-TrajectorySnapshot GroundControlStation::m_missionToTrajectorySnapshot(const grs::trajgen::GeneratedMission& mission) {
+TrajectorySnapshot GroundControlStation::m_missionToTrajectorySnapshot(const grs::trajgen::GeneratedMission& mission,
+    const std::vector<size_t>& sourceUavIndices, const bool includePayload) {
     static const char* uavColors[] = {"#ef4444", "#f59e0b", "#a78bfa", "#2dd4bf"};
 
     TrajectorySnapshot snap;
     const size_t numUavs = mission.aircraft.size();
     for (size_t i = 0; i < numUavs; ++i) {
+        // Label by the ORIGINAL index in the full mission when the caller
+        // narrowed the UAV set (e.g. keeping only UAV 2 still shows as
+        // "UAV 2"); with no narrowing (sourceUavIndices empty), label 0..N-1
+        // as UAV 1..N -- the full-mission case, unchanged from before Phase 4.
+        const size_t label = (i < sourceUavIndices.size()) ? sourceUavIndices[i] : i;
         TrajectoryVehicleSnapshot vehicle;
-        vehicle.id    = "uav" + std::to_string(i + 1);
-        vehicle.label = "UAV " + std::to_string(i + 1);
-        vehicle.color = uavColors[i % 4];
+        vehicle.id    = "uav" + std::to_string(label + 1);
+        vehicle.label = "UAV " + std::to_string(label + 1);
+        vehicle.color = uavColors[label % 4];
 
         const auto& timeline = mission.aircraft[i].inertial;
         const auto& controls = mission.controls[i];
@@ -339,7 +350,7 @@ TrajectorySnapshot GroundControlStation::m_missionToTrajectorySnapshot(const grs
         snap.vehicles.push_back(vehicle);
     }
 
-    if (!mission.payload.empty()) {
+    if (includePayload && !mission.payload.empty()) {
         TrajectoryVehicleSnapshot vehicle;
         vehicle.id = "payload";
         vehicle.label = "Payload";
@@ -390,6 +401,24 @@ grs::trajgen::TrajectoryConfig GroundControlStation::m_paramsToTrajectoryConfig(
 
     config.finalize();
     return config;
+}
+
+grs::trajgen::SubsetSelection GroundControlStation::m_paramsToSubsetSelection(const TrajectoryGenerationParams& params, const double simDt) {
+    grs::trajgen::SubsetSelection selection; // default = no-op (full mission, no override)
+    if (!params.testEnabled) return selection;
+
+    std::vector<size_t> uavIndices;
+    if (params.testIncludeUav1) uavIndices.push_back(0);
+    if (params.testIncludeUav2) uavIndices.push_back(1);
+    selection.uavIndices = std::move(uavIndices);
+
+    selection.includePayload = params.testIncludePayload;
+
+    if (params.testMaxDurationSeconds > 0.0 && simDt > 0.0) {
+        selection.maxSamples = static_cast<size_t>(std::round(params.testMaxDurationSeconds / simDt)) + 1;
+    }
+
+    return selection;
 }
 
 LivePositionsSnapshot GroundControlStation::m_buildLivePositionsSnapshot() const {

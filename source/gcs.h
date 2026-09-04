@@ -38,7 +38,8 @@ public:
     void initLaunch() const;
     void fetchParam(int sysId) const;
     void loadTrajectory(const std::string& file) const;
-    void generateTrajectory(const grs::trajgen::TrajectoryConfig& config) const;
+    void generateTrajectory(const grs::trajgen::TrajectoryConfig& config,
+        const grs::trajgen::SubsetSelection& selection = {}) const;
     void setOrigin(double latitudeDegrees, double longitudeDegrees, double altitude) const;
     void debugConvert(double latitudeDegrees, double longitudeDegrees, double altitude) const;
 
@@ -84,9 +85,24 @@ private:
     // maps the dashboard's flat TrajectoryGenerationParams onto a full
     // grs::trajgen::TrajectoryConfig (starting from its defaults, so any
     // field the sidebar doesn't expose keeps its config.m-mirrored value).
+    // ADR-001 Phase 4: `sourceUavIndices` labels each output vehicle by its
+    // ORIGINAL index in the full mission (e.g. a subset keeping only UAV 2
+    // still shows as "UAV 2", not relabeled "UAV 1") -- pass the same
+    // indices used to build the (possibly narrowed) mission, or leave empty
+    // to label 0..N-1 as UAV 1..N (the full-mission case). `includePayload`
+    // controls whether the payload vehicle is included in the snapshot at
+    // all, independent of whether `mission.payload` happens to have data --
+    // for preview fidelity with whatever will actually reach the controller.
     TrajectorySnapshot m_buildTrajectorySnapshotFromController() const;
-    static TrajectorySnapshot m_missionToTrajectorySnapshot(const grs::trajgen::GeneratedMission& mission);
+    static TrajectorySnapshot m_missionToTrajectorySnapshot(const grs::trajgen::GeneratedMission& mission,
+        const std::vector<size_t>& sourceUavIndices, bool includePayload);
     static grs::trajgen::TrajectoryConfig m_paramsToTrajectoryConfig(const TrajectoryGenerationParams& params);
+
+    // ADR-001 Phase 4: maps the sidebar's reduced-order-testing fields onto a
+    // SubsetSelection. Returns a default (no-op) selection whenever
+    // params.testEnabled is false. `simDt` (from the already-built
+    // TrajectoryConfig) converts testMaxDurationSeconds into a sample count.
+    static grs::trajgen::SubsetSelection m_paramsToSubsetSelection(const TrajectoryGenerationParams& params, double simDt);
 
     // ADR-001 Phase 3: answers GET /api/trajectory/live-positions. Reads
     // ControlInterface::getLiveNavigationStates() (already NED-corrected) and

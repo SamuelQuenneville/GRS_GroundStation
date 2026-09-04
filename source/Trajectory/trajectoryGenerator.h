@@ -11,6 +11,7 @@
 
 #pragma once
 
+#include <optional>
 #include <vector>
 
 #include "Mathematics/math.h"
@@ -63,6 +64,34 @@ struct GeneratedMission {
     std::vector<std::vector<ControlSample>> controls;  // controls[uavIndex][sample], takeoff + mission concatenated
 };
 
+// ADR-001 Phase 4: narrows an already-generated mission down for exercising a
+// reduced-order NMPC build -- e.g. one UAV tethered to a fixed ground anchor
+// (no payload), cut off partway through the mission (through the first
+// loiter, say) -- without a second TrajectoryConfig or a second generate()
+// run. See TrajectoryGenerator::extractSubset().
+struct SubsetSelection {
+    // Which mission.aircraft[]/controls[] entries to keep, and in what
+    // order. nullopt (default) = keep all of them, in their original order
+    // -- i.e. no UAV subsetting, matching behavior from before this existed.
+    // An explicit (possibly empty) vector is used exactly as given, even if
+    // empty -- that's a deliberate "zero aircraft" selection, distinct from
+    // "no override".
+    std::optional<std::vector<size_t>> uavIndices;
+
+    // Overrides whether toSolverReference()'s output should include the
+    // payload block. nullopt (default) = let the caller decide -- e.g.
+    // ControlInterface::generateTrajectory() defers to the loaded
+    // NMPCController's own hasPayload() when this is nullopt, exactly like
+    // before this existed. Set explicitly only to deliberately mismatch the
+    // mission's own payload data (e.g. testing a no-payload build against a
+    // mission that still has a payload in it).
+    std::optional<bool> includePayload;
+
+    // Truncates every array to this many leading samples. 0 (default) = no
+    // limit (the full mission length).
+    size_t maxSamples = 0;
+};
+
 class TrajectoryGenerator {
 public:
     explicit TrajectoryGenerator(TrajectoryConfig config);
@@ -92,6 +121,15 @@ public:
     // NMPCController::kUavBlockSize/kPayloadBlockSize and m_extractControls's
     // control layout.
     [[nodiscard]] static std::vector<double> toSolverReference(const GeneratedMission& mission, bool hasPayload = true);
+
+    // Slices `mission` down to `selection.uavIndices` (or all aircraft, if
+    // nullopt) and the first `selection.maxSamples` samples (or all of them,
+    // if 0). The payload array is always copied through untouched (just
+    // truncated to the same sample count) regardless of
+    // `selection.includePayload` -- that field only tells a *caller* what to
+    // pass to toSolverReference()'s `hasPayload`, since an unused-but-
+    // correctly-shaped payload array is harmless there.
+    [[nodiscard]] static GeneratedMission extractSubset(const GeneratedMission& mission, const SubsetSelection& selection);
 
 private:
     TrajectoryConfig m_config;

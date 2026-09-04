@@ -50,6 +50,25 @@ public:
         }
     }
 
+    // Returns `fallback` if `key` isn't present or isn't followed by a
+    // literal `true`/`false` -- JsonWriter::add(key, bool) is what emits
+    // those (see jsonWriter.h), not 0/1, so getNumber() can't read them back.
+    [[nodiscard]] bool getBool(const std::string& key, const bool fallback) const {
+        const std::string needle = "\"" + key + "\"";
+        size_t pos = m_body.find(needle);
+        if (pos == std::string::npos) return fallback;
+
+        pos = m_body.find(':', pos + needle.size());
+        if (pos == std::string::npos) return fallback;
+        ++pos;
+
+        while (pos < m_body.size() && std::isspace(static_cast<unsigned char>(m_body[pos]))) ++pos;
+
+        if (m_body.compare(pos, 4, "true") == 0) return true;
+        if (m_body.compare(pos, 5, "false") == 0) return false;
+        return fallback;
+    }
+
 private:
     static bool isNumberChar(const char c) {
         return std::isdigit(static_cast<unsigned char>(c)) || c == '-' || c == '+' || c == '.' || c == 'e' || c == 'E';

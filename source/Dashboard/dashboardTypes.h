@@ -337,6 +337,21 @@ struct TrajectoryGenerationParams {
     double tetherLengthAtLaunchMeters = 30.0;
     double tetherPayoutDurationSeconds = 1.5;
 
+    // Reduced-order testing (ADR-001 Phase 4): apply/preview only a subset of
+    // the full 2-UAV+payload mission -- e.g. to exercise a simplified NMPC
+    // build compiled for one UAV tethered to a fixed ground anchor (no
+    // payload), stopped partway through the mission (through the first
+    // loiter, say). testEnabled=false (default) is a strict no-op: the
+    // trajectory generator/apply path behaves exactly as if this section
+    // didn't exist, deferring to the loaded NMPCController's own
+    // hasPayload()/numUavs() -- see GroundControlStation::
+    // m_paramsToSubsetSelection(). Only consulted when testEnabled=true.
+    bool testEnabled = false;
+    bool testIncludeUav1 = true;
+    bool testIncludeUav2 = true;
+    bool testIncludePayload = true;
+    double testMaxDurationSeconds = 0.0; // <=0 = no limit (full mission)
+
     std::string toJson() const {
         JsonWriter root;
         root.add("radiusMeters", radiusMeters)
@@ -358,7 +373,12 @@ struct TrajectoryGenerationParams {
             .add("uav1PhaseDeg", uav1PhaseDeg)
             .add("uav2PhaseDeg", uav2PhaseDeg)
             .add("tetherLengthAtLaunchMeters", tetherLengthAtLaunchMeters)
-            .add("tetherPayoutDurationSeconds", tetherPayoutDurationSeconds);
+            .add("tetherPayoutDurationSeconds", tetherPayoutDurationSeconds)
+            .add("testEnabled", testEnabled)
+            .add("testIncludeUav1", testIncludeUav1)
+            .add("testIncludeUav2", testIncludeUav2)
+            .add("testIncludePayload", testIncludePayload)
+            .add("testMaxDurationSeconds", testMaxDurationSeconds);
         return root.str();
     }
 
@@ -388,6 +408,11 @@ struct TrajectoryGenerationParams {
         p.uav2PhaseDeg = reader.getNumber("uav2PhaseDeg", p.uav2PhaseDeg);
         p.tetherLengthAtLaunchMeters = reader.getNumber("tetherLengthAtLaunchMeters", p.tetherLengthAtLaunchMeters);
         p.tetherPayoutDurationSeconds = reader.getNumber("tetherPayoutDurationSeconds", p.tetherPayoutDurationSeconds);
+        p.testEnabled = reader.getBool("testEnabled", p.testEnabled);
+        p.testIncludeUav1 = reader.getBool("testIncludeUav1", p.testIncludeUav1);
+        p.testIncludeUav2 = reader.getBool("testIncludeUav2", p.testIncludeUav2);
+        p.testIncludePayload = reader.getBool("testIncludePayload", p.testIncludePayload);
+        p.testMaxDurationSeconds = reader.getNumber("testMaxDurationSeconds", p.testMaxDurationSeconds);
         return p;
     }
 };
