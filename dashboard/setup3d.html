@@ -16,11 +16,21 @@
         <span class="brand-page">MAP TRAJECTORY</span>
     </div>
 
-    <div class="pill" id="mode-pill"><span class="dot" style="background:var(--text-dim)"></span>Pre-flight setup check — not live tracking</div>
-    <div class="topbar-spacer"></div>
+    <div class="pill" id="mode-pill"><span class="dot" style="background:var(--text-dim)"></span>Pre-flight trajectory check </div>
     <div class="pill" id="origin-pill"><span class="dot"></span><span id="origin-pill-text">Origin: waiting…</span></div>
+    <div class="topbar-spacer"></div>
 
-    <a href="index.html">Dashboard</a>
+    <nav class="page-nav">
+        <a href="setup3d.html" class="page-nav-link active">
+            Map
+        </a>
+
+        <a href="index.html" class="page-nav-link">
+            Dashboard
+        </a>
+    </nav>
+
+    <div class="clock" id="clock">--:--:--</div>
 </div>
 
 <div class="main">
@@ -32,9 +42,6 @@
             <text x="8"  y="30" fill="#8890a0" font-size="8" text-anchor="middle">W</text>
             <text x="46" y="30" fill="#8890a0" font-size="8" text-anchor="middle">E</text>
         </svg></div>
-        <div class="hud">
-            <div class="pill"><span class="dot" style="background:var(--green)"></span><span id="hud-mode">Orbit — drag to rotate, scroll to zoom</span></div>
-        </div>
         <div id="tooltip"></div>
         <div id="error-banner" style="display:none;position:absolute;left:14px;top:14px;right:14px;max-width:640px;background:#2a1218;border:1px solid var(--red);color:#ffd6d6;border-radius:8px;padding:12px 14px;font-size:12.5px;line-height:1.5;"></div>
     </div>
@@ -49,7 +56,6 @@
 
         <div class="card" id="generator-card">
             <h3>GENERATOR</h3>
-            <div class="empty-hint">Builds a fresh reference trajectory in-process (ADR-001) instead of importing a MATLAB CSV. "Generate preview" only draws it here; "Apply to controller" commits it to the NMPC solver.</div>
             <div class="section-gap"></div>
 
             <span class="ro-label">Aircraft path</span>
@@ -76,35 +82,35 @@
             <div class="gen-row"><label for="gen-payloadMassKg">Payload mass (kg)</label><input type="number" id="gen-payloadMassKg" step="0.5"></div>
 
             <div class="section-gap"></div>
-            <span class="ro-label">Tether slip clutch — payout at launch</span>
+            <span class="ro-label">Tether slip clutch</span>
             <div class="gen-row"><label for="gen-tetherLengthAtLaunchMeters">Length at launch (m)</label><input type="number" id="gen-tetherLengthAtLaunchMeters" step="0.1"></div>
-            <div class="gen-row"><label for="gen-tetherPayoutDurationSeconds">Payout duration (s)</label><input type="number" id="gen-tetherPayoutDurationSeconds" step="0.1"></div>
-            <div class="empty-hint">If "Length at launch" is shorter than "Tether length" above, the generator ramps it smoothly to full length over the payout duration instead of assuming full length from t=0.</div>
+            <div class="gen-row"><label for="gen-tetherPayoutDurationSeconds">Rollout duration (s)</label><input type="number" id="gen-tetherPayoutDurationSeconds" step="0.1"></div>
+            <div class="empty-hint">If "Length at launch" is shorter than "Tether length", the generator ramps it smoothly to full length rollout duration.</div>
 
             <div class="section-gap"></div>
-            <span class="ro-label">Field calibration — real launch site vs. MATLAB's idealized frame</span>
+            <span class="ro-label">Field calibration</span>
             <div class="gen-row"><label for="gen-fieldHeadingDeg">Field heading (deg)</label><input type="number" id="gen-fieldHeadingDeg" step="1"></div>
             <div class="gen-row"><label for="gen-originNorthOffsetMeters">Origin N offset (m)</label><input type="number" id="gen-originNorthOffsetMeters" step="0.5"></div>
             <div class="gen-row"><label for="gen-originEastOffsetMeters">Origin E offset (m)</label><input type="number" id="gen-originEastOffsetMeters" step="0.5"></div>
             <div class="gen-row"><label for="gen-originDownOffsetMeters">Origin D offset (m)</label><input type="number" id="gen-originDownOffsetMeters" step="0.5"></div>
 
             <div class="section-gap"></div>
-            <span class="ro-label">Aircraft launch phase — bearing from payload to each UAV</span>
+            <span class="ro-label">Aircraft launch phase, bearing from payload to each UAV</span>
             <div class="gen-row"><label for="gen-uav1PhaseDeg">UAV 1 phase (deg)</label><input type="number" id="gen-uav1PhaseDeg" step="1"></div>
             <div class="gen-row"><label for="gen-uav2PhaseDeg">UAV 2 phase (deg)</label><input type="number" id="gen-uav2PhaseDeg" step="1"></div>
 
             <div class="section-gap"></div>
-            <span class="ro-label">Testing — reduced-order NMPC build</span>
+            <span class="ro-label">Testing, reduced-order NMPC build</span>
             <div class="gen-row"><label for="gen-testEnabled">Enable</label><input type="checkbox" id="gen-testEnabled"></div>
             <div class="gen-row"><label for="gen-testIncludeUav1">Include UAV 1</label><input type="checkbox" id="gen-testIncludeUav1"></div>
             <div class="gen-row"><label for="gen-testIncludeUav2">Include UAV 2</label><input type="checkbox" id="gen-testIncludeUav2"></div>
             <div class="gen-row"><label for="gen-testIncludePayload">Include payload</label><input type="checkbox" id="gen-testIncludePayload"></div>
             <div class="gen-row"><label for="gen-testMaxDurationSeconds">Max duration (s)</label><input type="number" id="gen-testMaxDurationSeconds" step="1" min="0"></div>
-            <div class="empty-hint" id="gen-test-hint">Narrows the same generated mission before it's sent to the controller — e.g. one UAV, no payload, only through the first loiter — for exercising a reduced-order NMPC build without a second config. Leave "Enable" off for the normal full-mission behavior. "Max duration" ≤ 0 means no cutoff.</div>
+            <div class="empty-hint" id="gen-test-hint">Narrows the same generated mission before it's sent to the controller. For testing a reduced-order NMPC build without a second config. Leave "Enable" off for the normal full-mission behavior.</div>
 
             <div class="section-gap"></div>
             <button class="btn" id="gen-capture-btn" style="width:100%">Capture live positions</button>
-            <div class="empty-hint" id="gen-capture-hint">Reads the UAVs' and payload's real live GPS fix and fills in the origin offset and phase angles above — review the values before generating.</div>
+            <div class="empty-hint" id="gen-capture-hint">Reads the UAVs' and payload's real live GPS fix and fills in the origin offset and phase angles above. Review the values before generating!</div>
 
             <div class="section-gap"></div>
             <div class="btn-row">
@@ -128,12 +134,12 @@
         <div class="card">
             <h3>GROUND LAYER</h3>
             <div class="opt-group" id="ground-group">
-                <label class="opt active" data-mode="grid"><input type="radio" name="ground" value="grid" checked>Grid (no tiles needed)</label>
+                <label class="opt active" data-mode="grid"><input type="radio" name="ground" value="grid" checked>Grid</label>
                 <label class="opt" data-mode="tiles"><input type="radio" name="ground" value="tiles">Cached map tiles</label>
             </div>
             <div id="tile-settings" style="display:none">
                 <div class="section-gap"></div>
-                <span class="ro-label">Coverage radius (m), match what you cached</span>
+                <span class="ro-label">Coverage radius (m)</span>
                 <input type="number" id="tiles-radius" value="500" min="50" max="3000" step="50" style="width:100%;margin-top:4px;background:var(--bg);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:5px 7px;font-size:12px;">
                 <div class="btn-row">
                     <button class="btn primary" id="tiles-load" style="flex:1">Load tiles</button>
@@ -145,7 +151,7 @@
 
         <div class="card" id="selected-card">
             <h3>SELECTED WAYPOINT</h3>
-            <div class="empty-hint" id="selected-empty">Click a marker in the 3D view to inspect the reference state at that point — this is the same data the NMPC solver tracks, not a separate lookup.</div>
+            <div class="empty-hint" id="selected-empty">Click a marker in the 3D view to inspect the reference state at that point, this is the same data the NMPC solver tracks.</div>
             <div id="selected-body" style="display:none">
                 <div class="row"><span class="k">Vehicle</span><span class="v" id="sw-vehicle" style="font-weight:600">—</span></div>
                 <div class="row"><span class="k">Index</span><span class="v" id="sw-idx">—</span></div>
@@ -160,7 +166,7 @@
 
         <div class="card">
             <h3>ORIGIN</h3>
-            <div id="origin-waiting" class="empty-hint">Waiting for the ground station to report a navigation origin (set via <code>NavigationFrameManager::setOrigin()</code> once GPS lock is available). Everything else on this page is drawn relative to it.</div>
+            <div id="origin-waiting" class="empty-hint">Waiting for the ground station to report a navigation origin. Everything else on this page is drawn relative to it.</div>
             <div id="origin-body" style="display:none">
                 <div class="row"><span class="k">Latitude</span><span class="v" id="origin-lat">—</span></div>
                 <div class="row"><span class="k">Longitude</span><span class="v" id="origin-lon">—</span></div>
@@ -173,16 +179,7 @@
                 <button class="btn" id="origin-refresh" style="flex:1">Refresh</button>
                 <button class="btn primary" id="origin-from-payload-btn" style="flex:1">Set from payload GPS</button>
             </div>
-            <div class="empty-hint" id="origin-from-payload-hint">Reads the payload's current raw GPS fix and uses it directly as the origin — an alternative to typing lat/lon manually. Requires the payload's Pixhawk to be connected and streaming telemetry.</div>
-        </div>
-
-        <div class="card">
-            <h3>CAMERA</h3>
-            <div class="btn-row">
-                <button class="btn" id="cam-reset">Reset view</button>
-                <button class="btn" id="cam-top">Top-down</button>
-                <button class="btn" id="cam-side">Side profile</button>
-            </div>
+            <div class="empty-hint" id="origin-from-payload-hint">Reads the payload's current raw GPS fix and uses it directly as the origin.</div>
         </div>
 
     </div>
@@ -758,7 +755,7 @@
             const res = await fetch('/api/trajectory');
             const data = await res.json();
             if (!data.vehicles || data.vehicles.length === 0) {
-                document.getElementById('vehicle-waiting').textContent = 'No reference trajectory loaded on the GCS yet.';
+                document.getElementById('vehicle-waiting').textContent = 'No reference trajectory loaded yet.';
                 return;
             }
             buildVehicleVisuals(data.vehicles);
@@ -947,7 +944,7 @@
         try {
             const data = await postGenerator('/api/trajectory/generate');
             buildVehicleVisuals(data.vehicles || []);
-            setGenStatus('Preview shown below — not applied to the controller yet.', 'preview');
+            setGenStatus('Preview shown below not applied to the controller yet.', 'preview');
         } catch (err) {
             console.error('Trajectory preview failed:', err);
             setGenStatus(`Preview failed: ${err.message}`, 'error');
@@ -962,7 +959,7 @@
             // live controller/dashboard already uses) rather than the POST's
             // own response, so this always shows what's actually loaded.
             await loadTrajectoryFromServer();
-            setGenStatus('Applied — this is now the controller\'s active reference trajectory.', 'applied');
+            setGenStatus('Applied, this is now the controller\'s active reference trajectory.', 'applied');
         } catch (err) {
             console.error('Trajectory apply failed:', err);
             setGenStatus(`Apply failed: ${err.message}`, 'error');
@@ -976,20 +973,6 @@
     // the same GET the "Capture" button also uses on demand.
     refreshLivePositions();
     setInterval(refreshLivePositions, 2000);
-
-    /* ---------- camera preset buttons ---------- */
-    document.getElementById('cam-reset').addEventListener('click', () => {
-        camera.position.set(140, 110, 140);
-        controls.target.set(0, 25, 0);
-    });
-    document.getElementById('cam-top').addEventListener('click', () => {
-        camera.position.set(0.1, 260, 0.1);
-        controls.target.set(0, 25, 0);
-    });
-    document.getElementById('cam-side').addEventListener('click', () => {
-        camera.position.set(220, 40, 0.1);
-        controls.target.set(0, 25, 0);
-    });
 
     /* ---------- resize + render loop ---------- */
     window.addEventListener('resize', () => {
@@ -1053,6 +1036,13 @@
         requestAnimationFrame(animate);
     }
     requestAnimationFrame(animate);
+
+    const clockEl = document.getElementById("clock");
+    function tickClock() {
+        clockEl.textContent = new Date().toLocaleTimeString("en-GB", { hour12: false });
+    }
+    setInterval(tickClock, 500);
+    tickClock();
 </script>
 </body>
 </html>

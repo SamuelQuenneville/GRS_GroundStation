@@ -68,7 +68,7 @@ body {
     background: var(--card);
     border: 1px solid var(--border);
     border-radius: 999px;
-    font-size: 20px;
+    font-size: 16px;
     color: var(--text-dim);
 }
 
@@ -83,7 +83,7 @@ body {
 .pill.warn .dot { background: var(--orange); }
 .pill.warn { color: var(--orange); border-color: rgba(255,159,69,0.35); }
 .topbar-spacer { flex: 1; }
-.ro-label { color: var(--text-dim); font-size: 10px; }
+.ro-label { color: var(--blue); font-size: 12px; }
 
 /* Trajectory-generator sidebar (ADR-001 Phase 2): compact label+number-input
    rows, styled to match the existing tiles-radius input rather than the
@@ -111,6 +111,42 @@ body {
     font-variant-numeric: tabular-nums;
     color: var(--text-dim);
     font-size: 20px;
+}
+
+.page-nav {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    margin-left: 8px;
+    height: 100%;
+}
+
+.page-nav-link {
+    display: flex;
+    align-items: center;
+    height: 36px;
+    padding: 0 14px;
+
+    color: var(--text-dim);
+    text-decoration: none;
+
+    font-size: 14px;
+    font-weight: 500;
+
+    border-radius: 6px;
+    transition:
+            color 0.15s ease,
+            background 0.15s ease;
+}
+
+.page-nav-link:hover {
+    color: var(--text);
+    background: rgba(255, 255, 255, 0.04);
+}
+
+.page-nav-link.active {
+    color: var(--blue);
+    background: rgba(77, 163, 255, 0.08);
 }
 
 /* ---------- Main layout: fills the rest of the viewport, never scrolls
@@ -351,7 +387,7 @@ body {
 canvas { display: block; }
 
 .sidebar {
-    flex: 0 0 300px;
+    flex: 0 0 325px;
     background: var(--panel);
     border-left: 1px solid var(--border);
     display: flex; flex-direction: column;
