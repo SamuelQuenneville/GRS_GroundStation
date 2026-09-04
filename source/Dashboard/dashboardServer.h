@@ -67,6 +67,14 @@ public:
     // at telemetry rates.
     void setLivePositionsHandler(std::function<LivePositionsSnapshot()> handler);
 
+    // "Set origin from payload GPS" button on setup3d.html -- answers
+    // POST /api/origin/from-payload. `handler` should capture the payload's
+    // current GPS fix and set it as the NavigationFrameManager origin,
+    // returning the resulting OriginSnapshot; may throw (-> 400 JSON error,
+    // same convention as the trajectory generate/apply handlers) if no
+    // payload GPS fix is available yet.
+    void setOriginFromPayloadHandler(std::function<OriginSnapshot()> handler);
+
     size_t connectedBrowserCount() const;
 
 private:
@@ -101,6 +109,7 @@ private:
     std::function<TrajectorySnapshot(const TrajectoryGenerationParams&)> m_trajectoryGenerateHandler;
     std::function<TrajectorySnapshot(const TrajectoryGenerationParams&)> m_trajectoryApplyHandler;
     std::function<LivePositionsSnapshot()> m_livePositionsHandler;
+    std::function<OriginSnapshot()> m_originFromPayloadHandler;
 
     std::atomic<bool> m_running{false};
     std::thread m_broadcastThread;

@@ -169,7 +169,11 @@
                 <div class="empty-hint">Shown in the scene as the blue marker at the local frame's (0,0,0), everything (trajectories, tiles) is converted into this referential.</div>
             </div>
             <div class="section-gap"></div>
-            <button class="btn" id="origin-refresh" style="width:100%">Refresh</button>
+            <div class="btn-row">
+                <button class="btn" id="origin-refresh" style="flex:1">Refresh</button>
+                <button class="btn primary" id="origin-from-payload-btn" style="flex:1">Set from payload GPS</button>
+            </div>
+            <div class="empty-hint" id="origin-from-payload-hint">Reads the payload's current raw GPS fix and uses it directly as the origin — an alternative to typing lat/lon manually. Requires the payload's Pixhawk to be connected and streaming telemetry.</div>
         </div>
 
         <div class="card">
@@ -765,6 +769,25 @@
     }
 
     document.getElementById('origin-refresh').addEventListener('click', loadOrigin);
+
+    document.getElementById('origin-from-payload-btn').addEventListener('click', async () => {
+        const hint = document.getElementById('origin-from-payload-hint');
+        const originalHint = hint.textContent;
+        hint.textContent = 'Capturing payload GPS fix…';
+        try {
+            const res = await fetch('/api/origin/from-payload', { method: 'POST' });
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+            await loadOrigin();
+            hint.textContent = 'Origin set from the payload\'s live GPS fix.';
+        } catch (err) {
+            console.error('Set origin from payload failed:', err);
+            hint.textContent = `Failed: ${err.message}`;
+        } finally {
+            setTimeout(() => { hint.textContent = originalHint; }, 5000);
+        }
+    });
+
     loadOrigin();
     loadTrajectoryFromServer();
 

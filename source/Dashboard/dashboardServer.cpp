@@ -104,6 +104,25 @@ void DashboardServer::start() {
         res.set_content(handler().toJson(), "application/json");
     });
 
+    m_httpServer->Post("/api/origin/from-payload", [this](const httplib::Request&, httplib::Response& res) {
+        std::function<OriginSnapshot()> handler;
+        {
+            std::lock_guard<std::mutex> lock(m_snapshotsMutex);
+            handler = m_originFromPayloadHandler;
+        }
+        if (!handler) {
+            res.status = 503;
+            res.set_content(JsonWriter().add("error", "origin-from-payload not available").str(), "application/json");
+            return;
+        }
+        try {
+            res.set_content(handler().toJson(), "application/json");
+        } catch (const std::exception& e) {
+            res.status = 400;
+            res.set_content(JsonWriter().add("error", std::string(e.what())).str(), "application/json");
+        }
+    });
+
     m_httpServer->set_mount_point("/", m_staticRoot);
 
     m_httpServer->set_post_routing_handler([](const httplib::Request&, httplib::Response& res) {
@@ -211,6 +230,11 @@ void DashboardServer::setTrajectoryApplyHandler(std::function<TrajectorySnapshot
 void DashboardServer::setLivePositionsHandler(std::function<LivePositionsSnapshot()> handler) {
     std::lock_guard<std::mutex> lock(m_snapshotsMutex);
     m_livePositionsHandler = std::move(handler);
+}
+
+void DashboardServer::setOriginFromPayloadHandler(std::function<OriginSnapshot()> handler) {
+    std::lock_guard<std::mutex> lock(m_snapshotsMutex);
+    m_originFromPayloadHandler = std::move(handler);
 }
 
 size_t DashboardServer::connectedBrowserCount() const {

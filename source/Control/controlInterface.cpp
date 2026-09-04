@@ -75,6 +75,21 @@ bool ControlInterface::getOrigin(double& latitudeDegrees, double& longitudeDegre
     return m_navFrameManager.getOrigin(latitudeDegrees, longitudeDegrees, altitude);
 }
 
+std::optional<ControlInterface::GpsFix> ControlInterface::getPayloadGpsFix() const {
+    std::lock_guard lock(m_stateMutex);
+
+    std::optional<GpsFix> fix;
+    for (const auto& [sysId, state] : m_latestStates) {
+        if (sysId <= m_config.numUavs) continue; // a UAV, not the payload
+
+        // Highest sysId wins if more than one somehow lands above numUavs --
+        // std::map is ordered ascending, so the last iteration here is the
+        // highest, same tie-break as elsewhere.
+        fix = GpsFix{state.latitudeDegree, state.longitudeDegree, state.altitudeAmslMeter};
+    }
+    return fix;
+}
+
 void ControlInterface::updateStates(const std::map<uint8_t, uavStates>& states) {
     std::lock_guard lock(m_stateMutex);
     m_latestStates = states;

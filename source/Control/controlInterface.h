@@ -13,6 +13,7 @@
 #include <atomic>
 #include <chrono>
 #include <map>
+#include <optional>
 #include <arpa/inet.h>
 
 #include "gcsConfig.h"
@@ -54,6 +55,25 @@ public:
 
     void initMatlabConnection(const char* ip, uint16_t port);
     void setCommandsList(const std::map<uint8_t, std::vector<uavCommandsFlags>>& commandsList);
+
+    // Raw WGS84 GPS fix -- lat/lon/AMSL altitude straight from the latest
+    // telemetry, deliberately NOT run through NavigationFrameManager (there's
+    // no origin yet; this is what *establishes* one -- see
+    // GroundControlStation::setOriginFromPayload()).
+    struct GpsFix {
+        double latitudeDegrees = 0.0;
+        double longitudeDegrees = 0.0;
+        double altitudeMeters = 0.0;
+    };
+
+    // The payload's current raw GPS fix, for setting the navigation origin
+    // directly from where the payload actually is instead of typing lat/lon
+    // by hand. Same "payload = highest sysId" convention as
+    // NMPCController::m_unpackLatestStates / getLiveNavigationStates() below
+    // -- any sysId beyond m_config.numUavs is the payload (highest wins if
+    // more than one, matching that convention's tie-break). Returns nullopt
+    // if no such telemetry has arrived yet.
+    [[nodiscard]] std::optional<GpsFix> getPayloadGpsFix() const;
 
     void initLaunch() const;
 

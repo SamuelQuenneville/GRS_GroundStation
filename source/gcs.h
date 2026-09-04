@@ -41,6 +41,13 @@ public:
     void generateTrajectory(const grs::trajgen::TrajectoryConfig& config,
         const grs::trajgen::SubsetSelection& selection = {}) const;
     void setOrigin(double latitudeDegrees, double longitudeDegrees, double altitude) const;
+
+    // Captures the payload's current raw GPS fix and uses it directly as the
+    // NavigationFrameManager origin, instead of the operator typing lat/lon
+    // into `setOrigin` by hand. Returns false (and logs why) if no payload
+    // GPS fix has arrived yet -- e.g. its Pixhawk isn't connected/streaming.
+    bool setOriginFromPayload() const;
+
     void debugConvert(double latitudeDegrees, double longitudeDegrees, double altitude) const;
 
     // Starts reading the RTK base GPS (e.g. u-blox F9P) on `device` and

@@ -45,6 +45,7 @@ void ConsoleInterface::printCommands() {
                       << "  loadTraj [FILE]       --> Load a reference trajectory via a .csv file\n"
                       << "  genTraj               --> Generate a reference trajectory in-process (default config, no field calibration -- ADR-001 Phase 1)\n"
                       << "  setOrigin [WP]        --> Set the origin for the controller frame\n"
+                      << "  setOriginFromPayload  --> Set the origin from the payload's current live GPS fix\n"
                       << "  listRtkPorts          --> List detected u-blox USB serial devices\n"
                       << "  startRtk [DEV] [BAUD] --> Start RTK base GPS (DEV='auto' to auto-detect), forward corrections to all UAVs (BAUD=0 to auto-detect)\n"
                       << "  stopRtk               --> Stop the RTK base GPS\n"
@@ -102,6 +103,8 @@ void ConsoleInterface::handleCommand(const std::string& command) const {
         } else {
             m_gcs.setOrigin(lat, lon, alt);
         }
+    } else if (command == "setOriginFromPayload") {
+        m_gcs.setOriginFromPayload();
     } else if (command.starts_with("convert ")) {
         const std::string args = command.substr(8);
         double lat, lon, alt;

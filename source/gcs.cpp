@@ -11,6 +11,7 @@
 #include <algorithm>
 #include <cmath>
 #include <ranges>
+#include <stdexcept>
 
 GroundControlStation::GroundControlStation()
     : m_running(false)
@@ -190,6 +191,30 @@ void GroundControlStation::setDashboard(DashboardServer* dashboard) {
 
     m_dashboardServer->setLivePositionsHandler([this]() {
         return m_buildLivePositionsSnapshot();
+    });
+
+    // "Set origin from payload GPS" button on setup3d.html -- an alternative
+    // to the `setOrigin` console command. Throws (-> 400 with the message
+    // below) if no payload GPS fix has arrived yet; setOriginFromPayload()
+    // itself calling ControlInterface::setOrigin() already fires
+    // setOriginCallback above, which pushes the new OriginSnapshot to the
+    // dashboard -- so re-reading it back here (rather than reusing the
+    // fix we just captured) mirrors the trajectory apply handler's own
+    // "always reflect what's actually set" pattern.
+    m_dashboardServer->setOriginFromPayloadHandler([this]() {
+        if (!setOriginFromPayload()) {
+            throw std::runtime_error("No payload GPS fix yet -- check that the payload's Pixhawk is connected and streaming telemetry.");
+        }
+
+        OriginSnapshot snap;
+        double lat, lon, alt;
+        if (m_controlInterface->getOrigin(lat, lon, alt)) {
+            snap.hasOrigin = true;
+            snap.latitude = lat;
+            snap.longitude = lon;
+            snap.altitude = alt;
+        }
+        return snap;
     });
 }
 
@@ -456,6 +481,19 @@ LivePositionsSnapshot GroundControlStation::m_buildLivePositionsSnapshot() const
 
 void GroundControlStation::setOrigin(const double latitudeDegrees, const double longitudeDegrees, const double altitude) const {
     m_controlInterface->setOrigin(latitudeDegrees, longitudeDegrees, altitude);
+}
+
+bool GroundControlStation::setOriginFromPayload() const {
+    const auto fix = m_controlInterface->getPayloadGpsFix();
+    if (!fix) {
+        LOG_ERROR("setOriginFromPayload: no payload GPS fix yet -- check that the payload's Pixhawk is connected and streaming telemetry.");
+        return false;
+    }
+
+    LOG_INFO("Setting origin from payload GPS fix: lat=" + std::to_string(fix->latitudeDegrees) +
+        ", lon=" + std::to_string(fix->longitudeDegrees) + ", alt=" + std::to_string(fix->altitudeMeters));
+    m_controlInterface->setOrigin(fix->latitudeDegrees, fix->longitudeDegrees, fix->altitudeMeters);
+    return true;
 }
 
 void GroundControlStation::debugConvert(const double latitudeDegrees, const double longitudeDegrees, const double altitude) const {
