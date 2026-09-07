@@ -21,7 +21,7 @@ Pixhawk:
   endpoints:
     - {id: 1, ip: 192.168.50.10, port: 14400}
     #- {id: 2, ip: 192.168.50.10, port: 14500}
-    #- {id: 3, ip: 192.168.50.10, port: 14600}
+    - {id: 3, ip: 192.168.50.10, port: 14600}
 
 # Connect via TCP
 Catapults:

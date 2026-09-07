@@ -295,7 +295,7 @@ void CommunicationManager::m_watchSystem(const std::shared_ptr<mavsdk::System>& 
     }
 
     if (system->has_autopilot() && system->is_connected()) {
-        m_registerSystem(system);
+        std::thread([this, system]() { m_registerSystem(system); }).detach();
         return;
     }
 
@@ -311,7 +311,7 @@ void CommunicationManager::m_watchSystem(const std::shared_ptr<mavsdk::System>& 
         const uint8_t id = system->get_system_id();
 
         if (connected && system->has_autopilot()) {
-            m_registerSystem(system);
+            std::thread([this, system]() { m_registerSystem(system); }).detach();
             return;
         }
 
