@@ -241,11 +241,23 @@ struct TrajectoryPointJson {
     double vx = 0.0, vy = 0.0, vz = 0.0;
     double roll = 0.0, pitch = 0.0;
 
+    // Mission time [s] for this sample, shared across every vehicle's point
+    // at the same array index -- lets the dashboard plot speed/roll/pitch vs
+    // time. Exact for a freshly-generated preview (copied straight from
+    // GeneratedMission::time); for the post-Apply/GET /api/trajectory replay
+    // -- which reads back the NMPC controller's flattened reference array,
+    // with no timestamps of its own -- it's approximated as
+    // `index * TrajectoryConfig::simDt` (see
+    // GroundControlStation::m_buildTrajectorySnapshotFromController()). Good
+    // enough for this debug plot; not a control-loop-accurate timestamp.
+    double time = 0.0;
+
     std::string toJson() const {
         JsonWriter root;
         root.add("north", north).add("east", east).add("down", down)
             .add("vx", vx).add("vy", vy).add("vz", vz)
-            .add("roll", roll).add("pitch", pitch);
+            .add("roll", roll).add("pitch", pitch)
+            .add("time", time);
         return root.str();
     }
 };

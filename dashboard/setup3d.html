@@ -131,6 +131,26 @@
             <div class="section-gap"></div>
         </div>
 
+        <div class="card" id="timeseries-card">
+            <h3>TIME SERIES</h3>
+            <div class="empty-hint" id="timeseries-empty">Generate, apply, or load a trajectory to see speed/roll/pitch vs time here.</div>
+            <div id="timeseries-body" style="display:none">
+                <div class="ts-chart" data-key="speed">
+                    <div class="ts-chart-head"><span class="ts-chart-title">Speed</span><span>m/s</span></div>
+                    <svg class="ts-svg" viewBox="0 0 300 70" preserveAspectRatio="none"></svg>
+                </div>
+                <div class="ts-chart" data-key="roll">
+                    <div class="ts-chart-head"><span class="ts-chart-title">Roll</span><span>deg</span></div>
+                    <svg class="ts-svg" viewBox="0 0 300 70" preserveAspectRatio="none"></svg>
+                </div>
+                <div class="ts-chart" data-key="pitch">
+                    <div class="ts-chart-head"><span class="ts-chart-title">Pitch</span><span>deg</span></div>
+                    <svg class="ts-svg" viewBox="0 0 300 70" preserveAspectRatio="none"></svg>
+                </div>
+                <div class="ts-legend" id="timeseries-legend"></div>
+            </div>
+        </div>
+
         <div class="card">
             <h3>GROUND LAYER</h3>
             <div class="opt-group" id="ground-group">
@@ -492,6 +512,7 @@
             const color = new THREE.Color(cfg.color ?? DEFAULT_PALETTE[i % DEFAULT_PALETTE.length]);
             const traj = cfg.points.map((p, idx) => ({
                 idx,
+                time: p.time ?? idx, // fall back to sample index if a point has no `time` (older GCS build)
                 north: p.north, east: p.east, down: p.down,
                 vx: p.vx ?? 0, vy: p.vy ?? 0, vz: p.vz ?? 0,
                 roll: p.roll ?? 0, pitch: p.pitch ?? 0,
@@ -551,6 +572,7 @@
                 if (mode === 'every2') { m.visible = (i % 2 === 0); return; }
             });
         });
+        renderTimeSeriesCharts();
     }
 
     document.querySelectorAll('#density-group .opt').forEach(opt => {
@@ -586,6 +608,83 @@
         scene.fog.far = far;
     }
 
+    /* ---------- time-series charts (speed/roll/pitch vs time) ----------
+     * Small dependency-free SVG line charts, one per quantity, each drawing
+     * every currently-visible vehicle's data against mission time
+     * (TrajectoryPointJson.time -- exact for a freshly generated preview,
+     * ~simDt-approximated after Apply/reload, see gcs.cpp's
+     * m_buildTrajectorySnapshotFromController()/m_missionToTrajectorySnapshot()).
+     * Re-rendered from applyDensity() -- already the common call site for
+     * "vehicles changed" (new trajectory), "visibility toggled" (checkbox),
+     * and "density mode changed" -- rather than a separate hook per event.
+     */
+    const TS_CHARTS = [
+        { key: 'speed', el: document.querySelector('.ts-chart[data-key="speed"] .ts-svg') },
+        { key: 'roll',  el: document.querySelector('.ts-chart[data-key="roll"] .ts-svg') },
+        { key: 'pitch', el: document.querySelector('.ts-chart[data-key="pitch"] .ts-svg') },
+    ];
+    let selectedForChart = null; // { vehicle, point } -- drives the cursor line, set by showSelected()
+
+    function renderTimeSeriesCharts() {
+        const visible = vehicles.filter(v => v.visible && v.traj.length > 0);
+        const emptyEl = document.getElementById('timeseries-empty');
+        const bodyEl = document.getElementById('timeseries-body');
+
+        if (visible.length === 0) {
+            emptyEl.style.display = 'block';
+            bodyEl.style.display = 'none';
+            return;
+        }
+        emptyEl.style.display = 'none';
+        bodyEl.style.display = 'block';
+
+        const allTimes = visible.flatMap(v => v.traj.map(p => p.time));
+        const minT = Math.min(...allTimes), maxT = Math.max(...allTimes);
+
+        const M = { l: 30, r: 6, t: 6, b: 14 };
+        const W = 300, H = 70;
+        const plotW = W - M.l - M.r, plotH = H - M.t - M.b;
+        const xAt = (t) => M.l + (maxT > minT ? (t - minT) / (maxT - minT) : 0.5) * plotW;
+
+        TS_CHARTS.forEach(({ key, el }) => {
+            if (!el) return;
+            const allVals = visible.flatMap(v => v.traj.map(p => p[key] ?? 0));
+            let minV = Math.min(...allVals), maxV = Math.max(...allVals);
+            if (minV === maxV) { minV -= 1; maxV += 1; }
+            const pad = (maxV - minV) * 0.08;
+            minV -= pad; maxV += pad;
+            const yAt = (val) => M.t + plotH - (val - minV) / (maxV - minV) * plotH;
+
+            let svg = '';
+            [0, 0.5, 1].forEach(f => {
+                const y = (M.t + f * plotH).toFixed(1);
+                svg += `<line class="ts-gridline" x1="${M.l}" y1="${y}" x2="${W - M.r}" y2="${y}"/>`;
+            });
+            svg += `<text class="ts-axis-label" x="1" y="${(M.t + 5).toFixed(1)}">${maxV.toFixed(1)}</text>`;
+            svg += `<text class="ts-axis-label" x="1" y="${(M.t + plotH).toFixed(1)}">${minV.toFixed(1)}</text>`;
+            svg += `<text class="ts-axis-label" x="${M.l}" y="${H - 3}">${minT.toFixed(1)}s</text>`;
+            svg += `<text class="ts-axis-label" x="${W - M.r - 24}" y="${H - 3}">${maxT.toFixed(1)}s</text>`;
+
+            visible.forEach(v => {
+                const pts = v.traj.map(p => `${xAt(p.time).toFixed(1)},${yAt(p[key] ?? 0).toFixed(1)}`).join(' ');
+                svg += `<polyline fill="none" stroke="#${v.color.getHexString()}" stroke-width="1.5" points="${pts}"/>`;
+            });
+
+            // vertical cursor at the currently selected waypoint's time, if
+            // that waypoint's vehicle is among those plotted here
+            if (selectedForChart && visible.includes(selectedForChart.vehicle)) {
+                const cx = xAt(selectedForChart.point.time).toFixed(1);
+                svg += `<line class="ts-cursor" x1="${cx}" y1="${M.t}" x2="${cx}" y2="${(M.t + plotH).toFixed(1)}"/>`;
+            }
+
+            el.innerHTML = svg;
+        });
+
+        document.getElementById('timeseries-legend').innerHTML = visible.map(v =>
+            `<span class="ts-legend-item"><span class="ts-legend-swatch" style="background:#${v.color.getHexString()}"></span>${v.label}</span>`
+        ).join('');
+    }
+
     /* ---------- raycasting for clickable markers ---------- */
     const raycaster = new THREE.Raycaster();
     const mouse = new THREE.Vector2();
@@ -611,6 +710,9 @@
         document.getElementById('sw-spd').textContent = fmt(p.speed) + ' m/s';
         document.getElementById('sw-roll').textContent = fmt(p.roll) + '°';
         document.getElementById('sw-pitch').textContent = fmt(p.pitch) + '°';
+
+        selectedForChart = { vehicle, point: p };
+        renderTimeSeriesCharts();
     }
 
     renderer.domElement.addEventListener('click', (ev) => {
