@@ -555,15 +555,16 @@ void NMPCController::m_unpackLatestStates(const std::map<uint8_t, uavStates>& la
 
     size_t offset = 0;
 
-    // Payload is last sysId -- look if we are tethered to the ground (no payload)
-    size_t numberOfUavs = latestStates.size() - 1;
-
-    if (numberOfUavs == 0) {
-        numberOfUavs += 1;
+    size_t connectedUavs = 0;
+    for (const auto& [sysId, states] : latestStates) {
+        if (sysId <= m_config.numUavs) {
+            ++connectedUavs;
+        }
     }
+    const bool usePayloadTelemetry = hasPayload() && connectedUavs >= 2;
 
-    for (const auto&[sysId, states] : latestStates) {
-        if (sysId <= numberOfUavs) {
+    for (const auto& [sysId, states] : latestStates) {
+        if (sysId <= m_config.numUavs) {
 
             double speed = std::sqrt(states.northMeterSecond*states.northMeterSecond + states.eastMeterSecond*states.eastMeterSecond + states.downMeterSecond*states.downMeterSecond);
 
@@ -599,7 +600,7 @@ void NMPCController::m_unpackLatestStates(const std::map<uint8_t, uavStates>& la
             unpackStates.at(offset++) = grs::degToRad(states.pitchDegree);
 
 
-        } else {
+        } else if (usePayloadTelemetry) {
             // Payload
             unpackStates.at(offset++) = states.northMeter;
             unpackStates.at(offset++) = states.eastMeter;
