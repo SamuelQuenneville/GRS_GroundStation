@@ -819,8 +819,10 @@ void GroundControlStation::m_supervisorLoop() const {
 
     LOG_INFO("GroundControlStation main loop started");
 
-    // Enable and start logging
-    Logger::instance().start(true, "logGcs" + Logger::getDateString());
+    // Enable and start logging. The heavy per-tick CSVs (solver args/
+    // output, raw states, raw controls) are gated by verboseLogging; the
+    // NMPC event log is not -- see Logger::start().
+    Logger::instance().start(m_gcsConfig.verboseLogging, "logGcs" + Logger::getDateString());
 
     m_communicationManager->start();
     m_controlDispatcher->start();

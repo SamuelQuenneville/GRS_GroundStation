@@ -21,18 +21,29 @@ Logger::~Logger() {
 
 void Logger::start(const bool enabled, const std::string& logDirectory) {
     m_enabled = enabled;
-    if (m_running || !m_enabled) return;
+    if (m_running) return;
 
     std::filesystem::create_directories(logDirectory);
 
-    m_files[LogType::MPC_ARG_X0].open(logDirectory + "/mpc_arg_x0.csv");
-    m_files[LogType::MPC_ARG_P].open(logDirectory + "/mpc_arg_p.csv");
-    m_files[LogType::MPC_ARG_LBX].open(logDirectory + "/mpc_arg_lbx.csv");
-    m_files[LogType::MPC_ARG_UBX].open(logDirectory + "/mpc_arg_ubx.csv");
-    m_files[LogType::MPC_RES_X].open(logDirectory + "/mpc_res_x.csv");
+    // Heavy per-tick dumps -- one line every solve, gated by `enabled`
+    // (verboseLogging) since these are only wanted for detailed
+    // post-analysis, not routine test flights.
+    if (m_enabled) {
+        m_files[LogType::MPC_ARG_X0].open(logDirectory + "/mpc_arg_x0.csv");
+        m_files[LogType::MPC_ARG_P].open(logDirectory + "/mpc_arg_p.csv");
+        m_files[LogType::MPC_ARG_LBX].open(logDirectory + "/mpc_arg_lbx.csv");
+        m_files[LogType::MPC_ARG_UBX].open(logDirectory + "/mpc_arg_ubx.csv");
+        m_files[LogType::MPC_RES_X].open(logDirectory + "/mpc_res_x.csv");
 
-    m_files[LogType::STATES].open(logDirectory + "/states.csv");
-    m_files[LogType::CONTROLS].open(logDirectory + "/controls.csv");
+        m_files[LogType::STATES].open(logDirectory + "/states.csv");
+        m_files[LogType::CONTROLS].open(logDirectory + "/controls.csv");
+    }
+
+    // Sparse NMPC event log -- always on, regardless of `enabled`: this is
+    // the "high value, not everything" log (see NMPCController's launch/
+    // in-flight/trajectory/violation transition logging), meant to stay
+    // readable and useful even on a run where the heavy dumps are off.
+    m_files[LogType::NMPC_EVENT].open(logDirectory + "/nmpc_events.log");
 
     for (auto& [_, file] : m_files) {
         file.setf(std::ios::unitbuf);
@@ -65,7 +76,8 @@ void Logger::stop() {
 }
 
 void Logger::log(const LogType type, const std::string& line) {
-    if (!m_running || !m_enabled) return;
+    if (!m_running) return;
+    if (type != LogType::NMPC_EVENT && !m_enabled) return;
     m_queue.push(LogItem{type, line});
 }
 

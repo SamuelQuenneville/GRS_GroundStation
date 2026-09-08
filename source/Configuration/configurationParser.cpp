@@ -15,6 +15,7 @@ gcsConfig ConfigurationParser::parseGcsConfig(YAML::Node& node, const gcsConfig&
     if (const auto gcsNode = node["GcsConfiguration"]) {
         if (gcsNode["numUavs"])            config.numUavs = gcsNode["numUavs"].as<int>();
         if (gcsNode["verbose"])            config.verbose = gcsNode["verbose"].as<bool>();
+        if (gcsNode["verboseLogging"])      config.verboseLogging = gcsNode["verboseLogging"].as<bool>();
         if (gcsNode["hlcFrequency"])        config.hlcFrequency = gcsNode["hlcFrequency"].as<double>();
         if (gcsNode["telemetryPublishHz"])  config.telemetry_publish_hz = gcsNode["telemetryPublishHz"].as<double>();
 

@@ -85,6 +85,12 @@ struct catapultEndpointConfig {
 
 struct gcsConfig {
     bool verbose = false;
+    // Gates the heavy per-tick CSV dumps (solver args/output, raw states,
+    // raw controls -- see Logger::start()). Default true to keep existing
+    // behavior. The NMPC controller's sparse event log (launch, in-flight,
+    // trajectory ended/loaded, solver violation entered/cleared) is
+    // unaffected by this -- it's always on, see LogType::NMPC_EVENT.
+    bool verboseLogging = false;
     int numUavs = 1;
     double telemetry_publish_hz = -1.0;
     double hlcFrequency = 20.0;

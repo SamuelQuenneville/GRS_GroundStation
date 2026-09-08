@@ -39,6 +39,10 @@ NMPCController::~NMPCController() {
 void NMPCController::initLaunch() {
     m_launched = true;
     m_timeAtLaunched = std::chrono::steady_clock::now();
+
+    Logger::instance().log(LogType::NMPC_EVENT,
+        std::to_string(m_trackingNumber) + "," + std::to_string(Logger::instance().nowMilliseconds()) + ","
+        + std::to_string(Logger::nowWallTimeMs()) + ",LAUNCH triggered");
 }
 
 void NMPCController::loadTrajectory(const std::string& file) {
@@ -112,6 +116,14 @@ void NMPCController::setReferenceTrajectory(std::vector<double> referenceTraject
 void NMPCController::m_onReferenceTrajectoryChanged() {
     m_numTrajectoryPoints = m_referenceTrajectory.size() / m_refStride;
     m_endIdxTraj = m_numTrajectoryPoints > m_config.N ? m_numTrajectoryPoints - m_config.N : 0;
+
+    std::ostringstream msg;
+    msg << m_trackingNumber << "," << Logger::instance().nowMilliseconds() << "," << Logger::nowWallTimeMs()
+        << ",TRAJECTORY loaded, points=" << m_numTrajectoryPoints
+        << ", numUavs=" << m_config.numUavs
+        << ", hasPayload=" << (hasPayload() ? "true" : "false")
+        << ", N=" << m_config.N;
+    Logger::instance().log(LogType::NMPC_EVENT, msg.str());
 }
 
 std::map<uint8_t, uavCommandsFlags> NMPCController::solve(const std::map<uint8_t, uavStates>& latestStates) {
@@ -165,8 +177,40 @@ std::map<uint8_t, uavCommandsFlags> NMPCController::solve(const std::map<uint8_t
     // Extract and return u0 for each UAV
     auto controls = m_extractControls();
 
+    m_logTransitions();
+
     m_trackingNumber += 1;
     return controls;
+}
+
+void NMPCController::m_logTransitions() {
+    if (m_inFlight != m_prevInFlight) {
+        Logger::instance().log(LogType::NMPC_EVENT,
+            std::to_string(m_trackingNumber) + "," + std::to_string(Logger::instance().nowMilliseconds()) + ","
+            + std::to_string(Logger::nowWallTimeMs()) + ","
+            + (m_inFlight ? "INFLIGHT detected (speed threshold crossed)" : "INFLIGHT cleared"));
+        m_prevInFlight = m_inFlight;
+    }
+
+    if (m_endedTraj != m_prevEndedTraj) {
+        Logger::instance().log(LogType::NMPC_EVENT,
+            std::to_string(m_trackingNumber) + "," + std::to_string(Logger::instance().nowMilliseconds()) + ","
+            + std::to_string(Logger::nowWallTimeMs()) + ","
+            + (m_endedTraj ? "TRAJECTORY ended, idx=" + std::to_string(m_lastIdxTraj) : "TRAJECTORY resumed"));
+        m_prevEndedTraj = m_endedTraj;
+    }
+
+    // m_violation is recomputed fresh every solve (see m_solutionIsValid),
+    // so both directions are meaningful here: entering flags a real solver
+    // problem to look into after the test, and clearing tells you exactly
+    // how many ticks (trackingNumber delta) it stayed degraded for.
+    if (m_violation != m_prevViolation) {
+        Logger::instance().log(LogType::NMPC_EVENT,
+            std::to_string(m_trackingNumber) + "," + std::to_string(Logger::instance().nowMilliseconds()) + ","
+            + std::to_string(Logger::nowWallTimeMs()) + ","
+            + (m_violation ? "VIOLATION entered" : "VIOLATION cleared"));
+        m_prevViolation = m_violation;
+    }
 }
 
 double NMPCController::lastSolveMs() const {

@@ -110,6 +110,13 @@ private:
     bool m_launched = false;
     bool m_inFlight = false;
     bool m_endedTraj = false;
+
+    // Previous tick's value of the flags above/m_violation below, so
+    // solve() can emit a sparse NMPC_EVENT log line only on a transition
+    // (see m_logTransitions() in the .cpp) instead of every tick.
+    bool m_prevInFlight = false;
+    bool m_prevEndedTraj = false;
+    bool m_prevViolation = false;
     std::chrono::steady_clock::time_point m_timeAtLaunched;
 
     size_t m_lastIdxTraj = 0;
@@ -173,6 +180,11 @@ private:
     double m_unwrapYaw(uint8_t sysId, double yawRadWrapped);
 
     void m_unpackLatestStates(const std::map<uint8_t, uavStates>& latestStates, std::vector<double>& unpackStates);
+
+    // Emits a LogType::NMPC_EVENT line for any of m_inFlight/m_endedTraj/
+    // m_violation that changed since the last call. Called once per
+    // solve(), after all three have their final value for this tick.
+    void m_logTransitions();
 
     // Shared tail of loadTrajectory()/setReferenceTrajectory(): recomputes
     // m_numTrajectoryPoints/m_endIdxTraj from m_referenceTrajectory's size.
