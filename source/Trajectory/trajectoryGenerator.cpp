@@ -356,8 +356,21 @@ TakeoffMission generateAircraftTakeoff(const TrajectoryConfig& config, double ph
     const double theta1 = thetaPhase1[iSwitch];
     const double thetaDot1 = thetaDotPhase1[iSwitch];
     const double thetaDdot1 = thetaDdot[iSwitch];
-    const size_t prevIdx = iSwitch > 0 ? iSwitch - 1 : 0;
-    const double thetaJerk1 = (thetaDdot[iSwitch] - thetaDdot[prevIdx]) / dt;
+    // Analytically exact, not a finite difference: thetaDdot(t) in phase 1
+    // is proportional to quinticSmoothstepDeriv(t/t1), whose own rate of
+    // change is proportional to quinticSmoothstepSecondDeriv(t/t1) -- both
+    // are exactly 0 at tau1=1 (a quintic smoothstep has zero 1st and 2nd
+    // derivative at both endpoints by construction), so the true jerk at
+    // the phase boundary is 0 regardless of t1, velocity, or pitch swing.
+    // The previous one-step (thetaDdot[iSwitch]-thetaDdot[prevIdx])/dt
+    // finite difference was discretization noise approximating this
+    // known-zero quantity -- noise that grows sharply as takeoffTimeBalistic
+    // shrinks toward dt (fewer samples across phase 1), and gets amplified
+    // by t2^3 into the phase-2 polynomial's b3 term below, producing a
+    // large pitch/elevation-angle overshoot right after the phase switch
+    // before the polynomial's boundary conditions pull it back to the
+    // correct loiter value at T.
+    const double thetaJerk1 = 0.0;
 
     const double b0 = theta1;
     const double b1 = thetaDot1 * t2;

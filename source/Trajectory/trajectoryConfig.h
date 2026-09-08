@@ -107,13 +107,13 @@ struct TrajectoryConfig {
     // ---- Aircraft trajectory ----
     struct AircraftPath {
         int direction = -1;               // +1 = CCW, -1 = CW (top view)
-        double velMean = 28;              // Aircraft mean speed [m/s]
+        double velMean = 26;              // Aircraft mean speed [m/s]
         std::vector<double> phaseRad = {0.0, M_PI}; // Aircraft phase per UAV [rad], from North toward East
-        double radius = 26;               // Aircraft path radius [m]
+        double radius = 25;               // Aircraft path radius [m]
         double z0 = 1.382;                // Aircraft altitude (NED) on launcher [m]
 
         double takeoffTime = 10;          // Takeoff phase duration [s]
-        double takeoffTimeBalistic = 1.6; // Decay time pitch0 -> pitchDecay [s]
+        double takeoffTimeBalistic = 0.5; // Decay time pitch0 -> pitchDecay [s]
         double takeoffTimeAcc = 8;        // Time to reach velMean [s]
         double takeoffVel0 = 12;          // Aircraft speed after launch [m/s]
         double takeoffAngle0Deg = 0;      // Azimuth of aircraft 1 on launcher [deg]
@@ -122,9 +122,9 @@ struct TrajectoryConfig {
         // empirical alpha/path-angle correction from the launcher rig, not a
         // clean constant, so it's kept as a named field here rather than
         // folded silently into takeoffPitch0Deg.
-        double takeoffPitch0Deg = 15;
+        double takeoffPitch0Deg = 19;
         double takeoffPitch0TrimRad = -0.1687;
-        double takeoffPitchDecayFrac = 0.4; // Fraction of initial pitch to decay to
+        double takeoffPitchDecayFrac = 0.65; // Fraction of initial pitch to decay to
     } aircraftPath;
 
     // ---- Field calibration (new vs. MATLAB; Phase 2) ----
