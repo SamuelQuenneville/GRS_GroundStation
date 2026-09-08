@@ -19,6 +19,7 @@
     <div class="pill" id="mode-pill"><span class="dot" style="background:var(--text-dim)"></span>Pre-flight trajectory check </div>
     <div class="pill" id="origin-pill"><span class="dot"></span><span id="origin-pill-text">Origin: waiting…</span></div>
     <button class="btn" id="timeseries-toggle-btn">Time series</button>
+    <button class="btn" id="save-trajectory-btn">Save current trajectory</button>
     <div class="topbar-spacer"></div>
 
     <nav class="page-nav">
@@ -1001,6 +1002,32 @@
             hint.textContent = `Failed: ${err.message}`;
         } finally {
             setTimeout(() => { hint.textContent = originalHint; }, 5000);
+        }
+    });
+
+    // "Save current trajectory" -- POSTs to /api/trajectory/save, which
+    // writes whatever's currently loaded in the NMPC controller to a CSV in
+    // the exact format `loadTraj [FILE]` / loadTrajectory() reads, so it can
+    // be reloaded later. The button itself doubles as the feedback area
+    // (no separate hint element in the topbar), same transient-message
+    // pattern as the origin-from-payload hint above.
+    document.getElementById('save-trajectory-btn').addEventListener('click', async () => {
+        const btn = document.getElementById('save-trajectory-btn');
+        const originalText = btn.textContent;
+        btn.disabled = true;
+        btn.textContent = 'Saving…';
+        try {
+            const res = await fetch('/api/trajectory/save', { method: 'POST' });
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+            const fileName = (data.path || '').split('/').pop() || data.path;
+            btn.textContent = `Saved: ${fileName}`;
+        } catch (err) {
+            console.error('Save trajectory failed:', err);
+            btn.textContent = `Failed: ${err.message}`;
+        } finally {
+            btn.disabled = false;
+            setTimeout(() => { btn.textContent = originalText; }, 5000);
         }
     });
 

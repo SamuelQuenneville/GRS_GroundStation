@@ -9,6 +9,8 @@
 #include "controlInterface.h"
 #include "gcs.h"
 
+#include <stdexcept>
+
 ControlInterface::ControlInterface()
     : m_running(false)
 {
@@ -111,6 +113,13 @@ void ControlInterface::initLaunch() const {
 void ControlInterface::loadTrajectory(const std::string& file) const {
     m_nmpc->loadTrajectory(file);
     if (m_trajectoryLoadedCallback) m_trajectoryLoadedCallback();
+}
+
+void ControlInterface::saveTrajectory(const std::string& file) const {
+    if (!m_nmpc) {
+        throw std::runtime_error("saveTrajectory: control mode [MPC] is required (no NMPC controller instantiated)");
+    }
+    m_nmpc->saveTrajectory(file);
 }
 
 grs::trajgen::GeneratedMission ControlInterface::previewTrajectory(const grs::trajgen::TrajectoryConfig& config,

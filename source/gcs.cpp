@@ -9,7 +9,10 @@
 #include "gcs.h"
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
+#include <ctime>
+#include <filesystem>
 #include <ranges>
 #include <stdexcept>
 
@@ -186,11 +189,34 @@ void GroundControlStation::setDashboard(DashboardServer* dashboard) {
         const auto config = m_paramsToTrajectoryConfig(params);
         const auto selection = m_paramsToSubsetSelection(params, config.simDt);
         generateTrajectory(config, selection);
+
+        // Auto-export so the applied trajectory survives a GCS restart --
+        // NMPCController::m_referenceTrajectory is otherwise pure in-memory
+        // state with no other persistence. Best-effort: a save failure here
+        // (e.g. disk full) must not fail the Apply the operator is actively
+        // waiting on -- they still have the "Save current trajectory"
+        // button to retry manually.
+        try {
+            saveTrajectory();
+        } catch (const std::exception& e) {
+            LOG_WARNING(std::string("Auto-save of applied trajectory failed: ") + e.what());
+        }
+
         return m_buildTrajectorySnapshotFromController();
     });
 
     m_dashboardServer->setLivePositionsHandler([this]() {
         return m_buildLivePositionsSnapshot();
+    });
+
+    // "Save current trajectory" button on setup3d.html -- answers
+    // POST /api/trajectory/save. Manual counterpart to the auto-export
+    // above: same saveTrajectory() call, but lets the operator checkpoint
+    // on demand (e.g. right before further edits) and allowed to throw
+    // here, since a failure genuinely is the point of the click (-> 400
+    // with the message, same convention as the other handlers).
+    m_dashboardServer->setSaveTrajectoryHandler([this]() {
+        return saveTrajectory();
     });
 
     // "Set origin from payload GPS" button on setup3d.html -- an alternative
@@ -300,6 +326,30 @@ void GroundControlStation::generateTrajectory(const grs::trajgen::TrajectoryConf
     } else {
         LOG_WARNING("Control mode [MPC] is required to generate a trajectory!");
     }
+}
+
+std::string GroundControlStation::m_defaultTrajectorySavePath() {
+    std::filesystem::create_directories("trajectories");
+
+    const auto now = std::chrono::system_clock::now();
+    const std::time_t nowTimeT = std::chrono::system_clock::to_time_t(now);
+    std::tm timeInfo{};
+    localtime_r(&nowTimeT, &timeInfo);
+
+    char buffer[80];
+    std::strftime(buffer, sizeof(buffer), "trajectories/trajectory_%Y-%m-%d_%H-%M-%S.csv", &timeInfo);
+    return buffer;
+}
+
+std::string GroundControlStation::saveTrajectory(const std::string& file) const {
+    if (m_gcsConfig.controlMode != ControlMode::MPC) {
+        throw std::runtime_error("Control mode [MPC] is required to save a trajectory!");
+    }
+
+    const std::string path = file.empty() ? m_defaultTrajectorySavePath() : file;
+    m_controlInterface->saveTrajectory(path);
+    LOG_INFO("Trajectory saved to " + path);
+    return path;
 }
 
 TrajectorySnapshot GroundControlStation::m_buildTrajectorySnapshotFromController() const {

@@ -44,6 +44,7 @@ void ConsoleInterface::printCommands() {
                       << "  fetchParams [ID]      --> Retrieve all parameter and create a .param file\n"
                       << "  loadTraj [FILE]       --> Load a reference trajectory via a .csv file\n"
                       << "  genTraj               --> Generate a reference trajectory in-process (default config, no field calibration -- ADR-001 Phase 1)\n"
+                      << "  saveTraj [FILE]       --> Save the currently-loaded reference trajectory to a .csv file (FILE optional, auto-named under ./trajectories/ otherwise)\n"
                       << "  setOrigin [WP]        --> Set the origin for the controller frame\n"
                       << "  setOriginFromPayload  --> Set the origin from the payload's current live GPS fix\n"
                       << "  listRtkPorts          --> List detected u-blox USB serial devices\n"
@@ -94,6 +95,9 @@ void ConsoleInterface::handleCommand(const std::string& command) const {
     } else if (command == "genTraj") {
         LOG_INFO("Generating trajectory in-process (default config)...");
         m_gcs.generateTrajectory(grs::trajgen::TrajectoryConfig{});
+    } else if (command == "saveTraj" || command.starts_with("saveTraj ")) {
+        const std::string file = command.size() > 8 ? command.substr(9) : "";
+        m_gcs.saveTrajectory(file); // logs the resulting path itself
     } else if (command.starts_with("setOrigin ")) {
         const std::string args = command.substr(10);
         double lat, lon, alt;

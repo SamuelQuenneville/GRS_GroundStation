@@ -79,6 +79,14 @@ public:
 
     void loadTrajectory(const std::string& file) const;
 
+    // Inverse of loadTrajectory(): writes whatever's currently loaded in
+    // the NMPC controller back out to `file`, same CSV format
+    // loadTrajectory() reads -- so a save now / load later round-trips.
+    // Throws if there's no NMPC controller (control mode != MPC) or if
+    // NMPCController::saveTrajectory() itself throws (nothing loaded yet,
+    // file can't be written).
+    void saveTrajectory(const std::string& file) const;
+
     // ADR-001 Phase 1/2: builds a trajectory in-process with
     // TrajectoryGenerator (no MATLAB, no CSV round-trip), applies field
     // calibration (config.fieldHeadingDeg / originOffsetNed -- no-ops at

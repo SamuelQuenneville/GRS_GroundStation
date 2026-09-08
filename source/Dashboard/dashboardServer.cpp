@@ -123,6 +123,25 @@ void DashboardServer::start() {
         }
     });
 
+    m_httpServer->Post("/api/trajectory/save", [this](const httplib::Request&, httplib::Response& res) {
+        std::function<std::string()> handler;
+        {
+            std::lock_guard<std::mutex> lock(m_snapshotsMutex);
+            handler = m_saveTrajectoryHandler;
+        }
+        if (!handler) {
+            res.status = 503;
+            res.set_content(JsonWriter().add("error", "trajectory save not available").str(), "application/json");
+            return;
+        }
+        try {
+            res.set_content(JsonWriter().add("path", handler()).str(), "application/json");
+        } catch (const std::exception& e) {
+            res.status = 400;
+            res.set_content(JsonWriter().add("error", std::string(e.what())).str(), "application/json");
+        }
+    });
+
     m_httpServer->set_mount_point("/", m_staticRoot);
 
     m_httpServer->set_post_routing_handler([](const httplib::Request&, httplib::Response& res) {
@@ -235,6 +254,11 @@ void DashboardServer::setLivePositionsHandler(std::function<LivePositionsSnapsho
 void DashboardServer::setOriginFromPayloadHandler(std::function<OriginSnapshot()> handler) {
     std::lock_guard<std::mutex> lock(m_snapshotsMutex);
     m_originFromPayloadHandler = std::move(handler);
+}
+
+void DashboardServer::setSaveTrajectoryHandler(std::function<std::string()> handler) {
+    std::lock_guard<std::mutex> lock(m_snapshotsMutex);
+    m_saveTrajectoryHandler = std::move(handler);
 }
 
 size_t DashboardServer::connectedBrowserCount() const {

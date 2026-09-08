@@ -75,6 +75,13 @@ public:
     // payload GPS fix is available yet.
     void setOriginFromPayloadHandler(std::function<OriginSnapshot()> handler);
 
+    // "Save current trajectory" button on setup3d.html -- answers
+    // POST /api/trajectory/save. `handler` should write whatever's
+    // currently loaded in the NMPC controller to disk and return the path
+    // written to; may throw (-> 400 JSON error, same convention as the
+    // other handlers) if there's nothing to save or the write fails.
+    void setSaveTrajectoryHandler(std::function<std::string()> handler);
+
     size_t connectedBrowserCount() const;
 
 private:
@@ -110,6 +117,7 @@ private:
     std::function<TrajectorySnapshot(const TrajectoryGenerationParams&)> m_trajectoryApplyHandler;
     std::function<LivePositionsSnapshot()> m_livePositionsHandler;
     std::function<OriginSnapshot()> m_originFromPayloadHandler;
+    std::function<std::string()> m_saveTrajectoryHandler;
 
     std::atomic<bool> m_running{false};
     std::thread m_broadcastThread;

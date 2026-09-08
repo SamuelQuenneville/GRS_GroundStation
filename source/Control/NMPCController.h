@@ -39,6 +39,16 @@ public:
 
     void loadTrajectory(const std::string& file);
 
+    // Inverse of loadTrajectory(file): writes the current in-memory
+    // m_referenceTrajectory back out to `file`, one line per trajectory
+    // point, m_refStride comma-separated raw solver values per line (same
+    // radians/units TrajectoryGenerator::toSolverReference() produces --
+    // NOT the degree-converted values getTrajectoryForVehicle() returns
+    // for display) so the file round-trips through loadTrajectory()
+    // unchanged. Throws if no trajectory has been loaded/generated yet, or
+    // if `file` can't be opened for writing.
+    void saveTrajectory(const std::string& file) const;
+
     // In-process equivalent of loadTrajectory(file), for a trajectory built
     // by TrajectoryGenerator (see source/Trajectory) rather than read from a
     // CSV -- ADR-001 Phase 1. `referenceTrajectory` must already be in the

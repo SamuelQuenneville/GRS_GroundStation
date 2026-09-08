@@ -40,6 +40,20 @@ public:
     void loadTrajectory(const std::string& file) const;
     void generateTrajectory(const grs::trajgen::TrajectoryConfig& config,
         const grs::trajgen::SubsetSelection& selection = {}) const;
+
+    // Writes whatever trajectory is currently applied in the NMPC
+    // controller to disk, in the same CSV format loadTrajectory() reads --
+    // the "Save current trajectory" button on the dashboard, and also
+    // called automatically right after a successful Apply (see
+    // setDashboard()) so a GCS restart doesn't silently lose the applied
+    // trajectory (NMPCController::m_referenceTrajectory is otherwise
+    // pure in-memory state -- see ADR-001 status doc). `file`: explicit
+    // path, or empty to auto-name into ./trajectories/ with a timestamp.
+    // Returns the path actually written to. Throws (control mode != MPC,
+    // nothing applied yet, file can't be written) -- callers that must not
+    // fail on a save error (e.g. the auto-export after Apply) should
+    // catch around the call themselves.
+    std::string saveTrajectory(const std::string& file = "") const;
     void setOrigin(double latitudeDegrees, double longitudeDegrees, double altitude) const;
 
     // Captures the payload's current raw GPS fix and uses it directly as the
@@ -110,6 +124,12 @@ private:
     // params.testEnabled is false. `simDt` (from the already-built
     // TrajectoryConfig) converts testMaxDurationSeconds into a sample count.
     static grs::trajgen::SubsetSelection m_paramsToSubsetSelection(const TrajectoryGenerationParams& params, double simDt);
+
+    // Builds "./trajectories/trajectory_<YYYY-MM-DD_HH-MM-SS>.csv" for
+    // saveTrajectory()'s no-argument case, creating the directory if it
+    // doesn't exist yet (mirrors Logger::start()'s create_directories
+    // convention).
+    static std::string m_defaultTrajectorySavePath();
 
     // ADR-001 Phase 3: answers GET /api/trajectory/live-positions. Reads
     // ControlInterface::getLiveNavigationStates() (already NED-corrected) and

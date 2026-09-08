@@ -8,6 +8,9 @@
 
 #include "NMPCController.h"
 
+#include <fstream>
+#include <iomanip>
+
 NMPCController::NMPCController(const solverConfig& config)
     : m_config(config)
     , m_iw(solver_SZ_IW)
@@ -63,6 +66,35 @@ void NMPCController::loadTrajectory(const std::string& file) {
 
     m_onReferenceTrajectoryChanged();
     LOG_INFO("Trajectory loaded from file, number of points = " + std::to_string(m_numTrajectoryPoints));
+}
+
+void NMPCController::saveTrajectory(const std::string& file) const {
+    std::lock_guard lock(m_solveMutex); // same guard getTrajectoryForVehicle()/getDebugInfo() use -- may run while solve() is active
+
+    if (m_referenceTrajectory.empty())
+        throw std::runtime_error("saveTrajectory: no trajectory loaded/generated yet");
+
+    std::ofstream fileStream(file);
+    if (!fileStream.is_open())
+        throw std::runtime_error("saveTrajectory: cannot open file for writing: " + file);
+
+    // Full double round-trip precision, so the file std::stod's back in
+    // loadTrajectory() to bit-for-bit (or near enough) the same values.
+    fileStream << std::setprecision(17);
+
+    for (size_t row = 0; row < m_numTrajectoryPoints; ++row) {
+        const size_t rowStart = row * m_refStride;
+        for (size_t i = 0; i < m_refStride; ++i) {
+            if (i > 0) fileStream << ',';
+            fileStream << m_referenceTrajectory[rowStart + i];
+        }
+        fileStream << '\n';
+    }
+
+    if (!fileStream.good())
+        throw std::runtime_error("saveTrajectory: write failed (disk full?): " + file);
+
+    LOG_INFO("Trajectory saved to file, number of points = " + std::to_string(m_numTrajectoryPoints));
 }
 
 void NMPCController::setReferenceTrajectory(std::vector<double> referenceTrajectory) {
