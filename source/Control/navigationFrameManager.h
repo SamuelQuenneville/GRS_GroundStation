@@ -10,6 +10,7 @@
 #define NAVIGATIONFRAMEMANAGER_H
 
 #include <map>
+#include <mutex>
 
 #include "Definitions/communicationStructures.h"
 #include "Geo/geodeticConverter.h"
@@ -38,6 +39,17 @@ public:
     void debugConvert(double latitudeDegrees, double longitudeDegrees, double altitude) const;
 
 private:
+    // Guards everything below -- setOrigin() (console thread or the
+    // dashboard's "Set origin from payload GPS" HTTP handler thread) races
+    // against m_controlLoop() (initializeOffset()/toNavigationFrame(),
+    // every tick) with zero synchronization otherwise. GeodeticConverter::
+    // initializeReference() writes ~20 doubles before m_haveReference=true,
+    // so an unguarded read from the control loop mid-click could see a
+    // torn reference and bake a corrupted offset into m_uavFrameOffsets --
+    // which then persists, since initializeOffset() now only computes an
+    // offset once per uavId.
+    mutable std::mutex m_mutex;
+
     GeodeticConverter m_geodeticConverter;
 
     std::map<uint8_t, grs::Vec3d> m_uavFrameOffsets;

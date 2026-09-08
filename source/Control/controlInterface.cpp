@@ -192,9 +192,10 @@ void ControlInterface::m_controlLoop() {
             latestStates = m_latestStates;
         }
 
-        if (!m_navFrameManager.isInitialized()) {
-            m_navFrameManager.initializeOffset(latestStates, m_config.pixhawk.sitl);
-        }
+        // Always called (not gated behind isInitialized()) -- see
+        // NavigationFrameManager::initializeOffset(), it's incremental and
+        // a no-op for sysIds it's already computed.
+        m_navFrameManager.initializeOffset(latestStates, m_config.pixhawk.sitl);
 
         if (m_navFrameManager.isInitialized()) {
             std::map<uint8_t, uavCommandsFlags>  cmds;
