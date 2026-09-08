@@ -18,6 +18,7 @@
 
     <div class="pill" id="mode-pill"><span class="dot" style="background:var(--text-dim)"></span>Pre-flight trajectory check </div>
     <div class="pill" id="origin-pill"><span class="dot"></span><span id="origin-pill-text">Origin: waiting…</span></div>
+    <button class="btn" id="timeseries-toggle-btn">Time series</button>
     <div class="topbar-spacer"></div>
 
     <nav class="page-nav">
@@ -44,6 +45,31 @@
         </svg></div>
         <div id="tooltip"></div>
         <div id="error-banner" style="display:none;position:absolute;left:14px;top:14px;right:14px;max-width:640px;background:#2a1218;border:1px solid var(--red);color:#ffd6d6;border-radius:8px;padding:12px 14px;font-size:12.5px;line-height:1.5;"></div>
+
+        <div class="floating-panel" id="timeseries-panel" hidden>
+            <div class="floating-panel-head">
+                <span class="floating-panel-title">TIME SERIES</span>
+                <button class="floating-panel-close" id="timeseries-close-btn" aria-label="Close">×</button>
+            </div>
+            <div class="floating-panel-body">
+                <div class="empty-hint" id="timeseries-empty">Generate, apply, or load a trajectory to see speed/roll/pitch vs time here.</div>
+                <div id="timeseries-body" style="display:none">
+                    <div class="ts-chart" data-key="speed">
+                        <div class="ts-chart-head"><span class="ts-chart-title">Speed</span><span>m/s</span></div>
+                        <svg class="ts-svg" viewBox="0 0 300 70" preserveAspectRatio="none"></svg>
+                    </div>
+                    <div class="ts-chart" data-key="roll">
+                        <div class="ts-chart-head"><span class="ts-chart-title">Roll</span><span>deg</span></div>
+                        <svg class="ts-svg" viewBox="0 0 300 70" preserveAspectRatio="none"></svg>
+                    </div>
+                    <div class="ts-chart" data-key="pitch">
+                        <div class="ts-chart-head"><span class="ts-chart-title">Pitch</span><span>deg</span></div>
+                        <svg class="ts-svg" viewBox="0 0 300 70" preserveAspectRatio="none"></svg>
+                    </div>
+                    <div class="ts-legend" id="timeseries-legend"></div>
+                </div>
+            </div>
+        </div>
     </div>
 
     <div class="sidebar">
@@ -129,26 +155,6 @@
                 <label class="opt" data-mode="line"><input type="radio" name="density" value="line">Line only</label>
             </div>
             <div class="section-gap"></div>
-        </div>
-
-        <div class="card" id="timeseries-card">
-            <h3>TIME SERIES</h3>
-            <div class="empty-hint" id="timeseries-empty">Generate, apply, or load a trajectory to see speed/roll/pitch vs time here.</div>
-            <div id="timeseries-body" style="display:none">
-                <div class="ts-chart" data-key="speed">
-                    <div class="ts-chart-head"><span class="ts-chart-title">Speed</span><span>m/s</span></div>
-                    <svg class="ts-svg" viewBox="0 0 300 70" preserveAspectRatio="none"></svg>
-                </div>
-                <div class="ts-chart" data-key="roll">
-                    <div class="ts-chart-head"><span class="ts-chart-title">Roll</span><span>deg</span></div>
-                    <svg class="ts-svg" viewBox="0 0 300 70" preserveAspectRatio="none"></svg>
-                </div>
-                <div class="ts-chart" data-key="pitch">
-                    <div class="ts-chart-head"><span class="ts-chart-title">Pitch</span><span>deg</span></div>
-                    <svg class="ts-svg" viewBox="0 0 300 70" preserveAspectRatio="none"></svg>
-                </div>
-                <div class="ts-legend" id="timeseries-legend"></div>
-            </div>
         </div>
 
         <div class="card">
@@ -885,6 +891,28 @@
         } finally {
             setTimeout(() => { hint.textContent = originalHint; }, 5000);
         }
+    });
+
+    /* ---------- TIME SERIES floating panel open/close ----------
+     * Toggled by a topbar button rather than living in the sidebar. Reuses
+     * the "Escape closes the topmost thing" convention and refreshes the
+     * charts on open in case anything changed while the panel was hidden
+     * (cheap: renderTimeSeriesCharts() is just re-deriving SVG strings from
+     * the already-loaded `vehicles` array, no network call).
+     */
+    const timeseriesPanel = document.getElementById('timeseries-panel');
+    const timeseriesToggleBtn = document.getElementById('timeseries-toggle-btn');
+
+    function setTimeseriesPanelOpen(open) {
+        timeseriesPanel.hidden = !open;
+        timeseriesToggleBtn.classList.toggle('active', open);
+        if (open) renderTimeSeriesCharts();
+    }
+
+    timeseriesToggleBtn.addEventListener('click', () => setTimeseriesPanelOpen(timeseriesPanel.hidden));
+    document.getElementById('timeseries-close-btn').addEventListener('click', () => setTimeseriesPanelOpen(false));
+    window.addEventListener('keydown', (ev) => {
+        if (ev.key === 'Escape' && !timeseriesPanel.hidden) setTimeseriesPanelOpen(false);
     });
 
     loadOrigin();
