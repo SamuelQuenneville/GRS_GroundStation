@@ -490,7 +490,6 @@ void CommunicationManager::m_subscribeMavlink(const uint8_t sysId) {
     m_subscribeHealth(telemetry, sysId, handles);
     m_subscribeHealthAllOk(telemetry, sysId, handles);
     m_subscribeArmed(telemetry, sysId, handles);
-    m_subscribeFlightMode(telemetry, sysId, handles);
     m_subscribeBattery(telemetry, sysId, handles);
     m_subscribeGpsInfo(telemetry, sysId, handles);
     m_subscribeRcStatus(telemetry, sysId, handles);
@@ -538,7 +537,6 @@ void CommunicationManager::m_unsubscribeMavlink(const uint8_t sysId) {
     telemetry->unsubscribe_health(handles.healthHandle);
     telemetry->unsubscribe_health_all_ok(handles.healthAllOkHandle);
     telemetry->unsubscribe_armed(handles.armedHandle);
-    telemetry->unsubscribe_flight_mode(handles.flightModeHandle);
     telemetry->unsubscribe_battery(handles.batteryHandle);
     telemetry->unsubscribe_gps_info(handles.gpsInfoHandle);
     telemetry->unsubscribe_rc_status(handles.rcStatusHandle);
@@ -614,18 +612,23 @@ void CommunicationManager::m_subscribeCommandAck(const uint8_t sysId) {
         [this](const mavlink_message_t& message) { m_handleCommandAck(message); });
 }
 
-void CommunicationManager::m_handleHeartbeat(const mavlink_message_t& message) {
-    std::thread([this, message]() {
+void CommunicationManager::m_handleHeartbeat(const uint8_t sysId, const mavlink_message_t& message) {
+    std::thread([this, sysId, message]() {
         mavlink_heartbeat_t heartbeat;
         mavlink_msg_heartbeat_decode(&message, &heartbeat);
 
-        m_currentMode = heartbeat.custom_mode;
+        {
+            std::lock_guard lock(m_statesMutex);
+            m_uavHealths[sysId].customMode = heartbeat.custom_mode;
+            m_uavHealths[sysId].customModeReceived = true;
+        }
+        m_onStatusUpdate();
     }).detach();
 }
 
 void CommunicationManager::m_subscribeToHeartbeat(const uint8_t sysId) {
     m_passthrough[sysId]->subscribe_message(MAVLINK_MSG_ID_HEARTBEAT,
-        [this](const mavlink_message_t& message) { m_handleHeartbeat(message); });
+        [this, sysId](const mavlink_message_t& message) { m_handleHeartbeat(sysId, message); });
 }
 
 void CommunicationManager::m_requestAttitudeTarget(const uint8_t sysId) {
@@ -746,17 +749,6 @@ void CommunicationManager::m_subscribeHome(const std::shared_ptr<mavsdk::Telemet
     });
 }
 
-
-void CommunicationManager::m_subscribeFlightMode(const std::shared_ptr<mavsdk::Telemetry> &telemetry, uint8_t sysId, subscriptionHandles &handles) {
-
-    handles.flightModeHandle = telemetry->subscribe_flight_mode([this, sysId](const mavsdk::Telemetry::FlightMode& flightMode) {
-        {
-            std::lock_guard lock(m_statesMutex);
-            m_uavHealths[sysId].flightMode = flightMode;
-        }
-        m_onStatusUpdate();
-    });
-}
 
 void CommunicationManager::m_subscribeAttitude(const std::shared_ptr<mavsdk::Telemetry>& telemetry, uint8_t sysId, subscriptionHandles& handles) {
 

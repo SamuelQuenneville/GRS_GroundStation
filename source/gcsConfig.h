@@ -45,6 +45,25 @@ struct flightModeMap : public std::map<std::string, FlightMode> {
     ~flightModeMap() = default;
 };
 
+// Reverse of flightModeMap: turns a raw custom_mode value -- read straight
+// off a HEARTBEAT's custom_mode field (see CommunicationManager's raw
+// heartbeat subscription, uavHealth::customMode) -- back into the same
+// mode name setMode()/setModeAll() accept. This is GrsPlane's own mode
+// numbering (see GrsPlane/mode.h), NOT the standard ArduPilot/PX4 mode set
+// mavsdk::Telemetry::subscribe_flight_mode() translates against -- that
+// translation table doesn't know GUIDED=2/XNAV=3 mean something custom
+// here, so it either misclassifies them as a same-numbered stock mode or
+// falls back to Unknown. Reading the raw HEARTBEAT and mapping it through
+// this instead sidesteps MAVSDK's translation entirely, with no changes
+// to MAVSDK itself.
+inline std::string flightModeToString(const uint32_t customMode) {
+    static const flightModeMap modes;
+    for (const auto& [name, value] : modes) {
+        if (static_cast<uint32_t>(value) == customMode) return name;
+    }
+    return "UNKNOWN(" + std::to_string(customMode) + ")";
+}
+
 struct pixhawkConfig {
     std::string remoteIP = "127.0.0.1";
     int tcpPort = 5760;                 // Ardupilot specific

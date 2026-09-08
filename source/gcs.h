@@ -90,7 +90,6 @@ private:
     std::map<uint8_t, uavStates> m_latestUavStates;
     std::map<uint8_t, uavHealth> m_latestUavHealth;
     void m_pushDashboardSnapshot(uint8_t sysId);
-    static std::string m_flightModeToString(mavsdk::Telemetry::FlightMode mode);
     static std::string m_gpsFixToString(mavsdk::Telemetry::FixType fix);
     static std::string m_catapultStateToString(CatapultState state);
 

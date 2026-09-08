@@ -118,8 +118,6 @@ private:
 
     std::map<uint8_t, mavsdk::Vehicle> m_vehicleType;
 
-    std::atomic<uint32_t> m_currentMode;
-
     gcsConfig m_config;
     std::function<void(const std::map<uint8_t, uavStates>&)> m_telemetryCallback;
     std::function<void(const std::map<uint8_t, uavHealth>&)> m_statusCallback;
@@ -161,7 +159,12 @@ private:
     void m_handleCommandAck(const mavlink_message_t& message);
     void m_subscribeCommandAck(uint8_t sysId);
 
-    void m_handleHeartbeat(const mavlink_message_t& message);
+    // Reads custom_mode straight off the raw HEARTBEAT into
+    // m_uavHealths[sysId].customMode -- deliberately bypasses MAVSDK's own
+    // Telemetry::subscribe_flight_mode() (see uavHealth::customMode's
+    // comment for why: GrsPlane's custom mode numbering vs. MAVSDK's
+    // stock-ArduPilot/PX4 translation table).
+    void m_handleHeartbeat(uint8_t sysId, const mavlink_message_t& message);
     void m_subscribeToHeartbeat(uint8_t sysId);
 
     void m_requestAttitudeTarget(uint8_t sysId);
@@ -176,7 +179,6 @@ private:
     void m_subscribeRcStatus(const std::shared_ptr<mavsdk::Telemetry>& telemetry, uint8_t sysId, subscriptionHandles& handles);
 
     static void m_subscribeHome(const std::shared_ptr<mavsdk::Telemetry>& telemetry, uint8_t sysId, subscriptionHandles& handles);
-    void m_subscribeFlightMode(const std::shared_ptr<mavsdk::Telemetry>& telemetry, uint8_t sysId, subscriptionHandles& handles);
     void m_subscribeAttitude(const std::shared_ptr<mavsdk::Telemetry>& telemetry, uint8_t sysId, subscriptionHandles& handles);
     void m_subscribePositionVelocity(const std::shared_ptr<mavsdk::Telemetry>& telemetry, uint8_t sysId, subscriptionHandles& handles);
     void m_subscribePosition(const std::shared_ptr<mavsdk::Telemetry>& telemetry, uint8_t sysId, subscriptionHandles& handles);

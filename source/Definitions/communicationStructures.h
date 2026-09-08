@@ -14,13 +14,13 @@
 #include <mavsdk/mavsdk.h>
 #include <mavsdk/plugins/telemetry/telemetry.h>
 #include <chrono>
+#include <cstdint>
 
 struct subscriptionHandles {
     mavsdk::Telemetry::HealthHandle                      healthHandle;
     mavsdk::Telemetry::HealthAllOkHandle                 healthAllOkHandle;
     mavsdk::Telemetry::ArmedHandle                       armedHandle;
     mavsdk::Telemetry::HomeHandle                        homeHandle;
-    mavsdk::Telemetry::FlightModeHandle                  flightModeHandle;
     mavsdk::Telemetry::AttitudeEulerHandle               attitudeHandle;
     mavsdk::Telemetry::AttitudeAngularVelocityBodyHandle angularVelocityHandle;
     mavsdk::Telemetry::PositionVelocityNedHandle         positionVelocityNedHandle;
@@ -38,7 +38,16 @@ struct subscriptionHandles {
 // there). This is what feeds the dashboard's "Status" and "System Health"
 // cards; the control loop never touches it.
 struct uavHealth {
-    mavsdk::Telemetry::FlightMode flightMode = mavsdk::Telemetry::FlightMode::Unknown;
+    // Raw ArduPilot custom_mode, read directly off HEARTBEAT
+    // (CommunicationManager::m_handleHeartbeat) rather than through
+    // MAVSDK's own Telemetry::subscribe_flight_mode() -- GrsPlane is a
+    // custom ArduPlane fork with its own mode numbering (gcsConfig.h's
+    // FlightMode/flightModeMap), and MAVSDK's translation table is built
+    // for stock ArduPilot/PX4 modes, so it can't be trusted for this
+    // firmware's custom modes. See gcsConfig.h::flightModeToString() for
+    // turning this back into the same name setMode()/setModeAll() accept.
+    uint32_t customMode = 0;
+    bool customModeReceived = false; // false until the first HEARTBEAT arrives
     mavsdk::Telemetry::Health health;
     bool isHealthy = false;
     bool isArmed = false;

@@ -729,7 +729,7 @@ void GroundControlStation::m_pushDashboardSnapshot(const uint8_t sysId) {
     snap.id          = "UAV-" + std::to_string(sysId);
     snap.connected   = health.isConnected;
     snap.armed       = health.isArmed;
-    snap.mode        = m_flightModeToString(health.flightMode);
+    snap.mode        = health.customModeReceived ? flightModeToString(health.customMode) : "UNKNOWN";
 
     snap.airspeed    = state.airspeedMeterSecond;
     snap.groundspeed = std::hypot(state.northMeterSecond, state.eastMeterSecond);
@@ -766,26 +766,6 @@ void GroundControlStation::m_pushDashboardSnapshot(const uint8_t sysId) {
     snap.health.rc      = health.rcAvailable ? HealthStatus::Ok : HealthStatus::Warn;
 
     m_dashboardServer->updateTelemetry(snap);
-}
-
-std::string GroundControlStation::m_flightModeToString(const mavsdk::Telemetry::FlightMode mode) {
-    switch (mode) {
-        case mavsdk::Telemetry::FlightMode::Ready:        return "READY";
-        case mavsdk::Telemetry::FlightMode::Takeoff:      return "TAKEOFF";
-        case mavsdk::Telemetry::FlightMode::Hold:         return "HOLD";
-        case mavsdk::Telemetry::FlightMode::Mission:      return "MISSION";
-        case mavsdk::Telemetry::FlightMode::ReturnToLaunch: return "RTL";
-        case mavsdk::Telemetry::FlightMode::Land:         return "LAND";
-        case mavsdk::Telemetry::FlightMode::Offboard:     return "OFFBOARD";
-        case mavsdk::Telemetry::FlightMode::FollowMe:     return "FOLLOW_ME";
-        case mavsdk::Telemetry::FlightMode::Manual:       return "MANUAL";
-        case mavsdk::Telemetry::FlightMode::Altctl:       return "ALTCTL";
-        case mavsdk::Telemetry::FlightMode::Posctl:       return "POSCTL";
-        case mavsdk::Telemetry::FlightMode::Acro:         return "ACRO";
-        case mavsdk::Telemetry::FlightMode::Stabilized:   return "STABILIZED";
-        case mavsdk::Telemetry::FlightMode::Rattitude:    return "RATTITUDE";
-        default:                                          return "UNKNOWN";
-    }
 }
 
 std::string GroundControlStation::m_gpsFixToString(const mavsdk::Telemetry::FixType fix) {
