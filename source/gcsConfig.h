@@ -28,7 +28,9 @@ enum FlightMode {
     INIT,
     MANUAL,
     GUIDED,
-    XNAV
+    XNAV,
+    ACMD,
+    FBWA
 };
 
 struct flightModeMap : public std::map<std::string, FlightMode> {
@@ -37,6 +39,8 @@ struct flightModeMap : public std::map<std::string, FlightMode> {
         this->operator[]("MANUAL") = MANUAL;
         this->operator[]("GUIDED") = GUIDED;
         this->operator[]("XNAV") = XNAV;
+        this->operator[]("ACMD") = ACMD;
+        this->operator[]("FBWA") = FBWA;
     };
     ~flightModeMap() = default;
 };
