@@ -605,7 +605,11 @@ void GroundControlStation::catapultArm() const {
 }
 
 void GroundControlStation::catapultFire(const uint32_t countdownMs) const {
-    [[maybe_unused]] auto res = m_catapultLauncher->fireAll(countdownMs);
+    const bool res = m_catapultLauncher->fireAll(countdownMs);
+
+    if (res) {
+        m_controlInterface->initLaunch();
+    }
 }
 
 void GroundControlStation::catapultAbort() const {

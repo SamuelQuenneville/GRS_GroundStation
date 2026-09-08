@@ -488,6 +488,8 @@ std::map<uint8_t, uavCommandsFlags> NMPCController::m_extractControls() const {
 }
 
 bool NMPCController::m_solutionIsValid(const int flag) {
+    m_violation = false;
+
     if (flag != 0)
         return false;
 
@@ -578,13 +580,13 @@ void NMPCController::m_unpackLatestStates(const std::map<uint8_t, uavStates>& la
             }
 
             if (!m_launched || !m_inFlight) {
-                north = 29.9681;
-                east = 0.0;
-                down = -1.382;
-
-                vNorth = -0.05;
-                vEast = -11.94;
-                vDown = -1.115;
+                const size_t blockOffset = static_cast<size_t>(sysId - 1) * kUavBlockSize;
+                north  = m_referenceTrajectory.at(blockOffset + 0);
+                east   = m_referenceTrajectory.at(blockOffset + 1);
+                down   = m_referenceTrajectory.at(blockOffset + 2);
+                vNorth = m_referenceTrajectory.at(blockOffset + 3);
+                vEast  = m_referenceTrajectory.at(blockOffset + 4);
+                vDown  = m_referenceTrajectory.at(blockOffset + 5);
             }
 
             unpackStates.at(offset++) = north;
