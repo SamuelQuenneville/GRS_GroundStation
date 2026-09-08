@@ -17,7 +17,6 @@ NMPCController::NMPCController(const solverConfig& config)
     , m_w(solver_SZ_W)
 {
     m_refStride = m_config.nx + m_config.nu;
-    m_endIdxTraj = m_numTrajectoryPoints - m_config.N;
 
     m_initialStates.resize(m_config.nx);
 
@@ -111,12 +110,8 @@ void NMPCController::setReferenceTrajectory(std::vector<double> referenceTraject
 }
 
 void NMPCController::m_onReferenceTrajectoryChanged() {
-    // Mirrors exactly what loadTrajectory(file) already did with this value
-    // (see the constructor, which computes m_endIdxTraj once from
-    // m_numTrajectoryPoints == 0 before any trajectory is loaded --
-    // pre-existing behavior, left untouched here; not something this
-    // in-process entry point should silently change).
     m_numTrajectoryPoints = m_referenceTrajectory.size() / m_refStride;
+    m_endIdxTraj = m_numTrajectoryPoints > m_config.N ? m_numTrajectoryPoints - m_config.N : 0;
 }
 
 std::map<uint8_t, uavCommandsFlags> NMPCController::solve(const std::map<uint8_t, uavStates>& latestStates) {
@@ -449,9 +444,11 @@ std::map<uint8_t, uavCommandsFlags> NMPCController::m_extractControls() const {
         cmd.commands.sysId = static_cast<uint8_t>(sysId);
 
         if (m_violation) {
-            cmd.commands.thrust      = 14.0;
-            cmd.commands.rollDegree  = 10.0;
-            cmd.commands.pitchDegree = 4.0;
+            // Fall back to the planned open-loop control
+            const size_t ctrlOffset = m_lastIdxTraj * m_refStride + offset;
+            cmd.commands.thrust      = static_cast<float>(m_referenceTrajectory.at(ctrlOffset + 0));
+            cmd.commands.rollDegree  = grs::radToDeg(static_cast<float>(m_referenceTrajectory.at(ctrlOffset + 1)));
+            cmd.commands.pitchDegree = grs::radToDeg(static_cast<float>(m_referenceTrajectory.at(ctrlOffset + 2)));
             cmd.commands.yawDegree   = 0.0;
         } else {
             cmd.commands.thrust      = static_cast<float>(m_x[offset + 0] * m_config.scalesControls[0]);
