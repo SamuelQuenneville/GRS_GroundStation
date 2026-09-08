@@ -49,6 +49,7 @@
         <div class="floating-panel" id="timeseries-panel" hidden>
             <div class="floating-panel-head">
                 <span class="floating-panel-title">TIME SERIES</span>
+                <button class="floating-panel-reset-zoom" id="timeseries-reset-zoom-btn" style="display:none">Reset zoom</button>
                 <button class="floating-panel-close" id="timeseries-close-btn" aria-label="Close">×</button>
             </div>
             <div class="floating-panel-body">
@@ -67,6 +68,7 @@
                         <svg class="ts-svg" viewBox="0 0 300 70" preserveAspectRatio="none"></svg>
                     </div>
                     <div class="ts-legend" id="timeseries-legend"></div>
+                    <div class="empty-hint" style="margin-top:6px">Drag on a chart to zoom into a time range (applies to all three); double-click a chart or "Reset zoom" to go back. Drag the header to move this panel, or its bottom-right corner to resize it.</div>
                 </div>
             </div>
         </div>
@@ -631,6 +633,15 @@
     ];
     let selectedForChart = null; // { vehicle, point } -- drives the cursor line, set by showSelected()
 
+    // Drag-to-zoom: a selected time range shared across all three charts
+    // (they share the same time axis), set by the brush-drag handlers
+    // below. null = fully zoomed out (show every sample). `lastAxis` records
+    // the pixel<->time mapping from the most recent render so the brush
+    // handlers -- which run on raw mouse events, not a re-render -- can
+    // convert a mouse position back into a time value.
+    let zoomRange = null; // { min, max } in seconds
+    let lastAxis = { minT: 0, maxT: 1, M: { l: 30, r: 6, t: 6, b: 14 }, plotW: 300 - 30 - 6, viewH: 70 };
+
     function renderTimeSeriesCharts() {
         const visible = vehicles.filter(v => v.visible && v.traj.length > 0);
         const emptyEl = document.getElementById('timeseries-empty');
@@ -644,17 +655,38 @@
         emptyEl.style.display = 'none';
         bodyEl.style.display = 'block';
 
-        const allTimes = visible.flatMap(v => v.traj.map(p => p.time));
-        const minT = Math.min(...allTimes), maxT = Math.max(...allTimes);
+        const fullTimes = visible.flatMap(v => v.traj.map(p => p.time));
+        const fullMinT = Math.min(...fullTimes), fullMaxT = Math.max(...fullTimes);
+        // Clamp a stale zoom range (e.g. left over from a longer previous
+        // trajectory) back into what's actually available.
+        const minT = zoomRange ? Math.max(zoomRange.min, fullMinT) : fullMinT;
+        const maxT = zoomRange ? Math.min(zoomRange.max, fullMaxT) : fullMaxT;
+
+        document.getElementById('timeseries-reset-zoom-btn').style.display = zoomRange ? 'inline-block' : 'none';
 
         const M = { l: 30, r: 6, t: 6, b: 14 };
         const W = 300, H = 70;
         const plotW = W - M.l - M.r, plotH = H - M.t - M.b;
         const xAt = (t) => M.l + (maxT > minT ? (t - minT) / (maxT - minT) : 0.5) * plotW;
+        lastAxis = { minT, maxT, M, plotW, viewH: H };
+
+        // Points within the zoomed window, one sample of context padding on
+        // each side so a zoomed line doesn't visibly clip mid-segment at the
+        // window edge.
+        const pointsInRange = (traj) => {
+            if (!zoomRange) return traj;
+            let lo = traj.findIndex(p => p.time >= minT);
+            if (lo === -1) lo = traj.length - 1;
+            if (lo > 0) lo -= 1;
+            let hi = traj.length - 1;
+            while (hi > 0 && traj[hi].time > maxT) hi -= 1;
+            hi = Math.min(traj.length - 1, hi + 1);
+            return traj.slice(lo, hi + 1);
+        };
 
         TS_CHARTS.forEach(({ key, el }) => {
             if (!el) return;
-            const allVals = visible.flatMap(v => v.traj.map(p => p[key] ?? 0));
+            const allVals = visible.flatMap(v => pointsInRange(v.traj).map(p => p[key] ?? 0));
             let minV = Math.min(...allVals), maxV = Math.max(...allVals);
             if (minV === maxV) { minV -= 1; maxV += 1; }
             const pad = (maxV - minV) * 0.08;
@@ -672,7 +704,7 @@
             svg += `<text class="ts-axis-label" x="${W - M.r - 24}" y="${H - 3}">${maxT.toFixed(1)}s</text>`;
 
             visible.forEach(v => {
-                const pts = v.traj.map(p => `${xAt(p.time).toFixed(1)},${yAt(p[key] ?? 0).toFixed(1)}`).join(' ');
+                const pts = pointsInRange(v.traj).map(p => `${xAt(p.time).toFixed(1)},${yAt(p[key] ?? 0).toFixed(1)}`).join(' ');
                 svg += `<polyline fill="none" stroke="#${v.color.getHexString()}" stroke-width="1.5" points="${pts}"/>`;
             });
 
@@ -683,6 +715,10 @@
                 svg += `<line class="ts-cursor" x1="${cx}" y1="${M.t}" x2="${cx}" y2="${(M.t + plotH).toFixed(1)}"/>`;
             }
 
+            // Brush-drag overlay rect, kept out of the way (display:none)
+            // until a drag is in progress -- see setupChartBrushing() below.
+            svg += `<rect class="ts-brush" x="0" y="0" width="0" height="0"/>`;
+
             el.innerHTML = svg;
         });
 
@@ -690,6 +726,82 @@
             `<span class="ts-legend-item"><span class="ts-legend-swatch" style="background:#${v.color.getHexString()}"></span>${v.label}</span>`
         ).join('');
     }
+
+    /* ---------- drag-to-zoom on the time-series charts ----------
+     * Click-drag horizontally on any of the three charts to zoom all three
+     * into that time range (they share one time axis); double-click a chart
+     * or the "Reset zoom" button to go back to the full range. Charts are
+     * plain SVG re-rendered wholesale on every data change (see
+     * renderTimeSeriesCharts()), so listeners are attached once to each
+     * <svg> element itself (which survives an innerHTML rewrite of its
+     * children) rather than to anything inside it.
+     */
+    function svgXFromClientX(svgEl, clientX) {
+        const rect = svgEl.getBoundingClientRect();
+        const vb = svgEl.viewBox.baseVal;
+        if (!rect.width) return vb.x;
+        return vb.x + ((clientX - rect.left) / rect.width) * vb.width;
+    }
+    function timeFromSvgX(svgX) {
+        const { minT, maxT, M, plotW } = lastAxis;
+        const frac = plotW > 0 ? (svgX - M.l) / plotW : 0;
+        return minT + Math.min(1, Math.max(0, frac)) * (maxT - minT);
+    }
+
+    let chartBrush = null; // { svgEl, startSvgX } while a drag is in progress
+
+    function setupChartBrushing(svgEl) {
+        if (!svgEl) return;
+        svgEl.addEventListener('mousedown', (ev) => {
+            chartBrush = { svgEl, startSvgX: svgXFromClientX(svgEl, ev.clientX) };
+            ev.preventDefault();
+        });
+        svgEl.addEventListener('dblclick', () => {
+            if (!zoomRange) return;
+            zoomRange = null;
+            renderTimeSeriesCharts();
+        });
+    }
+    TS_CHARTS.forEach(({ el }) => setupChartBrushing(el));
+
+    window.addEventListener('mousemove', (ev) => {
+        if (!chartBrush) return;
+        const curSvgX = svgXFromClientX(chartBrush.svgEl, ev.clientX);
+        const { M, plotW, viewH } = lastAxis;
+        const x0 = Math.max(M.l, Math.min(chartBrush.startSvgX, curSvgX));
+        const x1 = Math.min(M.l + plotW, Math.max(chartBrush.startSvgX, curSvgX));
+        TS_CHARTS.forEach(({ el }) => {
+            const brush = el && el.querySelector('.ts-brush');
+            if (!brush) return;
+            brush.setAttribute('x', x0.toFixed(1));
+            brush.setAttribute('y', M.t);
+            brush.setAttribute('width', Math.max(0, x1 - x0).toFixed(1));
+            brush.setAttribute('height', viewH - M.t - M.b);
+            brush.style.display = 'block';
+        });
+    });
+
+    window.addEventListener('mouseup', (ev) => {
+        if (!chartBrush) return;
+        const { svgEl, startSvgX } = chartBrush;
+        const curSvgX = svgXFromClientX(svgEl, ev.clientX);
+        chartBrush = null;
+        TS_CHARTS.forEach(({ el }) => {
+            const brush = el && el.querySelector('.ts-brush');
+            if (brush) brush.style.display = 'none';
+        });
+
+        const MIN_DRAG_SVG_UNITS = 4; // ignore a plain click / accidental jitter
+        if (Math.abs(curSvgX - startSvgX) < MIN_DRAG_SVG_UNITS) return;
+        const tA = timeFromSvgX(startSvgX), tB = timeFromSvgX(curSvgX);
+        zoomRange = { min: Math.min(tA, tB), max: Math.max(tA, tB) };
+        renderTimeSeriesCharts();
+    });
+
+    document.getElementById('timeseries-reset-zoom-btn').addEventListener('click', () => {
+        zoomRange = null;
+        renderTimeSeriesCharts();
+    });
 
     /* ---------- raycasting for clickable markers ---------- */
     const raycaster = new THREE.Raycaster();
@@ -914,6 +1026,50 @@
     window.addEventListener('keydown', (ev) => {
         if (ev.key === 'Escape' && !timeseriesPanel.hidden) setTimeseriesPanelOpen(false);
     });
+
+    /* ---------- dragging a floating panel by its header ----------
+     * The panel starts positioned with CSS (`left`/`bottom`); on the first
+     * drag this freezes its current on-screen position as explicit
+     * `left`/`top` pixel values (clearing `bottom`) so the drag math is a
+     * simple delta from there. Resizing (the panel's native `resize: both`
+     * bottom-right handle) is untouched by this -- the browser handles that
+     * on its own regardless of which corner is currently anchored.
+     */
+    function makeDraggable(panelEl, handleEl, containerEl) {
+        let dragging = false, startClientX = 0, startClientY = 0, startLeft = 0, startTop = 0;
+
+        handleEl.addEventListener('mousedown', (ev) => {
+            if (ev.target.closest('button')) return; // don't drag when clicking a header button
+            const panelRect = panelEl.getBoundingClientRect();
+            const containerRect = containerEl.getBoundingClientRect();
+            startLeft = panelRect.left - containerRect.left;
+            startTop = panelRect.top - containerRect.top;
+            panelEl.style.left = startLeft + 'px';
+            panelEl.style.top = startTop + 'px';
+            panelEl.style.bottom = 'auto';
+
+            dragging = true;
+            startClientX = ev.clientX;
+            startClientY = ev.clientY;
+            ev.preventDefault();
+        });
+
+        window.addEventListener('mousemove', (ev) => {
+            if (!dragging) return;
+            const containerRect = containerEl.getBoundingClientRect();
+            const panelRect = panelEl.getBoundingClientRect();
+            let newLeft = startLeft + (ev.clientX - startClientX);
+            let newTop = startTop + (ev.clientY - startClientY);
+            newLeft = Math.max(0, Math.min(newLeft, containerRect.width - panelRect.width));
+            newTop = Math.max(0, Math.min(newTop, containerRect.height - panelRect.height));
+            panelEl.style.left = newLeft + 'px';
+            panelEl.style.top = newTop + 'px';
+        });
+
+        window.addEventListener('mouseup', () => { dragging = false; });
+    }
+
+    makeDraggable(timeseriesPanel, timeseriesPanel.querySelector('.floating-panel-head'), document.getElementById('scene-wrap'));
 
     loadOrigin();
     loadTrajectoryFromServer();

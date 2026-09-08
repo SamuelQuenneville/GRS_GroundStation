@@ -511,16 +511,24 @@ input[type="range"] { width: 100%; accent-color: var(--blue); }
 
 /* ---------- Floating panels over the 3D view (e.g. TIME SERIES) ----------
  * Toggled open/closed by a topbar button rather than living in the sidebar,
- * so they don't take up permanent space when not needed. Positioned
- * bottom-left of #scene-wrap -- clear of the compass (top-right) and the
- * error banner (top-left, but only shown on a fatal render error).
+ * so they don't take up permanent space when not needed. Default position
+ * is bottom-left of #scene-wrap -- clear of the compass (top-right) and the
+ * error banner (top-left, but only shown on a fatal render error) -- but
+ * the header is a drag handle (see makeDraggable() in the script) and the
+ * panel is natively resizable (bottom-right handle) via `resize: both`,
+ * which needs `overflow` other than visible on both axes to render.
  */
 .floating-panel {
     position: absolute;
     left: 14px; bottom: 14px;
-    width: 320px;
+    width: 340px; height: 440px;
+    min-width: 260px; min-height: 220px;
+    max-width: calc(100% - 28px);
     max-height: calc(100% - 28px);
-    overflow-y: auto;
+    overflow: auto;
+    resize: both;
+    display: flex;
+    flex-direction: column;
     background: var(--card);
     border: 1px solid var(--border);
     border-radius: var(--radius);
@@ -528,38 +536,51 @@ input[type="range"] { width: 100%; accent-color: var(--blue); }
 }
 .floating-panel-head {
     display: flex; justify-content: space-between; align-items: center;
+    gap: 8px;
+    flex: 0 0 auto;
     padding: 9px 10px 9px 14px;
     border-bottom: 1px solid var(--border);
-    position: sticky; top: 0;
     background: var(--card);
     border-radius: var(--radius) var(--radius) 0 0;
+    cursor: move; /* drag handle */
+    user-select: none;
 }
-.floating-panel-title { font-size: 12px; color: var(--text-dim); font-weight: 600; letter-spacing: 0.3px; }
+.floating-panel-title { font-size: 12px; color: var(--text-dim); font-weight: 600; letter-spacing: 0.3px; margin-right: auto; }
+.floating-panel-reset-zoom {
+    background: transparent; border: 1px solid var(--border); color: var(--text-dim);
+    font-size: 11px; line-height: 1; cursor: pointer; padding: 4px 8px; border-radius: 5px;
+}
+.floating-panel-reset-zoom:hover { border-color: var(--blue); color: var(--text); }
 .floating-panel-close {
     background: transparent; border: none; color: var(--text-dim);
     font-size: 18px; line-height: 1; cursor: pointer; padding: 0 4px;
 }
 .floating-panel-close:hover { color: var(--text); }
-.floating-panel-body { padding: 12px 14px; }
+.floating-panel-body { flex: 1 1 auto; display: flex; flex-direction: column; min-height: 0; padding: 12px 14px; }
 
 /* ---------- Time-series charts (speed/roll/pitch vs time) ---------- */
-.ts-chart { margin-bottom: 10px; }
+#timeseries-body { flex: 1 1 auto; display: flex; flex-direction: column; min-height: 0; }
+.ts-chart { flex: 1 1 0; display: flex; flex-direction: column; min-height: 44px; margin-bottom: 10px; }
 .ts-chart:last-child { margin-bottom: 0; }
 .ts-chart-head {
+    flex: 0 0 auto;
     display: flex; justify-content: space-between; align-items: baseline;
     font-size: 11px; color: var(--text-dim); margin-bottom: 3px;
 }
 .ts-chart-title { color: var(--text); font-weight: 600; }
 .ts-svg {
-    display: block; width: 100%; height: 70px;
+    display: block; width: 100%;
+    flex: 1 1 auto; min-height: 0;
     background: var(--bg);
     border: 1px solid var(--border);
     border-radius: 6px;
+    cursor: crosshair; /* drag to zoom into a time range */
 }
 .ts-gridline { stroke: var(--border); stroke-width: 1; }
 .ts-axis-label { fill: var(--text-dim); font-size: 8px; }
 .ts-cursor { stroke: var(--text-dim); stroke-width: 1; stroke-dasharray: 2,2; }
-.ts-legend { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 6px; font-size: 11px; color: var(--text-dim); }
+.ts-brush { fill: rgba(77,163,255,0.25); stroke: var(--blue); stroke-width: 1; display: none; pointer-events: none; }
+.ts-legend { flex: 0 0 auto; display: flex; flex-wrap: wrap; gap: 8px; margin-top: 6px; font-size: 11px; color: var(--text-dim); }
 .ts-legend-item { display: flex; align-items: center; gap: 5px; }
 .ts-legend-swatch { width: 9px; height: 9px; border-radius: 2px; flex: 0 0 auto; }
 
