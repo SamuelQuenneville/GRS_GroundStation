@@ -534,6 +534,7 @@ input[type="range"] { width: 100%; accent-color: var(--blue); }
     border-radius: var(--radius);
     box-shadow: 0 8px 24px rgba(0,0,0,0.35);
 }
+.floating-panel[hidden] {display: none;}
 .floating-panel-head {
     display: flex; justify-content: space-between; align-items: center;
     gap: 8px;
