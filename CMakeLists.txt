@@ -215,8 +215,8 @@ find_library(BLASFEO_LIB blasfeo PATHS ${CASADI_DIR} REQUIRED)
 find_library(FATROP_LIB fatrop PATHS ${CASADI_DIR} REQUIRED)
 
 add_library(nmpc_solver STATIC
-        source/Control/solver.c
-        source/Control/solver.h
+        source/Control/solver_oneGround.c
+        source/Control/solver_oneGround.h
 )
 
 target_compile_options(nmpc_solver PRIVATE

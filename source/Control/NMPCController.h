@@ -22,7 +22,7 @@
 #include "Log/logger.h"
 
 // CasADi-generated solver
-#include "solver.h"
+#include "solver_oneGround.h"
 
 class NMPCController {
 public:

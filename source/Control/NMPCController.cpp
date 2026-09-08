@@ -496,8 +496,8 @@ std::map<uint8_t, uavCommandsFlags> NMPCController::m_extractControls() const {
             cmd.commands.yawDegree   = 0.0;
         } else {
             cmd.commands.thrust      = static_cast<float>(m_x[offset + 0] * m_config.scalesControls[0]);
-            cmd.commands.rollDegree  = grs::radToDeg(static_cast<float>(m_x[offset + 1]));
-            cmd.commands.pitchDegree = grs::radToDeg(static_cast<float>(m_x[offset + 2]));
+            cmd.commands.rollDegree  = grs::radToDeg(static_cast<float>(m_x[offset + 1] * m_config.scalesControls[1]));
+            cmd.commands.pitchDegree = grs::radToDeg(static_cast<float>(m_x[offset + 2] * m_config.scalesControls[2]));
             cmd.commands.yawDegree   = 0.0;
         }
 
