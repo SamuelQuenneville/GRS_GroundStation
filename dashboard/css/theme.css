@@ -159,7 +159,7 @@ body {
     flex: 1 1 auto;
     min-height: 0;
     display: grid;
-    grid-template-rows: 1fr 350px;
+    grid-template-rows: 1fr 375px;
     gap: var(--gap);
     padding: var(--gap);
     overflow: hidden;
@@ -228,6 +228,7 @@ body {
 
 .badge-conn.on { background: rgba(62,207,110,0.12); color: var(--green); }
 .badge-arm.on { background: rgba(255,93,93,0.12); color: var(--red); }
+.badge.warn-on { background: rgba(255,159,69,0.12); color: var(--orange); }
 
 /* ---------- Stat cards ---------- */
 

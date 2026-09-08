@@ -573,7 +573,7 @@ void NMPCController::m_unpackLatestStates(const std::map<uint8_t, uavStates>& la
             double vEast = states.eastMeterSecond;
             double vDown = states.downMeterSecond;
 
-            if (speed > 13.0) {
+            if (speed > 12.0) {
                 m_inFlight = true;
             }
 

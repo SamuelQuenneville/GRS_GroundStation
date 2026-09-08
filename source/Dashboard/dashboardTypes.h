@@ -221,6 +221,21 @@ struct NmpcTelemetrySnapshot {
     size_t trajectoryIndex = 0;
     size_t trajectoryTotal = 0;
 
+    // "Is the loaded trajectory the one I think it is" confirmation --
+    // there was previously no way to tell from the dashboard whether
+    // trajectoryTotal above reflects a stale trajectory from a previous
+    // session/auto-reload or the one just generated/applied in the UI.
+    uint64_t trajectoryLoadedAtMs = 0; // wall-clock ms, 0 = nothing loaded/generated yet this run
+    int numUavs = 0;
+    bool hasPayload = false;
+
+    // Control-loop period (1000/hlcFrequency), sent alongside every solve
+    // so the frontend can (a) judge lastSolveMs against its real deadline
+    // budget instead of a guessed threshold, and (b) size its own
+    // trackingNumber-stall detector off the actual loop rate rather than a
+    // hardcoded constant.
+    double loopPeriodMs = 0.0;
+
     std::string toJson() const {
         JsonWriter root;
         root.add("type", "nmpc")
@@ -231,7 +246,11 @@ struct NmpcTelemetrySnapshot {
             .add("lastSolveMs", lastSolveMs)
             .add("trackingNumber", static_cast<int>(trackingNumber))
             .add("trajectoryIndex", static_cast<int>(trajectoryIndex))
-            .add("trajectoryTotal", static_cast<int>(trajectoryTotal));
+            .add("trajectoryTotal", static_cast<int>(trajectoryTotal))
+            .add("trajectoryLoadedAtMs", static_cast<double>(trajectoryLoadedAtMs))
+            .add("numUavs", numUavs)
+            .add("hasPayload", hasPayload)
+            .add("loopPeriodMs", loopPeriodMs);
         return root.str();
     }
 };

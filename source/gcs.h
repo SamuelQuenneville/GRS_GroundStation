@@ -79,6 +79,13 @@ public:
 private:
     gcsConfig m_gcsConfig;
 
+    // NMPC dashboard panel context -- see setNmpcDebugCallback/
+    // setTrajectoryLoadedCallback in the constructor. m_loopPeriodMs is set
+    // once in initialize(); m_trajectoryLoadedAtMs is stamped every time a
+    // trajectory is loaded/generated/applied.
+    double m_loopPeriodMs = 0.0;
+    uint64_t m_trajectoryLoadedAtMs = 0;
+
     DashboardServer* m_dashboardServer = nullptr;
 
     // Cached per-UAV state used to build dashboard snapshots: numeric

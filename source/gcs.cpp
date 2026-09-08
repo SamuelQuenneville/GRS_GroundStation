@@ -73,6 +73,16 @@ GroundControlStation::GroundControlStation()
         snap.trajectoryIndex = info.trajectoryIndex;
         snap.trajectoryTotal = info.trajectoryTotal;
 
+        // "Is this the trajectory I meant to load" + "is the config what I
+        // expect" confirmation -- see setTrajectoryLoadedCallback below for
+        // m_trajectoryLoadedAtMs, and m_loopPeriodMs (set once in
+        // initialize()) for the solve-time budget the frontend renders
+        // lastSolveMs against.
+        snap.trajectoryLoadedAtMs = m_trajectoryLoadedAtMs;
+        snap.numUavs              = m_controlInterface->numUavs();
+        snap.hasPayload           = m_controlInterface->trajectoryHasPayload();
+        snap.loopPeriodMs         = m_loopPeriodMs;
+
         m_dashboardServer->updateNmpcTelemetry(snap);
     });
 
@@ -92,6 +102,11 @@ GroundControlStation::GroundControlStation()
     });
 
     m_controlInterface->setTrajectoryLoadedCallback([this]() {
+        // Stamped unconditionally (not inside the `if (!m_dashboardServer)`
+        // guard below) so it's still correct if the dashboard attaches
+        // after a trajectory was already loaded/generated.
+        m_trajectoryLoadedAtMs = Logger::nowWallTimeMs();
+
         if (!m_dashboardServer) return;
         m_dashboardServer->setTrajectory(m_buildTrajectorySnapshotFromController());
     });
@@ -137,6 +152,7 @@ GroundControlStation::~GroundControlStation() {
 void GroundControlStation::initialize(const gcsConfig& config)
 {
     m_gcsConfig = config;
+    m_loopPeriodMs = 1000.0 / config.hlcFrequency;
 
     if (config.verbose) {
         PROGRAM_LOGGER.enableVerbose(true);

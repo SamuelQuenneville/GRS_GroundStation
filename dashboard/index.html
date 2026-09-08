@@ -172,6 +172,7 @@
         <div class="uav-header">
             <span class="status-dot"></span>
             <h2 class="uav-name">NMPC Controller</h2>
+            <span class="badge badge-conn" data-field="nmpc-running-badge">--</span>
             <span class="badge badge-conn" data-field="nmpc-launched-badge">--</span>
             <span class="badge badge-arm" data-field="nmpc-violation-badge">--</span>
         </div>
@@ -188,12 +189,19 @@
         </div>
 
         <div class="info-card">
+            <h3>Loaded Trajectory</h3>
+            <ul class="info-list">
+                <li><span>Config</span><span data-field="nmpc-config">--</span></li>
+                <li><span>Points</span><span data-field="nmpc-trajectory">--</span></li>
+                <li><span>Trajectory Done</span><span data-field="nmpc-endedTraj">--</span></li>
+            </ul>
+        </div>
+
+        <div class="info-card">
             <h3>Status</h3>
             <ul class="info-list">
                 <li><span>Launched</span><span data-field="nmpc-launched">--</span></li>
                 <li><span>In Flight</span><span data-field="nmpc-inFlight">--</span></li>
-                <li><span>Trajectory</span><span data-field="nmpc-trajectory">--</span></li>
-                <li><span>Trajectory Done</span><span data-field="nmpc-endedTraj">--</span></li>
                 <li><span>Solver Violation</span><span data-field="nmpc-violation">--</span></li>
             </ul>
         </div>

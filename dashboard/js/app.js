@@ -65,7 +65,11 @@
  *   "lastSolveMs": 3.42,
  *   "trackingNumber": 128,
  *   "trajectoryIndex": 340,
- *   "trajectoryTotal": 1000
+ *   "trajectoryTotal": 1000,
+ *   "trajectoryLoadedAtMs": 1732650000000,
+ *   "numUavs": 1,
+ *   "hasPayload": false,
+ *   "loopPeriodMs": 50
  * }
  *
  * Adapt WebSocketServer.cpp / DashboardServer.cpp to emit this shape,
@@ -270,17 +274,64 @@ function updateLauncher(data) {
 
 /* ---------- NMPC controller debug panel (one for the whole controller) ---------- */
 
+// Client-side heartbeat: trackingNumber is a strictly-increasing solve
+// counter, so "is it running" is "has trackingNumber changed recently" --
+// no backend change needed for this part. A stall is declared once the
+// loop has missed several of its own periods (loopPeriodMs from the
+// backend), not a guessed constant, so it stays correct if hlcFrequency
+// ever changes. Falls back to a 1s threshold before the first message
+// (loopPeriodMs not known yet).
+const NMPC_STALL_MULTIPLE = 5;
+let nmpcLastTrackingNumber = null;
+let nmpcLastChangeMs = null;
+let nmpcStallCheckIntervalId = null;
+
+function nmpcStallThresholdMs(loopPeriodMs) {
+    return loopPeriodMs > 0 ? loopPeriodMs * NMPC_STALL_MULTIPLE : 1000;
+}
+
+function refreshNmpcRunningBadge(loopPeriodMs) {
+    if (!nmpcPanel || nmpcLastChangeMs === null) return;
+
+    const stalled = (Date.now() - nmpcLastChangeMs) > nmpcStallThresholdMs(loopPeriodMs);
+    const runningBadge = nmpcPanel.querySelector('[data-field="nmpc-running-badge"]');
+    if (!runningBadge) return;
+    runningBadge.textContent = stalled ? "STALLED" : "RUNNING";
+    runningBadge.classList.toggle("warn-on", stalled);
+    runningBadge.classList.toggle("on", !stalled);
+}
+
 function createNmpcPanel() {
     if (nmpcPanel !== null) return nmpcPanel;
 
     const node = nmpcTemplate.content.firstElementChild.cloneNode(true);
     nmpcContainer.appendChild(node);
     nmpcPanel = node;
+
+    // Re-render the "loaded Xs ago" / stall badge every second even between
+    // WebSocket messages, so they don't visibly freeze if updates slow down.
+    if (nmpcStallCheckIntervalId === null) {
+        nmpcStallCheckIntervalId = setInterval(() => {
+            if (!nmpcPanel) return;
+            refreshNmpcRunningBadge(nmpcLastLoopPeriodMs);
+        }, 1000);
+    }
+
     return nmpcPanel;
 }
 
+let nmpcLastLoadedAtMs = 0;
+let nmpcLastLoopPeriodMs = 0;
+
 function updateNmpc(data) {
     const panel = createNmpcPanel();
+
+    if (data.trackingNumber !== nmpcLastTrackingNumber) {
+        nmpcLastTrackingNumber = data.trackingNumber;
+        nmpcLastChangeMs = Date.now();
+    }
+    nmpcLastLoadedAtMs = data.trajectoryLoadedAtMs ?? 0;
+    nmpcLastLoopPeriodMs = data.loopPeriodMs ?? 0;
 
     panel.querySelector(".status-dot").classList.toggle("on", !!data.launched);
 
@@ -292,6 +343,8 @@ function updateNmpc(data) {
     violationBadge.textContent = data.violation ? "VIOLATION" : "OK";
     violationBadge.classList.toggle("on", !!data.violation);
 
+    refreshNmpcRunningBadge(nmpcLastLoopPeriodMs);
+
     setStat(panel, "lastSolveMs", data.lastSolveMs, 2);
     setStat(panel, "trackingNumber", data.trackingNumber, 0);
 
@@ -300,6 +353,29 @@ function updateNmpc(data) {
     setInfo(panel, "nmpc-trajectory", `${data.trajectoryIndex ?? "--"} / ${data.trajectoryTotal ?? "--"}`);
     setInfo(panel, "nmpc-endedTraj", data.endedTraj ? "Yes" : "No");
     setInfo(panel, "nmpc-violation", data.violation ? "Yes" : "No");
+
+    // Loaded-trajectory confirmation: point count is already shown above as
+    // part of "Trajectory X / Y" -- this adds *when* it was loaded and
+    // whether the running config (UAV count / payload) is what's expected,
+    // so a stale trajectory from a previous session or a config mismatch
+    // (e.g. a payload-capable build for a single-UAV tethered test) is
+    // visible at a glance instead of only inferable from the raw numbers.
+    setInfo(panel, "nmpc-config", `${data.numUavs ?? "--"} UAV${data.numUavs === 1 ? "" : "s"} · Payload: ${data.hasPayload ? "Yes" : "No"}`);
+
+    // Solve-time budget: lastSolveMs alone doesn't say whether the solver
+    // is comfortably within its deadline or about to start missing control
+    // loop ticks (see ControlInterface::m_controlLoop's "running slow"
+    // warning, which only goes to the log today, not the dashboard).
+    const budgetEl = panel.querySelector('[data-field="nmpc-budget"]');
+    if (budgetEl) {
+        if (data.loopPeriodMs > 0) {
+            const pct = (data.lastSolveMs / data.loopPeriodMs) * 100;
+            budgetEl.textContent = `${data.lastSolveMs.toFixed(1)} / ${data.loopPeriodMs.toFixed(0)} ms (${pct.toFixed(0)}%)`;
+            budgetEl.classList.toggle("health-warn", pct > 80);
+        } else {
+            budgetEl.textContent = "--";
+        }
+    }
 }
 
 /* ---------- WebSocket connection to DashboardServer / WebSocketServer ---------- */
@@ -379,7 +455,10 @@ function runDemo() {
         "UAV-01": { airspeed: 15.3, groundspeed: 18.2, altitude: 125, roll: 6, pitch: 4, cl: 0.82, battery: 75 },
         "UAV-02": { airspeed: 18.8, groundspeed: 22.2, altitude: 125, roll: 5, pitch: 2, cl: 0.79, battery: 68 },
     };
-    const nmpcState = { lastSolveMs: 3.1, trackingNumber: 0, trajectoryIndex: 0, trajectoryTotal: 1000 };
+    const nmpcState = {
+        lastSolveMs: 3.1, trackingNumber: 0, trajectoryIndex: 0, trajectoryTotal: 1000,
+        loadedAtMs: Date.now() - 12000, loopPeriodMs: 50,
+    };
 
     demoIntervalId = setInterval(() => {
         if (!demoMode) return;
@@ -405,6 +484,10 @@ function runDemo() {
             trackingNumber: nmpcState.trackingNumber,
             trajectoryIndex: nmpcState.trajectoryIndex,
             trajectoryTotal: nmpcState.trajectoryTotal,
+            trajectoryLoadedAtMs: nmpcState.loadedAtMs,
+            numUavs: 1,
+            hasPayload: false,
+            loopPeriodMs: nmpcState.loopPeriodMs,
         });
 
         updatePayload({
