@@ -37,6 +37,7 @@ void ConsoleInterface::printCommands() {
     std::cout << "Commands: [commands]\n"
                       << "  start                 --> Start the Ground Station\n"
                       << "  connect               --> Connect to all UAVs\n"
+                      << "  listLinks             --> List sysIds actually registered/connected right now\n"
                       << "  arm                   --> Arm all connected system\n"
                       << "  mode [MODE]           --> Set mode for all connected system (MANUAL / GUIDED / XNAV)\n"
                       << "  startController       --> Start the controller\n"
@@ -66,6 +67,8 @@ void ConsoleInterface::handleCommand(const std::string& command) const {
         m_gcs.start();
     } else if (command == "connect") {
         m_gcs.connectAll();
+    } else if (command == "listLinks") {
+        m_gcs.listLinks();
     } else if (command == "arm") {
         m_gcs.armAll();
     } else if (command.starts_with("mode ")) {

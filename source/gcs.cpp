@@ -642,6 +642,10 @@ void GroundControlStation::catapultStatus() const {
     }
 }
 
+void GroundControlStation::listLinks() const {
+    m_communicationManager->listLinks();
+}
+
 void GroundControlStation::m_parseCommandFile(const std::string& file) const {
     std::ifstream fileStream(file);
 
@@ -727,6 +731,7 @@ void GroundControlStation::m_pushDashboardSnapshot(const uint8_t sysId) {
     uavStates state{};
     uavHealth health{};
     bool haveState = false;
+    bool haveHealth = false;
 
     {
         std::lock_guard lock(m_dashboardMutex);
@@ -738,12 +743,11 @@ void GroundControlStation::m_pushDashboardSnapshot(const uint8_t sysId) {
 
         if (const auto it = m_latestUavHealth.find(sysId); it != m_latestUavHealth.end()) {
             health = it->second;
+            haveHealth = true;
         }
     }
 
-    // Nothing to show yet for this UAV -- wait for the first numeric
-    // telemetry sample before creating its panel.
-    if (!haveState) return;
+    if (!haveState && !haveHealth) return;
 
     UavTelemetrySnapshot snap;
     snap.id          = "UAV-" + std::to_string(sysId);

@@ -76,6 +76,13 @@ public:
     void catapultDisarm() const;
     void catapultStatus() const;
 
+    // Reports exactly which sysIds are fully registered right now (past
+    // MAVSDK's has_autopilot()/is_connected() handshake, actually
+    // subscribed to telemetry) -- useful when a vehicle "seems to connect"
+    // but its dashboard card never appears, to tell a genuinely-stuck
+    // registration apart from a telemetry/display issue further downstream.
+    void listLinks() const;
+
 private:
     gcsConfig m_gcsConfig;
 

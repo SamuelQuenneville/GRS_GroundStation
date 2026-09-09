@@ -26,7 +26,7 @@ Pixhawk:
 # Connect via TCP
 Catapults:
   - {id: 1, port: 5800, ip: 192.168.50.20}
-  - {id: 2, port: 5801, ip: 192.168.50.21}
+  #- {id: 2, port: 5801, ip: 192.168.50.21}
 
 SolverConfiguration:
   NX: 8
