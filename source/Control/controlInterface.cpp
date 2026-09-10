@@ -123,21 +123,27 @@ void ControlInterface::saveTrajectory(const std::string& file) const {
 }
 
 grs::trajgen::GeneratedMission ControlInterface::previewTrajectory(const grs::trajgen::TrajectoryConfig& config,
-    const grs::trajgen::SubsetSelection& selection) const {
+    const grs::trajgen::SubsetSelection& selection,
+    const std::vector<std::optional<grs::Vec3d>>& liveLaunchPositionsNed) const {
     grs::trajgen::TrajectoryGenerator generator(config);
     auto mission = generator.generate();
     grs::trajgen::TrajectoryGenerator::applyFieldCalibration(mission, config.fieldHeadingDeg, config.originOffsetNed);
+    // Must run before extractSubset(): liveLaunchPositionsNed is indexed by
+    // the full mission's original mission.aircraft[] order, which extractSubset
+    // may reorder/drop.
+    grs::trajgen::TrajectoryGenerator::snapToLiveLaunchPositions(mission, liveLaunchPositionsNed);
     return grs::trajgen::TrajectoryGenerator::extractSubset(mission, selection);
 }
 
 void ControlInterface::generateTrajectory(const grs::trajgen::TrajectoryConfig& config,
-    const grs::trajgen::SubsetSelection& selection) const {
+    const grs::trajgen::SubsetSelection& selection,
+    const std::vector<std::optional<grs::Vec3d>>& liveLaunchPositionsNed) const {
     if (!m_nmpc) {
         LOG_ERROR("generateTrajectory: control mode [MPC] is required (no NMPC controller instantiated)");
         return;
     }
 
-    const auto mission = previewTrajectory(config, selection);
+    const auto mission = previewTrajectory(config, selection, liveLaunchPositionsNed);
 
     const bool hasPayload = selection.includePayload.value_or(m_nmpc->hasPayload());
     auto reference = grs::trajgen::TrajectoryGenerator::toSolverReference(mission, hasPayload);

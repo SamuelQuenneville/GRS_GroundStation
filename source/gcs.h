@@ -39,7 +39,8 @@ public:
     void fetchParam(int sysId) const;
     void loadTrajectory(const std::string& file) const;
     void generateTrajectory(const grs::trajgen::TrajectoryConfig& config,
-        const grs::trajgen::SubsetSelection& selection = {}) const;
+        const grs::trajgen::SubsetSelection& selection = {},
+        const std::vector<std::optional<grs::Vec3d>>& liveLaunchPositionsNed = {}) const;
 
     // Writes whatever trajectory is currently applied in the NMPC
     // controller to disk, in the same CSV format loadTrajectory() reads --
@@ -150,6 +151,24 @@ private:
     // remaining sysId, if any) -- same convention NMPCController's own
     // state-unpacking already relies on.
     LivePositionsSnapshot m_buildLivePositionsSnapshot() const;
+
+    // ADR-001 follow-up: builds the `liveLaunchPositionsNed` vector
+    // TrajectoryGenerator::snapToLiveLaunchPositions() expects, indexed to
+    // line up with `config.aircraftPath.phaseRad` (i.e. mission.aircraft[]
+    // before any subset selection) -- always sized for the codebase's fixed
+    // 2-UAV scope (uav1PhaseDeg/uav2PhaseDeg), matching every other
+    // TrajectoryGenerationParams field.
+    //
+    // Deliberately does NOT read live telemetry -- it only maps whatever the
+    // operator already captured (params.uavNSnapCaptured/uavNSnap*Meters, set
+    // by "Capture live positions" in setup3d.html) onto the vector shape the
+    // generator expects, so repeated Generate/Apply clicks keep reusing the
+    // same captured fix instead of silently re-sampling it. A pure function
+    // of `params`, so it's static rather than a `this`-bound member. Entries
+    // with no captured fix stay nullopt (no correction for that UAV). Empty
+    // (well, all-nullopt) when params.snapToLiveLaunchPosition is false, same
+    // no-op convention as m_paramsToSubsetSelection().
+    static std::vector<std::optional<grs::Vec3d>> m_paramsToLiveLaunchPositions(const TrajectoryGenerationParams& params);
 
     std::unique_ptr<CommunicationManager> m_communicationManager;
     std::unique_ptr<ControlDispatcher>    m_controlDispatcher;

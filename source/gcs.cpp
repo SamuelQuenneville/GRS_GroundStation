@@ -191,7 +191,8 @@ void GroundControlStation::setDashboard(DashboardServer* dashboard) {
     m_dashboardServer->setTrajectoryGenerateHandler([this](const TrajectoryGenerationParams& params) {
         const auto config = m_paramsToTrajectoryConfig(params);
         const auto selection = m_paramsToSubsetSelection(params, config.simDt);
-        const auto mission = m_controlInterface->previewTrajectory(config, selection);
+        const auto liveLaunchPositions = m_paramsToLiveLaunchPositions(params);
+        const auto mission = m_controlInterface->previewTrajectory(config, selection, liveLaunchPositions);
         const auto& sourceUavIndices = selection.uavIndices.value_or(std::vector<size_t>{});
         const bool includePayload = selection.includePayload.value_or(!mission.payload.empty());
         return m_missionToTrajectorySnapshot(mission, sourceUavIndices, includePayload);
@@ -204,7 +205,8 @@ void GroundControlStation::setDashboard(DashboardServer* dashboard) {
     m_dashboardServer->setTrajectoryApplyHandler([this](const TrajectoryGenerationParams& params) {
         const auto config = m_paramsToTrajectoryConfig(params);
         const auto selection = m_paramsToSubsetSelection(params, config.simDt);
-        generateTrajectory(config, selection);
+        const auto liveLaunchPositions = m_paramsToLiveLaunchPositions(params);
+        generateTrajectory(config, selection, liveLaunchPositions);
 
         // Auto-export so the applied trajectory survives a GCS restart --
         // NMPCController::m_referenceTrajectory is otherwise pure in-memory
@@ -335,10 +337,11 @@ void GroundControlStation::loadTrajectory(const std::string& file) const {
 }
 
 void GroundControlStation::generateTrajectory(const grs::trajgen::TrajectoryConfig& config,
-    const grs::trajgen::SubsetSelection& selection) const {
+    const grs::trajgen::SubsetSelection& selection,
+    const std::vector<std::optional<grs::Vec3d>>& liveLaunchPositionsNed) const {
     if (m_gcsConfig.controlMode == ControlMode::MPC) {
         LOG_INFO("Generating trajectory in-process ...");
-        m_controlInterface->generateTrajectory(config, selection);
+        m_controlInterface->generateTrajectory(config, selection, liveLaunchPositionsNed);
     } else {
         LOG_WARNING("Control mode [MPC] is required to generate a trajectory!");
     }
@@ -503,6 +506,8 @@ grs::trajgen::TrajectoryConfig GroundControlStation::m_paramsToTrajectoryConfig(
     config.tether.lengthAtLaunch       = params.tetherLengthAtLaunchMeters;
     config.tether.payoutDurationSeconds = params.tetherPayoutDurationSeconds;
 
+    config.aircraftPath.z0 = params.aircraftZ0Meters;
+
     config.finalize();
     return config;
 }
@@ -556,6 +561,23 @@ LivePositionsSnapshot GroundControlStation::m_buildLivePositionsSnapshot() const
     }
 
     return snap;
+}
+
+std::vector<std::optional<grs::Vec3d>> GroundControlStation::m_paramsToLiveLaunchPositions(
+    const TrajectoryGenerationParams& params) {
+    // Fixed 2-aircraft scope, matching uav1PhaseDeg/uav2PhaseDeg and every
+    // other per-UAV TrajectoryGenerationParams field -- mission.aircraft[]
+    // is 0-based and ordered the same way (UAV 1 first, UAV 2 second).
+    std::vector<std::optional<grs::Vec3d>> out(2, std::nullopt);
+    if (!params.snapToLiveLaunchPosition) return out; // strict no-op, matches m_paramsToSubsetSelection()
+
+    if (params.uav1SnapCaptured) {
+        out[0] = grs::Vec3d(params.uav1SnapNorthMeters, params.uav1SnapEastMeters, params.uav1SnapDownMeters);
+    }
+    if (params.uav2SnapCaptured) {
+        out[1] = grs::Vec3d(params.uav2SnapNorthMeters, params.uav2SnapEastMeters, params.uav2SnapDownMeters);
+    }
+    return out;
 }
 
 void GroundControlStation::setOrigin(const double latitudeDegrees, const double longitudeDegrees, const double altitude) const {

@@ -113,6 +113,24 @@ public:
     // reference, uncomplicated by calibration math.
     static void applyFieldCalibration(GeneratedMission& mission, double fieldHeadingDeg, const Vec3d& originOffset = Vec3d::zeros());
 
+    // ADR-001 follow-up: rigidly translates each UAV's ENTIRE generated
+    // trajectory (already field-calibrated, i.e. real-world NED) so its
+    // first (launch) sample lands exactly on a measured live GPS fix,
+    // instead of wherever phase/z0/tetherLengthAtLaunch happen to place it.
+    // Position-only -- velocity/acceleration/attitude are left untouched,
+    // since a pure translation doesn't change any of them. Independent per
+    // UAV, so e.g. two UAVs at different launcher heights each land exactly
+    // on their own measured fix, without the averaging
+    // TrajectoryConfig::AircraftPath::z0/tetherLengthAtLaunch need (those
+    // are single values shared by every UAV). `liveLaunchPositionsNed[k]`
+    // (nullopt = no correction for that UAV) must line up with
+    // `mission.aircraft[k]` -- call this BEFORE extractSubset(), while that
+    // indexing still matches the full mission. A no-op when every entry is
+    // nullopt (or the vector is shorter than/empty vs. mission.aircraft),
+    // matching every other ADR-001 addition's default-off convention.
+    static void snapToLiveLaunchPositions(GeneratedMission& mission,
+        const std::vector<std::optional<Vec3d>>& liveLaunchPositionsNed);
+
     // Flattens a mission into the exact [x0 u0 x1 u1 ... xN uN] stride format
     // NMPCController::loadTrajectory()/setReferenceTrajectory() expect: each
     // stage is numUavs blocks of 8 states (N,E,D,vN,vE,vD,roll,pitch)

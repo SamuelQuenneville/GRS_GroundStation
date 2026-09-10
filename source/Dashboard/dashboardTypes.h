@@ -368,6 +368,54 @@ struct TrajectoryGenerationParams {
     double tetherLengthAtLaunchMeters = 30.0;
     double tetherPayoutDurationSeconds = 1.5;
 
+    // Aircraft elevation on the launcher at t=0 (NED down, meters) -- was
+    // previously TrajectoryConfig::AircraftPath::z0, hardcoded and never
+    // reachable from the dashboard. theta0 = asin(z0 / tetherLengthAtLaunch)
+    // sets the launch-instant tether elevation angle (trajectoryGenerator.cpp),
+    // so a wrong z0 shifts every takeoff/loiter waypoint even when phase and
+    // tetherLengthAtLaunchMeters are both correct. Default mirrors
+    // TrajectoryConfig::AircraftPath::z0's own default. "Capture live
+    // positions" derives this (and tetherLengthAtLaunchMeters) from the real
+    // payload/anchor -> UAV offset instead of requiring a manual guess.
+    double aircraftZ0Meters = 1.382;
+
+    // ADR-001 follow-up: when true, GroundControlStation rigidly translates
+    // each UAV's whole trajectory so its first (launch) waypoint lands
+    // exactly on that UAV's *captured* position below -- see
+    // TrajectoryGenerator::snapToLiveLaunchPositions(). Position-only: it
+    // doesn't touch the velocity/climb-angle shape phase/aircraftZ0Meters/
+    // tetherLengthAtLaunchMeters above imply, it just guarantees the launch
+    // point itself is exactly where the UAV actually was when captured, per
+    // UAV, with no guessing and no shared-parameter averaging across UAVs.
+    // Defaults to false (strict no-op) so a client that never sets this
+    // keeps today's behavior exactly.
+    //
+    // Deliberately does NOT re-read live telemetry at generate/apply time:
+    // the operator clicks "Capture live positions" once (see setup3d.html),
+    // which snapshots each UAV's NED position into the uavNSnap* fields
+    // below, and that snapshot is what gets applied on every subsequent
+    // Generate/Apply until the operator re-captures -- so toggling this
+    // checkbox or repeatedly clicking Generate never silently re-samples a
+    // UAV that has since been picked up, nudged, or repositioned on the
+    // launcher.
+    bool snapToLiveLaunchPosition = false;
+
+    // Per-UAV captured launch position (NED, meters, NavigationFrameManager
+    // frame), populated client-side by "Capture live positions" in
+    // setup3d.html from the same /api/trajectory/live-positions read used
+    // to draw the live map markers. uavNSnapCaptured=false means "never
+    // captured" (or captured then invalidated) -- GroundControlStation
+    // leaves that UAV's launch point untouched even when
+    // snapToLiveLaunchPosition is true, same as if it had no live fix.
+    bool uav1SnapCaptured = false;
+    double uav1SnapNorthMeters = 0.0;
+    double uav1SnapEastMeters = 0.0;
+    double uav1SnapDownMeters = 0.0;
+    bool uav2SnapCaptured = false;
+    double uav2SnapNorthMeters = 0.0;
+    double uav2SnapEastMeters = 0.0;
+    double uav2SnapDownMeters = 0.0;
+
     // Reduced-order testing (ADR-001 Phase 4): apply/preview only a subset of
     // the full 2-UAV+payload mission -- e.g. to exercise a simplified NMPC
     // build compiled for one UAV tethered to a fixed ground anchor (no
@@ -405,6 +453,16 @@ struct TrajectoryGenerationParams {
             .add("uav2PhaseDeg", uav2PhaseDeg)
             .add("tetherLengthAtLaunchMeters", tetherLengthAtLaunchMeters)
             .add("tetherPayoutDurationSeconds", tetherPayoutDurationSeconds)
+            .add("aircraftZ0Meters", aircraftZ0Meters)
+            .add("snapToLiveLaunchPosition", snapToLiveLaunchPosition)
+            .add("uav1SnapCaptured", uav1SnapCaptured)
+            .add("uav1SnapNorthMeters", uav1SnapNorthMeters)
+            .add("uav1SnapEastMeters", uav1SnapEastMeters)
+            .add("uav1SnapDownMeters", uav1SnapDownMeters)
+            .add("uav2SnapCaptured", uav2SnapCaptured)
+            .add("uav2SnapNorthMeters", uav2SnapNorthMeters)
+            .add("uav2SnapEastMeters", uav2SnapEastMeters)
+            .add("uav2SnapDownMeters", uav2SnapDownMeters)
             .add("testEnabled", testEnabled)
             .add("testIncludeUav1", testIncludeUav1)
             .add("testIncludeUav2", testIncludeUav2)
@@ -439,6 +497,16 @@ struct TrajectoryGenerationParams {
         p.uav2PhaseDeg = reader.getNumber("uav2PhaseDeg", p.uav2PhaseDeg);
         p.tetherLengthAtLaunchMeters = reader.getNumber("tetherLengthAtLaunchMeters", p.tetherLengthAtLaunchMeters);
         p.tetherPayoutDurationSeconds = reader.getNumber("tetherPayoutDurationSeconds", p.tetherPayoutDurationSeconds);
+        p.aircraftZ0Meters = reader.getNumber("aircraftZ0Meters", p.aircraftZ0Meters);
+        p.snapToLiveLaunchPosition = reader.getBool("snapToLiveLaunchPosition", p.snapToLiveLaunchPosition);
+        p.uav1SnapCaptured = reader.getBool("uav1SnapCaptured", p.uav1SnapCaptured);
+        p.uav1SnapNorthMeters = reader.getNumber("uav1SnapNorthMeters", p.uav1SnapNorthMeters);
+        p.uav1SnapEastMeters = reader.getNumber("uav1SnapEastMeters", p.uav1SnapEastMeters);
+        p.uav1SnapDownMeters = reader.getNumber("uav1SnapDownMeters", p.uav1SnapDownMeters);
+        p.uav2SnapCaptured = reader.getBool("uav2SnapCaptured", p.uav2SnapCaptured);
+        p.uav2SnapNorthMeters = reader.getNumber("uav2SnapNorthMeters", p.uav2SnapNorthMeters);
+        p.uav2SnapEastMeters = reader.getNumber("uav2SnapEastMeters", p.uav2SnapEastMeters);
+        p.uav2SnapDownMeters = reader.getNumber("uav2SnapDownMeters", p.uav2SnapDownMeters);
         p.testEnabled = reader.getBool("testEnabled", p.testEnabled);
         p.testIncludeUav1 = reader.getBool("testIncludeUav1", p.testIncludeUav1);
         p.testIncludeUav2 = reader.getBool("testIncludeUav2", p.testIncludeUav2);

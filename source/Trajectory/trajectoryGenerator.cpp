@@ -884,6 +884,24 @@ void TrajectoryGenerator::applyFieldCalibration(GeneratedMission& mission, const
     }
 }
 
+void TrajectoryGenerator::snapToLiveLaunchPositions(GeneratedMission& mission,
+    const std::vector<std::optional<Vec3d>>& liveLaunchPositionsNed) {
+    const size_t n = std::min(mission.aircraft.size(), liveLaunchPositionsNed.size());
+    for (size_t k = 0; k < n; ++k) {
+        if (!liveLaunchPositionsNed[k]) continue;
+
+        auto& timeline = mission.aircraft[k].inertial;
+        if (timeline.empty()) continue;
+
+        // Every sample of this UAV's trajectory shifts by the same amount,
+        // so velocity/acceleration/attitude (all unaffected by a pure
+        // translation) stay exactly as generated -- only where the shape
+        // sits in space changes.
+        const Vec3d delta = *liveLaunchPositionsNed[k] - timeline.front().pos;
+        for (auto& s : timeline) s.pos += delta;
+    }
+}
+
 std::vector<double> TrajectoryGenerator::toSolverReference(const GeneratedMission& mission, const bool hasPayload) {
     const size_t nUavs = mission.aircraft.size();
     const size_t n = mission.time.size();

@@ -46,6 +46,7 @@
         </svg></div>
         <div id="tooltip"></div>
         <div id="error-banner" style="display:none;position:absolute;left:14px;top:14px;right:14px;max-width:640px;background:#2a1218;border:1px solid var(--red);color:#ffd6d6;border-radius:8px;padding:12px 14px;font-size:12.5px;line-height:1.5;"></div>
+        <div id="live-legend" title="Live UAV/payload marker colors" style="position:absolute;left:14px;bottom:14px;background:rgba(15,17,21,0.75);border:1px solid var(--border);color:var(--text);border-radius:8px;padding:6px 10px;font-size:11.5px;line-height:1.6;pointer-events:none;"></div>
 
         <div class="floating-panel" id="timeseries-panel" hidden>
             <div class="floating-panel-head">
@@ -123,9 +124,16 @@
             <div class="gen-row"><label for="gen-originDownOffsetMeters">Origin D offset (m)</label><input type="number" id="gen-originDownOffsetMeters" step="0.5"></div>
 
             <div class="section-gap"></div>
-            <span class="ro-label">Aircraft launch phase, bearing from payload to each UAV</span>
+            <span class="ro-label">Aircraft launch geometry, relative to payload (or the origin, if flying without a payload link)</span>
             <div class="gen-row"><label for="gen-uav1PhaseDeg">UAV 1 phase (deg)</label><input type="number" id="gen-uav1PhaseDeg" step="1"></div>
             <div class="gen-row"><label for="gen-uav2PhaseDeg">UAV 2 phase (deg)</label><input type="number" id="gen-uav2PhaseDeg" step="1"></div>
+            <div class="gen-row"><label for="gen-aircraftZ0Meters">Altitude on launcher (m)</label><input type="number" id="gen-aircraftZ0Meters" step="0.05"></div>
+            <div class="empty-hint">NED-down offset of the aircraft on the launcher at t=0, relative to the payload (or the origin/anchor). Sets the launch tether's elevation angle together with "Length at launch" above -- guessing this wrong shifts every takeoff waypoint even if phase and length are right. "Capture live positions" below fills it in from the real live fix.</div>
+            <div class="gen-row"><label for="gen-snapToLiveLaunchPosition">Snap launch point to captured position</label><input type="checkbox" id="gen-snapToLiveLaunchPosition"></div>
+            <div class="empty-hint" id="gen-snap-hint">Shifts each UAV's whole trajectory so waypoint 0 lands exactly on the position captured with "Capture live positions" below -- a guaranteed-exact alternative to getting phase/altitude/length above just right. Per-UAV (no shared-value averaging with two UAVs), but position-only: it doesn't change the climb angle/velocity direction those three still imply. Uses whatever was last captured, unchanged, until you capture again -- it does NOT re-read live GPS on every Generate/Apply. UAVs never captured are left as generated.</div>
+            <input type="checkbox" id="gen-uav1SnapCaptured" hidden><input type="number" id="gen-uav1SnapNorthMeters" hidden><input type="number" id="gen-uav1SnapEastMeters" hidden><input type="number" id="gen-uav1SnapDownMeters" hidden>
+            <input type="checkbox" id="gen-uav2SnapCaptured" hidden><input type="number" id="gen-uav2SnapNorthMeters" hidden><input type="number" id="gen-uav2SnapEastMeters" hidden><input type="number" id="gen-uav2SnapDownMeters" hidden>
+            <div class="empty-hint" id="gen-snap-status" style="color:var(--text-dim)">No position captured yet.</div>
 
             <div class="section-gap"></div>
             <span class="ro-label">Testing, reduced-order NMPC build</span>
@@ -138,7 +146,7 @@
 
             <div class="section-gap"></div>
             <button class="btn" id="gen-capture-btn" style="width:100%">Capture live positions</button>
-            <div class="empty-hint" id="gen-capture-hint">Reads the UAVs' and payload's real live GPS fix and fills in the origin offset and phase angles above. Review the values before generating!</div>
+            <div class="empty-hint" id="gen-capture-hint">Reads the UAVs' and payload's real live GPS fix right now and fills in the origin offset, phase angles, launch altitude, and length at launch above, from the measured payload-to-UAV (or origin-to-UAV, with no payload link) offset -- and saves each UAV's exact position for "Snap launch point to captured position" above. Works with just one UAV tethered to the ground. Review the values before generating! Click again any time to re-capture (e.g. after moving a UAV on the launcher) -- the saved snap position only changes when you click this button.</div>
 
             <div class="section-gap"></div>
             <div class="btn-row">
@@ -147,6 +155,7 @@
             </div>
             <div class="section-gap"></div>
             <div class="pill" id="gen-status-pill"><span class="dot" style="background:var(--text-dim)"></span><span id="gen-status-text">No preview generated yet</span></div>
+            <div class="empty-hint" id="gen-alignment-hint"></div>
         </div>
 
         <div class="card">
@@ -569,6 +578,7 @@
 
         applyDensity(currentDensityMode);
         fitViewToVehicles();
+        updateLaunchAlignment(latestLiveFixes);
     }
 
     function applyDensity(mode) {
@@ -894,9 +904,39 @@
     const liveMarkersGroup = new THREE.Group();
     scene.add(liveMarkersGroup);
 
+    // Camera-facing billboard text label for a live marker -- a canvas
+    // texture on a THREE.Sprite auto-faces the camera every frame with no
+    // per-frame code needed, unlike a Mesh/plane. Kept small/cheap (one
+    // low-res canvas per marker, redrawn only when renderLiveMarkers()
+    // rebuilds the group every ~2s) since there are at most 3 of these
+    // (2 UAVs + payload).
+    function makeLabelSprite(text, color) {
+        const canvas = document.createElement('canvas');
+        canvas.width = 256;
+        canvas.height = 64;
+        const ctx = canvas.getContext('2d');
+        ctx.fillStyle = 'rgba(15,17,21,0.75)';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.font = 'bold 40px sans-serif';
+        ctx.fillStyle = `#${color.toString(16).padStart(6, '0')}`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(text, canvas.width / 2, canvas.height / 2);
+        const texture = new THREE.CanvasTexture(canvas);
+        const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: texture, depthTest: false }));
+        sprite.scale.set(6, 1.5, 1);
+        return sprite;
+    }
+
     function clearLiveMarkers() {
         liveMarkersGroup.children.slice().forEach(obj => {
-            obj.traverse(o => { if (o.geometry) o.geometry.dispose(); if (o.material) o.material.dispose(); });
+            obj.traverse(o => {
+                if (o.geometry) o.geometry.dispose();
+                if (o.material) {
+                    if (o.material.map) o.material.map.dispose(); // label sprite's canvas texture
+                    o.material.dispose();
+                }
+            });
             liveMarkersGroup.remove(obj);
         });
     }
@@ -905,8 +945,12 @@
         const group = new THREE.Group();
         const p = nedToScene(fix.north, fix.east, fix.down);
 
-        const mat = new THREE.MeshStandardMaterial({ color, emissive: color, emissiveIntensity: 0.6 });
-        const marker = new THREE.Mesh(new THREE.OctahedronGeometry(1.1), mat);
+        // Sized/lit to stand out clearly from the reference-trajectory
+        // waypoint markers during troubleshooting/first flight, when
+        // telling "where the UAV actually is" apart from "where the
+        // reference trajectory says it should be" at a glance matters most.
+        const mat = new THREE.MeshStandardMaterial({ color, emissive: color, emissiveIntensity: 0.9 });
+        const marker = new THREE.Mesh(new THREE.OctahedronGeometry(1.8), mat);
         marker.position.copy(p);
         group.add(marker);
 
@@ -914,6 +958,12 @@
         const groundPt = nedToScene(fix.north, fix.east, 0);
         const stemGeo = new THREE.BufferGeometry().setFromPoints([p, groundPt]);
         group.add(new THREE.Line(stemGeo, new THREE.LineBasicMaterial({ color, transparent: true, opacity: 0.5 })));
+
+        // Vehicle-ID billboard label, hovering above the marker (+Y is up
+        // in scene space -- see nedToScene()) so it doesn't overlap it.
+        const sprite = makeLabelSprite(label, color);
+        sprite.position.copy(p).add(new THREE.Vector3(0, 3, 0));
+        group.add(sprite);
 
         group.userData = { label, fix };
         liveMarkersGroup.add(group);
@@ -923,11 +973,24 @@
         clearLiveMarkers();
         if (!snapshot || !snapshot.available) return;
         (snapshot.uavs || []).forEach((fix, i) => {
-            addLiveMarker(fix, DEFAULT_PALETTE[i % DEFAULT_PALETTE.length], fix.id.toUpperCase() + ' (live)');
+            addLiveMarker(fix, DEFAULT_PALETTE[i % DEFAULT_PALETTE.length], fix.id.toUpperCase());
         });
         if (snapshot.hasPayload) {
-            addLiveMarker(snapshot.payload, 0xffffff, 'Payload (live)');
+            addLiveMarker(snapshot.payload, 0xffffff, 'PAYLOAD');
         }
+        updateLaunchAlignment(snapshot);
+    }
+
+    // Small always-visible color key for the live markers above, so
+    // "which color is UAV1 vs UAV2 vs the payload" doesn't have to be
+    // re-derived from DEFAULT_PALETTE order during troubleshooting. Built
+    // once at page load -- the mapping (index in snapshot.uavs -> palette
+    // color) is fixed, so this never needs to be rebuilt on refresh.
+    function renderLiveLegend() {
+        const el = document.getElementById('live-legend');
+        if (!el) return;
+        const swatch = (hex) => `<span style="display:inline-block;width:9px;height:9px;border-radius:50%;background:#${hex.toString(16).padStart(6, '0')};margin-right:5px;vertical-align:middle"></span>`;
+        el.innerHTML = `${swatch(DEFAULT_PALETTE[0])}UAV1&nbsp;&nbsp;${swatch(DEFAULT_PALETTE[1])}UAV2&nbsp;&nbsp;${swatch(0xffffff)}Payload`;
     }
 
     let latestLiveFixes = null;
@@ -1116,13 +1179,17 @@
         'holdTimeSeconds', 'tetherLengthMeters', 'payloadMassKg',
         'tetherLengthAtLaunchMeters', 'tetherPayoutDurationSeconds',
         'fieldHeadingDeg', 'originNorthOffsetMeters', 'originEastOffsetMeters', 'originDownOffsetMeters',
-        'uav1PhaseDeg', 'uav2PhaseDeg',
+        'uav1PhaseDeg', 'uav2PhaseDeg', 'aircraftZ0Meters',
+        'uav1SnapNorthMeters', 'uav1SnapEastMeters', 'uav1SnapDownMeters',
+        'uav2SnapNorthMeters', 'uav2SnapEastMeters', 'uav2SnapDownMeters',
         'testMaxDurationSeconds',
     ];
 
     // ADR-001 Phase 4: reduced-order testing checkboxes -- read/written via
-    // .checked rather than parseFloat(...).value like GEN_FIELDS above.
-    const GEN_BOOL_FIELDS = ['testEnabled', 'testIncludeUav1', 'testIncludeUav2', 'testIncludePayload'];
+    // .checked rather than parseFloat(...).value like GEN_FIELDS above. The
+    // snap fields carry the "Capture live positions" button's saved result
+    // across repeated Generate/Apply clicks -- see the click handler below.
+    const GEN_BOOL_FIELDS = ['snapToLiveLaunchPosition', 'uav1SnapCaptured', 'uav2SnapCaptured', 'testEnabled', 'testIncludeUav1', 'testIncludeUav2', 'testIncludePayload'];
 
     function readGeneratorParams() {
         const params = {};
@@ -1166,11 +1233,38 @@
         dot.style.background = color;
     }
 
+    // Human-readable summary of what's currently saved in the hidden
+    // gen-uavNSnap* fields (populated by the "Capture live positions"
+    // handler below) -- so the operator can tell, without opening dev
+    // tools, whether "Snap launch point to captured position" above would
+    // actually do anything right now, and with what position. Call this
+    // whenever the hidden fields change (after a capture) and once at page
+    // load, so a reload showing generator defaults doesn't show stale text.
+    function updateSnapStatusText() {
+        const el = document.getElementById('gen-snap-status');
+        if (!el) return;
+        const parts = [];
+        if (document.getElementById('gen-uav1SnapCaptured').checked) {
+            const n = parseFloat(document.getElementById('gen-uav1SnapNorthMeters').value) || 0;
+            const e = parseFloat(document.getElementById('gen-uav1SnapEastMeters').value) || 0;
+            const d = parseFloat(document.getElementById('gen-uav1SnapDownMeters').value) || 0;
+            parts.push(`UAV1 (N ${n.toFixed(2)}, E ${e.toFixed(2)}, D ${d.toFixed(2)})`);
+        }
+        if (document.getElementById('gen-uav2SnapCaptured').checked) {
+            const n = parseFloat(document.getElementById('gen-uav2SnapNorthMeters').value) || 0;
+            const e = parseFloat(document.getElementById('gen-uav2SnapEastMeters').value) || 0;
+            const d = parseFloat(document.getElementById('gen-uav2SnapDownMeters').value) || 0;
+            parts.push(`UAV2 (N ${n.toFixed(2)}, E ${e.toFixed(2)}, D ${d.toFixed(2)})`);
+        }
+        el.textContent = parts.length ? `Captured: ${parts.join('; ')}. Re-click "Capture live positions" to update.` : 'No position captured yet.';
+    }
+
     async function loadGeneratorDefaults() {
         try {
             const res = await fetch('/api/trajectory/generator-defaults');
             const data = await res.json();
             setGeneratorInputs(data);
+            updateSnapStatusText();
         } catch (err) {
             console.error('Failed to load trajectory generator defaults:', err);
         }
@@ -1205,6 +1299,39 @@
         if (d < -180) d += 360;
         return d;
     }
+    // Straight-line 3D distance between two {north,east,down} fixes -- used
+    // both to derive the launch tether's real length/elevation below, and to
+    // report how far a generated waypoint sits from a live fix.
+    function distance3D(a, b) {
+        const dNorth = b.north - a.north, dEast = b.east - a.east, dDown = b.down - a.down;
+        return Math.sqrt(dNorth * dNorth + dEast * dEast + dDown * dDown);
+    }
+
+    // Closes the loop on field calibration: how far the generated
+    // trajectory's first (launch) waypoint for each vehicle currently sits
+    // from that vehicle's own live GPS fix, right now -- a number to check
+    // against instead of eyeballing two markers in an orbiting 3D view.
+    // Recomputed on every live-position refresh (~2s, so it updates as the
+    // operator watches the UAV settle on the launcher) and after every
+    // preview/apply/load that changes `vehicles`.
+    function updateLaunchAlignment(snapshot) {
+        const hint = document.getElementById('gen-alignment-hint');
+        if (!hint) return;
+        if (!snapshot || !snapshot.available || vehicles.length === 0) {
+            hint.textContent = '';
+            return;
+        }
+        const parts = [];
+        vehicles.forEach(v => {
+            if (!v.traj.length) return;
+            const liveFix = v.id === 'payload'
+                ? (snapshot.hasPayload ? snapshot.payload : null)
+                : (snapshot.uavs || []).find(u => u.id === v.id);
+            if (!liveFix) return;
+            parts.push(`${v.label ?? v.id} ${distance3D(v.traj[0], liveFix).toFixed(2)} m`);
+        });
+        hint.textContent = parts.length ? `Launch waypoint vs. live fix: ${parts.join(', ')}` : '';
+    }
 
     document.getElementById('gen-capture-btn').addEventListener('click', async () => {
         setGenStatus('Capturing live positions…', 'busy');
@@ -1218,15 +1345,29 @@
                 setGenStatus('No live fix yet — waiting for GPS lock / navigation origin.', 'error');
                 return;
             }
-            if (!snap.hasPayload) {
-                setGenStatus('UAV markers updated, but no live payload GPS fix — origin/phase angles left unchanged.', 'error');
+
+            const uav1 = (snap.uavs || []).find(u => u.id === 'uav1');
+            const uav2 = (snap.uavs || []).find(u => u.id === 'uav2');
+            const liveUavs = [uav1, uav2].filter(Boolean);
+            if (!liveUavs.length) {
+                setGenStatus('No live fix yet for either UAV — waiting for GPS lock.', 'error');
                 return;
             }
 
-            const payload = snap.payload;
-            document.getElementById('gen-originNorthOffsetMeters').value = payload.north.toFixed(2);
-            document.getElementById('gen-originEastOffsetMeters').value = payload.east.toFixed(2);
-            document.getElementById('gen-originDownOffsetMeters').value = payload.down.toFixed(2);
+            // Reference point for phase/geometry: the payload's live fix when
+            // there is one (2-UAV lifting mission), otherwise the local
+            // origin itself (0,0,0) -- the right stand-in for a single UAV
+            // tethered to a fixed ground anchor (ADR-001 Phase 4's reduced
+            // system), since the origin marker IS "the launch point" by
+            // definition (see the origin-marker comment above) as long as
+            // the anchor's own GPS was used to set it.
+            const reference = snap.hasPayload ? snap.payload : { north: 0, east: 0, down: 0 };
+
+            if (snap.hasPayload) {
+                document.getElementById('gen-originNorthOffsetMeters').value = reference.north.toFixed(2);
+                document.getElementById('gen-originEastOffsetMeters').value = reference.east.toFixed(2);
+                document.getElementById('gen-originDownOffsetMeters').value = reference.down.toFixed(2);
+            }
 
             // TrajectoryGenerator::applyFieldCalibration rotates the whole
             // locally-generated mission (including these phase angles) by
@@ -1234,16 +1375,54 @@
             // generator must be the real bearing plus fieldHeadingDeg for the
             // rotation to reproduce that real bearing again on Apply.
             const fieldHeadingDeg = parseFloat(document.getElementById('gen-fieldHeadingDeg').value) || 0;
-            const uav1 = (snap.uavs || []).find(u => u.id === 'uav1');
-            const uav2 = (snap.uavs || []).find(u => u.id === 'uav2');
-            if (uav1) document.getElementById('gen-uav1PhaseDeg').value = wrapDeg180(bearingDeg(payload, uav1) + fieldHeadingDeg).toFixed(1);
-            if (uav2) document.getElementById('gen-uav2PhaseDeg').value = wrapDeg180(bearingDeg(payload, uav2) + fieldHeadingDeg).toFixed(1);
+            if (uav1) document.getElementById('gen-uav1PhaseDeg').value = wrapDeg180(bearingDeg(reference, uav1) + fieldHeadingDeg).toFixed(1);
+            if (uav2) document.getElementById('gen-uav2PhaseDeg').value = wrapDeg180(bearingDeg(reference, uav2) + fieldHeadingDeg).toFixed(1);
+
+            // Launch geometry (theta0 = asin(z0 / tetherLengthAtLaunch) in
+            // trajectoryGenerator.cpp): read straight off the measured
+            // reference->UAV offset instead of two independent manual
+            // guesses that have to happen to agree. TrajectoryConfig::
+            // AircraftPath::z0 is a single value shared by both UAVs, so
+            // average across whichever UAVs have a live fix -- with one UAV
+            // (the reduced ground-tethered case) this is exact, not an
+            // approximation.
+            const z0Vals = liveUavs.map(u => u.down - reference.down);
+            const l0Vals = liveUavs.map(u => distance3D(reference, u));
+            const meanZ0 = z0Vals.reduce((a, b) => a + b, 0) / z0Vals.length;
+            const meanL0 = l0Vals.reduce((a, b) => a + b, 0) / l0Vals.length;
+            document.getElementById('gen-aircraftZ0Meters').value = meanZ0.toFixed(3);
+            document.getElementById('gen-tetherLengthAtLaunchMeters').value = meanL0.toFixed(2);
+
+            // Saves this instant's fix into the hidden gen-uavNSnap* fields,
+            // which is what "Snap launch point to captured position" above
+            // actually applies -- deliberately NOT re-read at Generate/Apply
+            // time (see that checkbox's hint), so this button is the only
+            // thing that changes what gets snapped to, and only for whichever
+            // UAV(s) have a live fix right now. A UAV with no live fix this
+            // time keeps whatever it had captured before (if anything) --
+            // one UAV's tether coming loose doesn't wipe the other's snap.
+            if (uav1) {
+                document.getElementById('gen-uav1SnapCaptured').checked = true;
+                document.getElementById('gen-uav1SnapNorthMeters').value = uav1.north.toFixed(3);
+                document.getElementById('gen-uav1SnapEastMeters').value = uav1.east.toFixed(3);
+                document.getElementById('gen-uav1SnapDownMeters').value = uav1.down.toFixed(3);
+            }
+            if (uav2) {
+                document.getElementById('gen-uav2SnapCaptured').checked = true;
+                document.getElementById('gen-uav2SnapNorthMeters').value = uav2.north.toFixed(3);
+                document.getElementById('gen-uav2SnapEastMeters').value = uav2.east.toFixed(3);
+                document.getElementById('gen-uav2SnapDownMeters').value = uav2.down.toFixed(3);
+            }
+            updateSnapStatusText();
 
             const missing = [!uav1 && 'UAV 1', !uav2 && 'UAV 2'].filter(Boolean);
+            const originNote = snap.hasPayload
+                ? 'origin, '
+                : 'no live payload fix, so origin offset was left as-is (fine if it was already set at the anchor) — ';
             if (missing.length) {
-                setGenStatus(`Captured origin from payload GPS, but no live fix for ${missing.join(' and ')} — its phase angle was left unchanged.`, 'preview');
+                setGenStatus(`Captured ${originNote}phase, launch altitude, length at launch, and snap position, but no live fix for ${missing.join(' and ')} — its phase angle and snap position were left unchanged.`, 'preview');
             } else {
-                setGenStatus('Captured live origin + phase angles — review the values above, then Generate preview.', 'preview');
+                setGenStatus(`Captured ${originNote}phase, launch altitude, length at launch, and snap position — review the values above, then Generate preview.`, 'preview');
             }
         } catch (err) {
             console.error('Failed to capture live positions:', err);
@@ -1283,6 +1462,7 @@
     // Live UAV/payload markers: poll rather than push (see the block above) --
     // 2s is frequent enough to watch the launcher setup without hammering
     // the same GET the "Capture" button also uses on demand.
+    renderLiveLegend();
     refreshLivePositions();
     setInterval(refreshLivePositions, 2000);
 

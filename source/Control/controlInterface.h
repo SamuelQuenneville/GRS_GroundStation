@@ -101,16 +101,26 @@ public:
     // (no selection) is a strict no-op: full mission, and `hasPayload`
     // deferred to the loaded NMPCController's own hasPayload(), exactly like
     // before this existed.
+    //
+    // ADR-001 follow-up: `liveLaunchPositionsNed[k]` (indexed the same as
+    // `config.aircraftPath.phaseRad`, i.e. mission.aircraft[k] before
+    // `selection` narrows it), when set, rigidly translates that UAV's whole
+    // trajectory so its first sample lands exactly on the given real NED
+    // position -- see TrajectoryGenerator::snapToLiveLaunchPositions(). The
+    // default (empty vector) is a strict no-op, same convention as `selection`.
     void generateTrajectory(const grs::trajgen::TrajectoryConfig& config,
-        const grs::trajgen::SubsetSelection& selection = {}) const;
+        const grs::trajgen::SubsetSelection& selection = {},
+        const std::vector<std::optional<grs::Vec3d>>& liveLaunchPositionsNed = {}) const;
 
     // Pure computation, does not touch the NMPC controller -- for the
     // dashboard's generate/preview step (POST /api/trajectory/generate)
     // before the operator commits with generateTrajectory()/"Apply". Safe to
     // call even before initialize() (unlike generateTrajectory(), it doesn't
-    // need m_nmpc). See generateTrajectory() above for what `selection` does.
+    // need m_nmpc). See generateTrajectory() above for what `selection` and
+    // `liveLaunchPositionsNed` do.
     [[nodiscard]] grs::trajgen::GeneratedMission previewTrajectory(const grs::trajgen::TrajectoryConfig& config,
-        const grs::trajgen::SubsetSelection& selection = {}) const;
+        const grs::trajgen::SubsetSelection& selection = {},
+        const std::vector<std::optional<grs::Vec3d>>& liveLaunchPositionsNed = {}) const;
     void setOrigin(double latitudeDegrees, double longitudeDegrees, double altitude);
     void debugConvert(double latitudeDegrees, double longitudeDegrees, double altitude) const;
 
