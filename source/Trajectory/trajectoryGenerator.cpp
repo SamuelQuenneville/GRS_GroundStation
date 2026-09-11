@@ -19,22 +19,29 @@ namespace grs::trajgen {
 namespace {
 
 // ---------------------------------------------------------------------------
-// Small numeric helpers (core/+math/*.m)
+// Small numeric helpers
 // ---------------------------------------------------------------------------
 
-// core/+math/normalizeRows.m, single-row form.
 Vec3d normalizeSafe(const Vec3d& v) {
     const double n = v.norm();
     const double denom = std::max(n, 1e-8);
     return v * (1.0 / denom);
 }
 
-// core/+math/phaseTime.m -- [dt, 2dt, ..., T] with T always included.
-std::vector<double> phaseTime(double T, double dt) {
-    if (T <= 0.0) return {};
+// [dt, 2dt, ..., T] with T always included.
+std::vector<double> phaseTime(const double T, const double dt) {
+    if (T <= 0.0) {
+        return {};
+    }
+
     std::vector<double> tau;
-    for (double t = dt; t <= T + 1e-12; t += dt) tau.push_back(t);
-    if (tau.empty() || std::abs(tau.back() - T) > 1e-9) tau.push_back(T);
+    for (double t = dt; t <= T + 1e-12; t += dt) {
+        tau.push_back(t);
+    }
+
+    if (tau.empty() || std::abs(tau.back() - T) > 1e-9) {
+        tau.push_back(T);
+    }
     return tau;
 }
 
@@ -50,32 +57,47 @@ std::vector<double> cumtrapzScalar(const std::vector<double>& t, const std::vect
 
 // MATLAB gradient(y, dt) on a uniformly-sampled vector: central difference on
 // interior points, one-sided difference at the two ends.
-std::vector<double> gradientUniform(const std::vector<double>& y, double dt) {
+std::vector<double> gradientUniform(const std::vector<double>& y, const double dt) {
     const size_t n = y.size();
     std::vector<double> g(n, 0.0);
-    if (n == 0) return g;
-    if (n == 1) { g[0] = 0.0; return g; }
+    if (n == 0) {
+        return g;
+    }
+
+    if (n == 1) {
+        g[0] = 0.0; return g;
+    }
+
     g[0] = (y[1] - y[0]) / dt;
     g[n - 1] = (y[n - 1] - y[n - 2]) / dt;
-    for (size_t i = 1; i + 1 < n; ++i) g[i] = (y[i + 1] - y[i - 1]) / (2.0 * dt);
+
+    for (size_t i = 1; i + 1 < n; ++i) {
+        g[i] = (y[i + 1] - y[i - 1]) / (2.0 * dt);
+    }
     return g;
 }
 
-double quinticSmoothstep(double tau) { return 6*tau*tau*tau*tau*tau - 15*tau*tau*tau*tau + 10*tau*tau*tau; }
-double quinticSmoothstepDeriv(double tau) { return 30*tau*tau*tau*tau - 60*tau*tau*tau + 30*tau*tau; }
+double quinticSmoothstep(const double tau) {
+    return 6*tau*tau*tau*tau*tau - 15*tau*tau*tau*tau + 10*tau*tau*tau;
+}
+
+double quinticSmoothstepDeriv(const double tau) {
+    return 30*tau*tau*tau*tau - 60*tau*tau*tau + 30*tau*tau;
+}
+
 // d^2/dtau^2 of quinticSmoothstep -- needed for the tether slip-clutch payout
 // model's L''(t) (see generateAircraftTakeoff), nothing else uses it.
-double quinticSmoothstepSecondDeriv(double tau) { return 120*tau*tau*tau - 180*tau*tau + 60*tau; }
+double quinticSmoothstepSecondDeriv(const double tau) {
+    return 120*tau*tau*tau - 180*tau*tau + 60*tau;
+}
 
 // ---------------------------------------------------------------------------
-// core/+traj/makeLoiter.m, sCurveProfile.m
+// sCurveProfile
 // ---------------------------------------------------------------------------
 
 struct Profile1D { std::vector<double> t, s, v, a; };
 
-// core/+traj/makeLoiter.m
-void appendLoiter(double t0, const Vec3d& xStart, double thold, double dt,
-                   std::vector<double>& t, std::vector<KinematicSample>& samples, bool skipFirst) {
+void appendLoiter(const double t0, const Vec3d& xStart, const double thold, const double dt, std::vector<double>& t, std::vector<KinematicSample>& samples, const bool skipFirst) {
     const size_t n = static_cast<size_t>(std::floor(thold / dt + 1e-9)) + 1;
     for (size_t i = (skipFirst ? 1 : 0); i < n; ++i) {
         t.push_back(t0 + static_cast<double>(i) * dt);
@@ -85,7 +107,7 @@ void appendLoiter(double t0, const Vec3d& xStart, double thold, double dt,
     }
 }
 
-// core/+traj/sCurveProfile.m -- jerk-limited S-curve, 1D.
+// jerk-limited S-curve, 1D.
 Profile1D sCurveProfile(double d, double vMax, double aMax, double jMax, double dt) {
     double tJ = aMax / jMax;
     double tA = vMax / aMax - tJ;
@@ -122,8 +144,10 @@ Profile1D sCurveProfile(double d, double vMax, double aMax, double jMax, double 
     const double T1 = 0, T2 = T1 + tJ, T3 = T2 + tA, T4 = T3 + tJ, T5 = T4 + tV, T6 = T5 + tJ, T7 = T6 + tA;
 
     Profile1D out;
-    auto appendPhase = [&](const std::vector<double>& tp, double offset) {
-        for (double v : tp) out.t.push_back(offset + v);
+    auto appendPhase = [&](const std::vector<double>& tp, const double offset) {
+        for (const double v : tp) {
+            out.t.push_back(offset + v);
+        }
     };
     appendPhase(t1, T1); appendPhase(t2, T2); appendPhase(t3, T3);
     appendPhase(t4, T4); appendPhase(t5, T5); appendPhase(t6, T6); appendPhase(t7, T7);
@@ -196,7 +220,7 @@ Profile1D sCurveProfile(double d, double vMax, double aMax, double jMax, double 
 }
 
 // ---------------------------------------------------------------------------
-// core/+traj/generatePayloadPath.m (mission phases only -- pre-appendTakeoff)
+// (mission phases only -- pre-appendTakeoff)
 // ---------------------------------------------------------------------------
 
 struct PayloadMission { std::vector<double> t; std::vector<KinematicSample> samples; };
@@ -264,7 +288,7 @@ PayloadMission generatePayloadPath(const TrajectoryConfig& config) {
 }
 
 // ---------------------------------------------------------------------------
-// core/+traj/generateAircraftTakeoff.m
+// Aircraft Takeoff
 // ---------------------------------------------------------------------------
 
 struct TakeoffMission {
@@ -280,36 +304,37 @@ TakeoffMission generateAircraftTakeoff(const TrajectoryConfig& config, double ph
     const double dt = config.simDt;
     const double T = ap.takeoffTime;
 
-    // ---- Slip-clutch tether payout (see TrajectoryConfig::Tether comment) ----
-    // Scope of this model, deliberately: the angular guidance law below
-    // (theta/thetaDot/thetaDdot/psi/gamma -- the boundary-value-matched pitch
-    // profile and the resulting azimuth-rate ODE) is left exactly as
-    // validated against MATLAB, computed with `Lfinal` throughout, EXCEPT for
-    // theta0/the phase-1 rate formulas just below, which use the true
-    // launch-instant tether length `L0` since they describe the aircraft's
-    // actual physical elevation angle/rate right at t=0 -- using `Lfinal`
-    // there would be geometrically wrong the moment lengthAtLaunch != length.
-    // The payout itself (i.e. the tether's radial length actually changing
-    // over time) is applied only when converting the resulting spherical
-    // path (L(t), theta(t), psi(t)) to Cartesian position/velocity/
-    // acceleration below, via the ordinary product rule on L(t) -- a real
-    // outward-radial motion layered on top of the unchanged angular path,
-    // not a re-solve of the underlying boundary-value problem.
+    // Slip-clutch tether payout, see TrajectoryConfig::Tether. Scope of this
+    // model, deliberately: the angular guidance law below (theta/thetaDot/
+    // thetaDdot/psi/gamma, the boundary-value-matched pitch profile and the
+    // resulting azimuth-rate ODE) is left exactly as validated against
+    // MATLAB, computed with `Lfinal` throughout, except for theta0 and the
+    // phase-1 rate formulas just below, which use the true launch-instant
+    // tether length `L0` since they describe the aircraft's actual physical
+    // elevation angle/rate right at t=0. The payout itself
+    // (the tether's radial length actually changing over time) is applied
+    // only when converting the resulting spherical path (L(t), theta(t),
+    // psi(t)) to Cartesian position/velocity/acceleration below, via the
+    // ordinary product rule on L(t): a real outward-radial motion layered
+    // on top of the unchanged angular path, not a re-solve of the
+    // underlying boundary-value problem.
     const double L0 = config.tether.lengthAtLaunch; // finalize() resolves <0 to Lfinal
     const double Tpo = std::max(config.tether.payoutDurationSeconds, 0.0);
     const double dL = Lfinal - L0;
-    auto payoutTau = [&](double time) { return Tpo > 1e-9 ? std::clamp(time / Tpo, 0.0, 1.0) : 1.0; };
-    auto lengthAt = [&](double time) { return L0 + dL * quinticSmoothstep(payoutTau(time)); };
-    auto lengthDotAt = [&](double time) {
+    auto payoutTau = [&](const double time) { return Tpo > 1e-9 ? std::clamp(time / Tpo, 0.0, 1.0) : 1.0; };
+    auto lengthAt = [&](const double time) { return L0 + dL * quinticSmoothstep(payoutTau(time)); };
+    auto lengthDotAt = [&](const double time) {
         return (Tpo > 1e-9 && time < Tpo) ? dL * quinticSmoothstepDeriv(payoutTau(time)) / Tpo : 0.0;
     };
-    auto lengthDdotAt = [&](double time) {
+    auto lengthDdotAt = [&](const double time) {
         return (Tpo > 1e-9 && time < Tpo) ? dL * quinticSmoothstepSecondDeriv(payoutTau(time)) / (Tpo * Tpo) : 0.0;
     };
 
     const size_t n = static_cast<size_t>(std::floor(T / dt + 1e-9)) + 1;
     std::vector<double> t(n);
-    for (size_t i = 0; i < n; ++i) t[i] = i * dt;
+    for (size_t i = 0; i < n; ++i) {
+        t[i] = i * dt;
+    }
 
     const double V0 = ap.takeoffVel0;
     const double Vf = ap.velMean;
@@ -332,7 +357,11 @@ TakeoffMission generateAircraftTakeoff(const TrajectoryConfig& config, double ph
     const double thetaF = std::asin(zTarget / Lfinal);
 
     size_t iSwitch = 0;
-    for (size_t i = 0; i < n; ++i) if (t[i] <= t1) iSwitch = i;
+    for (size_t i = 0; i < n; ++i) {
+        if (t[i] <= t1) {
+            iSwitch = i;
+        }
+    }
 
     // Phase 1
     std::vector<double> thetaDotPhase1(iSwitch + 1), tPhase1(iSwitch + 1);
@@ -358,19 +387,18 @@ TakeoffMission generateAircraftTakeoff(const TrajectoryConfig& config, double ph
     const double thetaDdot1 = thetaDdot[iSwitch];
     // Analytically exact, not a finite difference: thetaDdot(t) in phase 1
     // is proportional to quinticSmoothstepDeriv(t/t1), whose own rate of
-    // change is proportional to quinticSmoothstepSecondDeriv(t/t1) -- both
+    // change is proportional to quinticSmoothstepSecondDeriv(t/t1); both
     // are exactly 0 at tau1=1 (a quintic smoothstep has zero 1st and 2nd
     // derivative at both endpoints by construction), so the true jerk at
     // the phase boundary is 0 regardless of t1, velocity, or pitch swing.
-    // The previous one-step (thetaDdot[iSwitch]-thetaDdot[prevIdx])/dt
-    // finite difference was discretization noise approximating this
-    // known-zero quantity -- noise that grows sharply as takeoffTimeBalistic
-    // shrinks toward dt (fewer samples across phase 1), and gets amplified
-    // by t2^3 into the phase-2 polynomial's b3 term below, producing a
-    // large pitch/elevation-angle overshoot right after the phase switch
-    // before the polynomial's boundary conditions pull it back to the
-    // correct loiter value at T.
-    const double thetaJerk1 = 0.0;
+    // A one-step finite difference here would instead be discretization
+    // noise approximating this known-zero quantity, noise that grows
+    // sharply as takeoffTimeBalistic shrinks toward dt (fewer samples
+    // across phase 1) and gets amplified by t2^3 into the phase-2
+    // polynomial's b3 term below, producing a large pitch/elevation-angle
+    // overshoot right after the phase switch before the polynomial's
+    // boundary conditions pull it back to the correct loiter value at T.
+    constexpr double thetaJerk1 = 0.0;
 
     const double b0 = theta1;
     const double b1 = thetaDot1 * t2;
@@ -393,11 +421,19 @@ TakeoffMission generateAircraftTakeoff(const TrajectoryConfig& config, double ph
     // Gaussian elimination with partial pivoting, 4x4.
     for (int col = 0; col < 4; ++col) {
         int piv = col;
-        for (int r = col+1; r < 4; ++r) if (std::abs(A[r][col]) > std::abs(A[piv][col])) piv = r;
-        if (piv != col) { std::swap(A[piv], A[col]); std::swap(rhs[piv], rhs[col]); }
+        for (int r = col+1; r < 4; ++r) {
+            if (std::abs(A[r][col]) > std::abs(A[piv][col])) {
+                piv = r;
+            }
+        }
+        if (piv != col) {
+            std::swap(A[piv], A[col]); std::swap(rhs[piv], rhs[col]);
+        }
         for (int r = col+1; r < 4; ++r) {
             const double f = A[r][col] / A[col][col];
-            for (int c = col; c < 4; ++c) A[r][c] -= f * A[col][c];
+            for (int c = col; c < 4; ++c) {
+                A[r][c] -= f * A[col][c];
+            }
             rhs[r] -= f * rhs[col];
         }
     }
@@ -496,7 +532,7 @@ TakeoffMission generateAircraftTakeoff(const TrajectoryConfig& config, double ph
 
 struct AircraftMissionRaw { AircraftTimeline timeline; TakeoffMission takeoff; };
 
-AircraftMissionRaw generateAircraftPathForUav(const TrajectoryConfig& config, double phase, const PayloadMission& payloadMission) {
+AircraftMissionRaw generateAircraftPathForUav(const TrajectoryConfig& config, const double phase, const PayloadMission& payloadMission) {
     const auto& ap = config.aircraftPath;
     const double R = ap.radius;
     const double omega = ap.direction * ap.velMean / R;
@@ -533,7 +569,7 @@ AircraftMissionRaw generateAircraftPathForUav(const TrajectoryConfig& config, do
 }
 
 // ---------------------------------------------------------------------------
-// core/+dyn/computeForcesOnPayload.m
+// Compute Forces On Payload
 // ---------------------------------------------------------------------------
 
 std::vector<Vec3d> computeForcesOnPayload(const TrajectoryConfig& config, const PayloadMission& payloadMission) {
@@ -549,7 +585,7 @@ std::vector<Vec3d> computeForcesOnPayload(const TrajectoryConfig& config, const 
 }
 
 // ---------------------------------------------------------------------------
-// core/+dyn/computeForcesOnTethers.m -- static (time-invariant): gravity only.
+// static (time-invariant): gravity only.
 // ---------------------------------------------------------------------------
 
 struct TetherStaticForces { std::vector<Vec3d> onSegments; Vec3d total = Vec3d::zeros(); };
@@ -576,11 +612,19 @@ template <size_t N>
 std::array<double, N> solveLinearSystem(std::array<std::array<double, N>, N> A, std::array<double, N> b) {
     for (size_t col = 0; col < N; ++col) {
         size_t piv = col;
-        for (size_t r = col + 1; r < N; ++r) if (std::abs(A[r][col]) > std::abs(A[piv][col])) piv = r;
-        if (piv != col) { std::swap(A[piv], A[col]); std::swap(b[piv], b[col]); }
+        for (size_t r = col + 1; r < N; ++r) {
+            if (std::abs(A[r][col]) > std::abs(A[piv][col])) {
+                piv = r;
+            }
+        }
+        if (piv != col) {
+            std::swap(A[piv], A[col]); std::swap(b[piv], b[col]);
+        }
         for (size_t r = col + 1; r < N; ++r) {
             const double f = A[r][col] / A[col][col];
-            for (size_t c = col; c < N; ++c) A[r][c] -= f * A[col][c];
+            for (size_t c = col; c < N; ++c) {
+                A[r][c] -= f * A[col][c];
+            }
             b[r] -= f * b[col];
         }
     }
@@ -588,21 +632,21 @@ std::array<double, N> solveLinearSystem(std::array<std::array<double, N>, N> A, 
     for (size_t ri = 0; ri < N; ++ri) {
         const size_t r = N - 1 - ri;
         double sum = b[r];
-        for (size_t c = r + 1; c < N; ++c) sum -= A[r][c] * x[c];
+        for (size_t c = r + 1; c < N; ++c) {
+            sum -= A[r][c] * x[c];
+        }
         x[r] = sum / A[r][r];
     }
     return x;
 }
 
 // ---------------------------------------------------------------------------
-// core/+dyn/solveTetherForcesTwoAircraft.m
+// Solve Tether Forces Two Aircraft
 // ---------------------------------------------------------------------------
 
 struct TetherForcePair { Vec3d f1 = Vec3d::zeros(), f2 = Vec3d::zeros(); double stabilization = 0.0; };
 
-TetherForcePair solveTetherForcesTwoAircraft(const TrajectoryConfig& config, const TetherStaticForces& staticForces,
-                                              const Vec3d& fOnPayload, const Vec3d& payloadPos, const Vec3d& payloadAcc,
-                                              const Vec3d& ac1Pos, const Vec3d& ac2Pos) {
+TetherForcePair solveTetherForcesTwoAircraft(const TrajectoryConfig& config, const TetherStaticForces& staticForces, const Vec3d& fOnPayload, const Vec3d& payloadPos, const Vec3d& payloadAcc, const Vec3d& ac1Pos, const Vec3d& ac2Pos) {
     const Vec3d a1 = ac1Pos - payloadPos;
     const Vec3d a2 = ac2Pos - payloadPos;
 
@@ -625,7 +669,7 @@ TetherForcePair solveTetherForcesTwoAircraft(const TrajectoryConfig& config, con
     B[0] = -fP[0]; B[1] = -fP[1]; B[2] = -fP[2];
 
     // A2 (per tether: sum of forces) -- rows 3-5 (tether1), rows 9-11 (tether2)
-    auto fillA2 = [&](int rowBase, int colBase) {
+    auto fillA2 = [&](const int rowBase, const int colBase) {
         A[rowBase+0][colBase+0] = 1; A[rowBase+0][colBase+1] = 1;
         A[rowBase+1][colBase+2] = 1; A[rowBase+1][colBase+3] = 1;
         A[rowBase+2][colBase+4] = 1; A[rowBase+2][colBase+5] = 1;
@@ -637,7 +681,7 @@ TetherForcePair solveTetherForcesTwoAircraft(const TrajectoryConfig& config, con
     B[9] = staticForces.total[0]; B[10] = staticForces.total[1]; B[11] = staticForces.total[2];
 
     // A3 (per tether: sum of moments about the tip) -- rows 6-8, 12-14.
-    auto fillA3AndB3 = [&](int rowBase, int colBase, const Vec3d& armVec) {
+    auto fillA3AndB3 = [&](const int rowBase, const int colBase, const Vec3d& armVec) {
         const Vec3d segOrient = normalizeSafe(armVec);
         A[rowBase+0][colBase+3] = armVec[2];  A[rowBase+0][colBase+5] = -armVec[1]; A[rowBase+0][colBase+6] = segOrient[0];
         A[rowBase+1][colBase+1] = -armVec[2]; A[rowBase+1][colBase+5] = armVec[0];  A[rowBase+1][colBase+6] = segOrient[1];
@@ -663,12 +707,12 @@ TetherForcePair solveTetherForcesTwoAircraft(const TrajectoryConfig& config, con
 }
 
 // ---------------------------------------------------------------------------
-// core/+dyn/aeroFromLift.m, computeAngleOfAttackThrust.m, inverseDynamic.m
+// Compute Angle Of Attack/Thrust, Inverse Dynamic
 // ---------------------------------------------------------------------------
 
 struct AeroFromLift { double CL, CD, drag, angleOfAttack; };
 
-AeroFromLift aeroFromLift(const TrajectoryConfig& config, double lift, double airspeed) {
+AeroFromLift aeroFromLift(const TrajectoryConfig& config, const double lift, const double airspeed) {
     const double q_S = 0.5 * config.world.airDensity * airspeed * airspeed * config.aircraft.wingArea;
     AeroFromLift out{};
     out.CL = lift / q_S;
@@ -704,7 +748,7 @@ AngleOfAttackThrust computeAngleOfAttackThrust(const TrajectoryConfig& config, c
 }
 
 ControlSample inverseDynamic(const TrajectoryConfig& config, const KinematicSample& sample, const Vec3d& externalForce) {
-    const auto aoaThrust = computeAngleOfAttackThrust(config, sample.vel, sample.acc, externalForce);
+    const auto [angleOfAttack, thrust, liftDir] = computeAngleOfAttackThrust(config, sample.vel, sample.acc, externalForce);
 
     const Vec3d freestream = sample.vel + config.world.wind;
     const Vec3d freestreamUnit = normalizeSafe(freestream);
@@ -714,7 +758,7 @@ ControlSample inverseDynamic(const TrajectoryConfig& config, const KinematicSamp
     latAxis = latAxis * (1.0 / std::max(latAxis.norm(), 1e-8));
     const Vec3d liftProjPlane = cross(latAxis, freestreamUnit);
 
-    const Vec3d bankCross = cross(aoaThrust.liftDir, liftProjPlane);
+    const Vec3d bankCross = cross(liftDir, liftProjPlane);
     double bank = std::asin(std::clamp(bankCross.norm(), -1.0, 1.0));
     const double signBank = dot(bankCross, freestreamUnit) >= 0 ? 1.0 : -1.0;
     bank *= signBank;
@@ -724,19 +768,19 @@ ControlSample inverseDynamic(const TrajectoryConfig& config, const KinematicSamp
 
     ControlSample out;
     out.yawRad = std::atan2(freestream[1], freestream[0]);
-    out.pitchRad = aoaThrust.angleOfAttack + pathAngle;
+    out.pitchRad = angleOfAttack + pathAngle;
     out.rollRad = -bank;
-    out.thrustNewton = aoaThrust.thrust;
-    out.angleOfAttackRad = aoaThrust.angleOfAttack;
-    out.liftDirection = aoaThrust.liftDir;
+    out.thrustNewton = thrust;
+    out.angleOfAttackRad = angleOfAttack;
+    out.liftDirection = liftDir;
     return out;
 }
 
 // ---------------------------------------------------------------------------
-// core/+dyn/computeControlsTakeoff.m
+// Compute Controls Takeoff
 // ---------------------------------------------------------------------------
 
-std::vector<ControlSample> computeControlsTakeoff(const TrajectoryConfig& config, double rollLoiter, const TakeoffMission& takeoff) {
+std::vector<ControlSample> computeControlsTakeoff(const TrajectoryConfig& config, const double rollLoiter, const TakeoffMission& takeoff) {
     const auto& ap = config.aircraftPath;
     const double T = ap.takeoffTime;
     const size_t n = takeoff.t.size();
@@ -744,7 +788,8 @@ std::vector<ControlSample> computeControlsTakeoff(const TrajectoryConfig& config
     const double zTarget = std::sqrt(config.tether.length*config.tether.length - ap.radius*ap.radius);
     const double fTarget = (0.5 * config.payload.mass * config.world.gravity) / (zTarget / config.tether.length);
 
-    constexpr double tDelay = 2.0, tRamp = 6.0;
+    constexpr double tDelay = 2.0;
+    constexpr double tRamp = 6.0;
 
     std::vector<ControlSample> out(n);
     for (size_t i = 0; i < n; ++i) {
@@ -761,15 +806,15 @@ std::vector<ControlSample> computeControlsTakeoff(const TrajectoryConfig& config
         et = normalizeSafe(et);
         const Vec3d externalForce = et * F;
 
-        const auto aoaThrust = computeAngleOfAttackThrust(config, takeoff.inertial[i].vel, takeoff.inertial[i].acc, externalForce);
+        const auto [angleOfAttack, thrust, liftDir] = computeAngleOfAttackThrust(config, takeoff.inertial[i].vel, takeoff.inertial[i].acc, externalForce);
 
         ControlSample& c = out[i];
         c.rollRad = phi;
-        c.pitchRad = aoaThrust.angleOfAttack + takeoff.gamma[i];
+        c.pitchRad = angleOfAttack + takeoff.gamma[i];
         c.yawRad = takeoff.psi[i];
-        c.thrustNewton = aoaThrust.thrust;
-        c.angleOfAttackRad = aoaThrust.angleOfAttack;
-        c.liftDirection = aoaThrust.liftDir;
+        c.thrustNewton = thrust;
+        c.angleOfAttackRad = angleOfAttack;
+        c.liftDirection = liftDir;
     }
     return out;
 }
@@ -777,7 +822,7 @@ std::vector<ControlSample> computeControlsTakeoff(const TrajectoryConfig& config
 } // namespace
 
 // ---------------------------------------------------------------------------
-// TrajectoryGenerator
+// Trajectory Generator
 // ---------------------------------------------------------------------------
 
 TrajectoryGenerator::TrajectoryGenerator(TrajectoryConfig config) : m_config(std::move(config)) {
@@ -864,18 +909,26 @@ void TrajectoryGenerator::applyFieldCalibration(GeneratedMission& mission, const
     if (fieldHeadingDeg == 0.0 && originOffset == Vec3d::zeros()) return;
 
     const Matrix3d R = rotationZ(grs::degToRad(fieldHeadingDeg));
-    auto rotateTranslate = [&](KinematicSample& s, bool translate) {
+    auto rotateTranslate = [&](KinematicSample& s, const bool translate) {
         s.pos = R * s.pos;
         s.vel = R * s.vel;
         s.acc = R * s.acc;
         if (translate) s.pos += originOffset;
     };
 
-    for (auto& s : mission.payload) rotateTranslate(s, true);
-    for (auto& ac : mission.aircraft) {
-        for (auto& s : ac.inertial) rotateTranslate(s, true);
-        for (auto& s : ac.payloadFrame) rotateTranslate(s, false); // relative vector, no translation
+    for (auto& s : mission.payload) {
+        rotateTranslate(s, true);
     }
+
+    for (auto&[payloadFrame, inertial] : mission.aircraft) {
+        for (auto& s : inertial) {
+            rotateTranslate(s, true);
+        }
+        for (auto& s : payloadFrame) {
+            rotateTranslate(s, false); // relative vector, no translation
+        }
+    }
+
     for (auto& controlTrack : mission.controls) {
         for (auto& c : controlTrack) {
             c.yawRad += grs::degToRad(fieldHeadingDeg);
@@ -946,9 +999,7 @@ std::vector<double> TrajectoryGenerator::toSolverReference(const GeneratedMissio
 }
 
 GeneratedMission TrajectoryGenerator::extractSubset(const GeneratedMission& mission, const SubsetSelection& selection) {
-    const size_t n = (selection.maxSamples > 0)
-        ? std::min(selection.maxSamples, mission.time.size())
-        : mission.time.size();
+    const size_t n = (selection.maxSamples > 0) ? std::min(selection.maxSamples, mission.time.size()) : mission.time.size();
 
     std::vector<size_t> indices;
     if (selection.uavIndices.has_value()) {
@@ -968,9 +1019,9 @@ GeneratedMission TrajectoryGenerator::extractSubset(const GeneratedMission& miss
         if (idx >= mission.aircraft.size()) continue; // defensive: ignore an out-of-range index rather than throwing
 
         AircraftTimeline timeline;
-        const auto& src = mission.aircraft[idx];
-        timeline.payloadFrame.assign(src.payloadFrame.begin(), src.payloadFrame.begin() + n);
-        timeline.inertial.assign(src.inertial.begin(), src.inertial.begin() + n);
+        const auto&[payloadFrame, inertial] = mission.aircraft[idx];
+        timeline.payloadFrame.assign(payloadFrame.begin(), payloadFrame.begin() + n);
+        timeline.inertial.assign(inertial.begin(), inertial.begin() + n);
         out.aircraft.push_back(std::move(timeline));
 
         out.controls.emplace_back(mission.controls[idx].begin(), mission.controls[idx].begin() + n);

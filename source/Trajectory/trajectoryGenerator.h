@@ -17,18 +17,11 @@
 #include "Mathematics/math.h"
 #include "trajectoryConfig.h"
 
-// C++ port of trajectory_generation's core/+traj and core/+dyn (MATLAB).
-// Phase 0 of ADR-001: reproduces the existing MATLAB math sample-for-sample
-// (validated against Octave-generated golden CSVs in tests/golden/) so the
-// GCS no longer needs a MATLAB license to produce a reference trajectory.
-// Field-calibration (real origin/heading, live GPS start pose) is
-// deliberately NOT applied inside this class -- see applyFieldCalibration()
-// and ADR-001 Phase 2.
-//
-// Scope, matching the MATLAB source exactly: two tethered aircraft + one
-// payload. dyn::solveTetherForcesTwoAircraft is hard-coded for a two-aircraft
-// bridle in the MATLAB project too -- generalizing to N aircraft is a
-// separate piece of work, not a C++-port concern.
+/// Generates the reference trajectory the NMPC controller tracks: payload
+/// path, both aircraft paths and takeoffs, tether forces, per-aircraft
+/// attitude/thrust commands.
+///
+/// Scope: two tethered aircraft plus one payload.
 namespace grs::trajgen {
 
 struct KinematicSample {
@@ -37,16 +30,13 @@ struct KinematicSample {
     Vec3d acc = Vec3d::zeros();
 };
 
-// One aircraft's full timeline (matches MATLAB's aircraftPath{k} after
-// core/+traj/appendTakeoff.m has prepended the takeoff phase).
+/// One aircraft's full timeline, takeoff phase prepended.
 struct AircraftTimeline {
     std::vector<KinematicSample> payloadFrame; // relative to the payload
     std::vector<KinematicSample> inertial;     // absolute NED
 };
 
-// Per-sample commanded attitude/thrust for one aircraft -- mirrors the
-// 8-column `controls` array returned by dyn.getAircraftControls:
-// [roll, pitch, yaw, thrust, angleOfAttack, liftDir(3)].
+/// Per-sample commanded attitude/thrust for one aircraft.
 struct ControlSample {
     double rollRad = 0.0;
     double pitchRad = 0.0;
@@ -59,36 +49,33 @@ struct ControlSample {
 struct GeneratedMission {
     std::vector<double> time; // [s], one entry per sample, shared across payload/aircraft/controls
 
-    std::vector<KinematicSample> payload;             // NED, takeoff-padded (zeros) + mission
+    std::vector<KinematicSample> payload;              // NED, takeoff-padded (zeros) + mission
     std::vector<AircraftTimeline> aircraft;            // size() == config.aircraftPath.phaseRad.size()
     std::vector<std::vector<ControlSample>> controls;  // controls[uavIndex][sample], takeoff + mission concatenated
 };
 
-// ADR-001 Phase 4: narrows an already-generated mission down for exercising a
-// reduced-order NMPC build -- e.g. one UAV tethered to a fixed ground anchor
-// (no payload), cut off partway through the mission (through the first
-// loiter, say) -- without a second TrajectoryConfig or a second generate()
-// run. See TrajectoryGenerator::extractSubset().
+/// Narrows an already-generated mission for exercising a reduced-order
+/// NMPC build, e.g. one UAV tethered to a fixed ground anchor with no
+/// payload, cut off partway through the mission, without a second
+/// TrajectoryConfig or generate() run. See TrajectoryGenerator::extractSubset().
 struct SubsetSelection {
-    // Which mission.aircraft[]/controls[] entries to keep, and in what
-    // order. nullopt (default) = keep all of them, in their original order
-    // -- i.e. no UAV subsetting, matching behavior from before this existed.
-    // An explicit (possibly empty) vector is used exactly as given, even if
-    // empty -- that's a deliberate "zero aircraft" selection, distinct from
-    // "no override".
+    /// Which mission.aircraft[]/controls[] entries to keep, and in what
+    /// order. nullopt (default) keeps all of them in original order. An
+    /// explicit (possibly empty) vector is used exactly as given; an empty
+    /// vector is a deliberate "zero aircraft" selection, distinct from
+    /// "no override" (nullopt).
     std::optional<std::vector<size_t>> uavIndices;
 
-    // Overrides whether toSolverReference()'s output should include the
-    // payload block. nullopt (default) = let the caller decide -- e.g.
-    // ControlInterface::generateTrajectory() defers to the loaded
-    // NMPCController's own hasPayload() when this is nullopt, exactly like
-    // before this existed. Set explicitly only to deliberately mismatch the
-    // mission's own payload data (e.g. testing a no-payload build against a
-    // mission that still has a payload in it).
+    /// Overrides whether toSolverReference()'s output should include the
+    /// payload block. nullopt (default) lets the caller decide, e.g.
+    /// ControlInterface::generateTrajectory() defers to the loaded
+    /// NMPCController's own hasPayload(). Set explicitly only to
+    /// deliberately mismatch the mission's own payload data (e.g. testing
+    /// a no-payload build against a mission that still has a payload).
     std::optional<bool> includePayload;
 
-    // Truncates every array to this many leading samples. 0 (default) = no
-    // limit (the full mission length).
+    /// Truncates every array to this many leading samples. 0 (default) is
+    /// no limit (the full mission length).
     size_t maxSamples = 0;
 };
 
@@ -96,57 +83,56 @@ class TrajectoryGenerator {
 public:
     explicit TrajectoryGenerator(TrajectoryConfig config);
 
-    // Runs the full pipeline in the same order as apps/main.m:
-    // generatePayloadPath -> generateAircraftPath (+ per-UAV
-    // generateAircraftTakeoff) -> getTethersForces -> getAircraftControls ->
-    // appendTakeoff. Output is in the config's local NED frame -- call
-    // applyFieldCalibration() afterward for a field-adjusted copy.
+    /// Runs the full pipeline: generatePayloadPath, generateAircraftPath
+    /// (with per-UAV generateAircraftTakeoff), tether force solve, aircraft
+    /// controls, then prepends the takeoff phase. Output is in the
+    /// config's local NED frame; call applyFieldCalibration() afterward
+    /// for a field-adjusted copy.
     [[nodiscard]] GeneratedMission generate() const;
 
-    // Rotates + translates an already-generated mission in place: yaws every
-    // position/velocity/acceleration vector by config.fieldHeadingDeg about
-    // the Down axis, then adds `originOffset` (e.g. the real launch point's
-    // NED position relative to the NavigationFrameManager origin, once one
-    // exists). Both default to identity, so calling this with no arguments
-    // on a Phase-0 mission is a no-op. ADR-001 Phase 2 hook -- deliberately
-    // kept separate from generate() so Phase 0 output is exactly the MATLAB
-    // reference, uncomplicated by calibration math.
+    /// Rotates and translates an already-generated mission in place: yaws
+    /// every position/velocity/acceleration vector by
+    /// config.fieldHeadingDeg about the Down axis, then adds
+    /// `originOffset` (e.g. the real launch point's NED position relative
+    /// to the NavigationFrameManager origin). Both arguments default to
+    /// identity, so calling this with no arguments is a no-op. Kept
+    /// separate from generate() so that function's output stays exactly
+    /// the unadjusted MATLAB-equivalent reference, uncomplicated by
+    /// calibration math.
     static void applyFieldCalibration(GeneratedMission& mission, double fieldHeadingDeg, const Vec3d& originOffset = Vec3d::zeros());
 
-    // ADR-001 follow-up: rigidly translates each UAV's ENTIRE generated
-    // trajectory (already field-calibrated, i.e. real-world NED) so its
-    // first (launch) sample lands exactly on a measured live GPS fix,
-    // instead of wherever phase/z0/tetherLengthAtLaunch happen to place it.
-    // Position-only -- velocity/acceleration/attitude are left untouched,
-    // since a pure translation doesn't change any of them. Independent per
-    // UAV, so e.g. two UAVs at different launcher heights each land exactly
-    // on their own measured fix, without the averaging
-    // TrajectoryConfig::AircraftPath::z0/tetherLengthAtLaunch need (those
-    // are single values shared by every UAV). `liveLaunchPositionsNed[k]`
-    // (nullopt = no correction for that UAV) must line up with
-    // `mission.aircraft[k]` -- call this BEFORE extractSubset(), while that
-    // indexing still matches the full mission. A no-op when every entry is
-    // nullopt (or the vector is shorter than/empty vs. mission.aircraft),
-    // matching every other ADR-001 addition's default-off convention.
+    /// Rigidly translates each UAV's entire generated trajectory (already
+    /// field-calibrated, i.e. real-world NED) so its first (launch) sample
+    /// lands exactly on a measured live GPS fix, instead of wherever
+    /// phase/z0/tetherLengthAtLaunch would otherwise place it.
+    /// Position-only; velocity/acceleration/attitude are left untouched,
+    /// since a pure translation doesn't change them. Independent per UAV,
+    /// so e.g. two UAVs at different launcher heights each land exactly on
+    /// their own measured fix, without the averaging
+    /// TrajectoryConfig::AircraftPath::z0/tetherLengthAtLaunch would need
+    /// (those are single values shared by every UAV).
+    /// @param liveLaunchPositionsNed Indexed the same as `mission.aircraft`
+    ///        (nullopt = no correction for that UAV); call this before
+    ///        extractSubset(), while that indexing still matches the full
+    ///        mission. A no-op when every entry is nullopt.
     static void snapToLiveLaunchPositions(GeneratedMission& mission,
         const std::vector<std::optional<Vec3d>>& liveLaunchPositionsNed);
 
-    // Flattens a mission into the exact [x0 u0 x1 u1 ... xN uN] stride format
-    // NMPCController::loadTrajectory()/setReferenceTrajectory() expect: each
-    // stage is numUavs blocks of 8 states (N,E,D,vN,vE,vD,roll,pitch)
-    // followed by, if hasPayload, one block of 6 (N,E,D,vN,vE,vD), then
-    // numUavs blocks of 3 controls (thrust,roll,pitch) -- matching
-    // NMPCController::kUavBlockSize/kPayloadBlockSize and m_extractControls's
-    // control layout.
+    /// Flattens a mission into the exact [x0 u0 x1 u1 ... xN uN] stride
+    /// format NMPCController::loadTrajectory()/setReferenceTrajectory()
+    /// expect: each stage is numUavs state blocks of 8
+    /// (N,E,D,vN,vE,vD,roll,pitch), then, if hasPayload, one state block
+    /// of 6 (N,E,D,vN,vE,vD), then numUavs control blocks of 3
+    /// (thrust,roll,pitch); matches
+    /// NMPCController::kUavBlockSize/kPayloadBlockSize and
+    /// m_extractControls's control layout.
     [[nodiscard]] static std::vector<double> toSolverReference(const GeneratedMission& mission, bool hasPayload = true);
 
-    // Slices `mission` down to `selection.uavIndices` (or all aircraft, if
-    // nullopt) and the first `selection.maxSamples` samples (or all of them,
-    // if 0). The payload array is always copied through untouched (just
-    // truncated to the same sample count) regardless of
-    // `selection.includePayload` -- that field only tells a *caller* what to
-    // pass to toSolverReference()'s `hasPayload`, since an unused-but-
-    // correctly-shaped payload array is harmless there.
+    /// Slices `mission` down to `selection.uavIndices` (or all aircraft,
+    /// if nullopt) and the first `selection.maxSamples` samples (or all,
+    /// if 0). The payload array is always copied through untouched (just
+    /// truncated); `selection.includePayload` only tells a caller what to
+    /// pass to toSolverReference()'s `hasPayload`.
     [[nodiscard]] static GeneratedMission extractSubset(const GeneratedMission& mission, const SubsetSelection& selection);
 
 private:
