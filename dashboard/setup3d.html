@@ -244,9 +244,11 @@
 
 
     const PLANE_MODEL_URL = './models/aircraft.obj';
-    const PLANE_MODEL_SCALE = 3;
+    const PLANE_MODEL_SCALE = 2;
     let planeTemplate = null;
     new OBJLoader().loadAsync(PLANE_MODEL_URL).then(obj => { planeTemplate = obj; });
+
+    const PLANE_MODEL_ALIGNMENT = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), -Math.PI / 2);
 
     /* ---------- 1. Real reference trajectory + origin, fetched from the GCS ----------
      * Two static reads from the same embedded httplib server, not WebSocket --
@@ -513,7 +515,7 @@
             .multiply(new THREE.Matrix4().makeRotationY(THREE.MathUtils.degToRad(pitchDeg)))
             .multiply(new THREE.Matrix4().makeRotationX(THREE.MathUtils.degToRad(rollDeg)));
         const bodyInScene = new THREE.Matrix4().multiplyMatrices(NED_TO_SCENE, bodyInNed);
-        return new THREE.Quaternion().setFromRotationMatrix(bodyInNed);
+        return new THREE.Quaternion().setFromRotationMatrix(bodyInScene);
     }
 
     /* ---------- per-vehicle trajectory lines + waypoint markers ----------
@@ -969,20 +971,25 @@
         });
     }
 
-    function addLiveMarker(fix, color, label, dashed) {
+    function addLiveMarker(fix, color, label, dashed, isPayload) {
         const group = new THREE.Group();
         const p = nedToScene(fix.north, fix.east, fix.down);
 
         let marker;
-        if (planeTemplate) {
+        if (planeTemplate && !isPayload) {
             marker = planeTemplate.clone(true);
             marker.scale.setScalar(PLANE_MODEL_SCALE);
-            marker.quaternion.copy(nedAttitudeQuaternion(fix.rollDeg ?? 0, fix.pitchDeg ?? 0, fix.yawDeg ?? 0));
+            marker.quaternion.copy(nedAttitudeQuaternion(fix.rollDeg ?? 0, fix.pitchDeg ?? 0, fix.yawDeg ?? 0)).multiply(PLANE_MODEL_ALIGNMENT);
             marker.traverse(o => {
                 if (o.isMesh) {
-                    o.material = new THREE.MeshStandardMaterial({ color, emissive: color, emissiveIntensity: 0.5 });
+                    o.material = new THREE.MeshStandardMaterial({color, emissive: color, emissiveIntensity: 0.5});
                 }
             });
+        } else if (isPayload) {
+            marker = new THREE.Mesh(
+                new THREE.SphereGeometry(0.7),
+                new THREE.MeshStandardMaterial({ color, emissive: color, emissiveIntensity: 0.9 })
+            );
         } else {
             // Fallback while the model is still loading (or if it's missing) so
             // there's never no marker at all.
@@ -1028,10 +1035,10 @@
         if (demoTag) demoTag.hidden = !isDemo;
         if (!snapshot || !snapshot.available) return;
         (snapshot.uavs || []).forEach((fix, i) => {
-            addLiveMarker(fix, DEFAULT_PALETTE[i % DEFAULT_PALETTE.length], fix.id.toUpperCase(), isDemo);
+            addLiveMarker(fix, DEFAULT_PALETTE[i % DEFAULT_PALETTE.length], fix.id.toUpperCase(), isDemo, false);
         });
         if (snapshot.hasPayload) {
-            addLiveMarker(snapshot.payload, 0xffffff, 'PAYLOAD', isDemo);
+            addLiveMarker(snapshot.payload, 0xffffff, 'PAYLOAD', isDemo, true);
         }
         updateLaunchAlignment(snapshot);
     }
@@ -1075,8 +1082,8 @@
         const snapshot = {
             available: true,
             uavs: [
-                { id: 'uav1', ...demoFixFromPhase(5, 27.45, -1.385), rollDeg: 10, pitchDeg: 19, yawDeg: 0},
-                { id: 'uav2', ...demoFixFromPhase(178, 27.45, -1.385), rollDeg: 10, pitchDeg: 19, yawDeg: 180},
+                { id: 'uav1', ...demoFixFromPhase(5, 27.45, -1.385), rollDeg: 10, pitchDeg: 19, yawDeg: 270},
+                { id: 'uav2', ...demoFixFromPhase(178, 27.45, -1.385), rollDeg: 10, pitchDeg: 19, yawDeg: 90},
             ],
             hasPayload: false,
             payload: null,
