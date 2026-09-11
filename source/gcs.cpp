@@ -544,10 +544,12 @@ LivePositionsSnapshot GroundControlStation::m_buildLivePositionsSnapshot() const
         fix.north = s.northMeter;
         fix.east  = s.eastMeter;
         fix.down  = s.downMeter;
+        fix.rollDeg = s.rollDegree;
+        fix.pitchDeg = s.pitchDegree;
+        fix.yawDeg = s.yawDegree;
 
         if (sysId <= numUavs) {
             fix.id = "uav" + std::to_string(sysId);
-            fix.yawDeg = s.yawDegree;
             snap.uavs.push_back(fix);
         } else {
             // Highest sysId(s) = payload, matching NMPCController's own

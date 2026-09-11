@@ -145,8 +145,14 @@
             <div class="empty-hint" id="gen-test-hint">Narrows the same generated mission before it's sent to the controller. For testing a reduced-order NMPC build without a second config. Leave "Enable" off for the normal full-mission behavior.</div>
 
             <div class="section-gap"></div>
+            <span class="ro-label">Demo mode</span>
+            <div class="gen-row"><label for="gen-demo-mode">Use synthetic positions</label><input type="checkbox" id="gen-demo-mode"></div>
+            <div class="gen-row"><label for="gen-demo-payload">Include demo payload</label><input type="checkbox" id="gen-demo-payload" disabled></div>
+            <div class="empty-hint" id="gen-demo-hint">Replaces the live GPS read below with fixed synthetic UAV positions (matching this GCS's own default launch altitude/tether length/phase, so Capture + Generate preview shows a recognizable trajectory right away) -- for seeing what the live markers/legend look like and trying "Capture live positions" + the snap above without a UAV connected. Demo markers get a dashed stem and a "DEMO" tag on the legend so they're never mistaken for a real fix. Turn this back off before a real flight -- "Capture live positions" below writes whatever this is currently showing into the snap fields, demo or real.</div>
+
+            <div class="section-gap"></div>
             <button class="btn" id="gen-capture-btn" style="width:100%">Capture live positions</button>
-            <div class="empty-hint" id="gen-capture-hint">Reads the UAVs' and payload's real live GPS fix right now and fills in the origin offset, phase angles, launch altitude, and length at launch above, from the measured payload-to-UAV (or origin-to-UAV, with no payload link) offset -- and saves each UAV's exact position for "Snap launch point to captured position" above. Works with just one UAV tethered to the ground. Review the values before generating! Click again any time to re-capture (e.g. after moving a UAV on the launcher) -- the saved snap position only changes when you click this button.</div>
+            <div class="empty-hint" id="gen-capture-hint">Reads the UAVs' and payload's real live GPS fix right now and fills in the origin offset, phase angles, launch altitude, and length at launch above, from the measured payload-to-UAV (or origin-to-UAV, with no payload link) offset -- and saves each UAV's exact position for "Snap launch point to captured position" above. Works with just one UAV tethered to the ground. Review the values before generating! Click again any time to re-capture (e.g. after moving a UAV on the launcher) -- the saved snap position only changes when you click this button. Reads the demo positions above instead when Demo mode is on.</div>
 
             <div class="section-gap"></div>
             <div class="btn-row">
@@ -234,6 +240,13 @@
 <script type="module">
     import * as THREE from "three";
     import { OrbitControls } from "three/addons/controls/OrbitControls.js";
+    import { OBJLoader } from "three/addons/loaders/OBJLoader.js";
+
+
+    const PLANE_MODEL_URL = './models/aircraft.obj';
+    const PLANE_MODEL_SCALE = 3;
+    let planeTemplate = null;
+    new OBJLoader().loadAsync(PLANE_MODEL_URL).then(obj => { planeTemplate = obj; });
 
     /* ---------- 1. Real reference trajectory + origin, fetched from the GCS ----------
      * Two static reads from the same embedded httplib server, not WebSocket --
@@ -486,6 +499,21 @@
     /* ---------- Coordinate mapping: NED -> Three.js (x=east, y=up, z=south) ---------- */
     function nedToScene(north, east, down) {
         return new THREE.Vector3(east, -down, -north);
+    }
+
+    const NED_TO_SCENE = new THREE.Matrix4().makeBasis(
+        new THREE.Vector3(0, 0, -1),
+        new THREE.Vector3(1, 0, 0),
+        new THREE.Vector3(0, -1, 0),
+    );
+
+    function nedAttitudeQuaternion(rollDeg, pitchDeg, yawDeg) {
+        const bodyInNed = new THREE.Matrix4()
+            .makeRotationZ(THREE.MathUtils.degToRad(yawDeg))
+            .multiply(new THREE.Matrix4().makeRotationY(THREE.MathUtils.degToRad(pitchDeg)))
+            .multiply(new THREE.Matrix4().makeRotationX(THREE.MathUtils.degToRad(rollDeg)));
+        const bodyInScene = new THREE.Matrix4().multiplyMatrices(NED_TO_SCENE, bodyInNed);
+        return new THREE.Quaternion().setFromRotationMatrix(bodyInNed);
     }
 
     /* ---------- per-vehicle trajectory lines + waypoint markers ----------
@@ -941,23 +969,43 @@
         });
     }
 
-    function addLiveMarker(fix, color, label) {
+    function addLiveMarker(fix, color, label, dashed) {
         const group = new THREE.Group();
         const p = nedToScene(fix.north, fix.east, fix.down);
 
-        // Sized/lit to stand out clearly from the reference-trajectory
-        // waypoint markers during troubleshooting/first flight, when
-        // telling "where the UAV actually is" apart from "where the
-        // reference trajectory says it should be" at a glance matters most.
-        const mat = new THREE.MeshStandardMaterial({ color, emissive: color, emissiveIntensity: 0.9 });
-        const marker = new THREE.Mesh(new THREE.OctahedronGeometry(1.8), mat);
+        let marker;
+        if (planeTemplate) {
+            marker = planeTemplate.clone(true);
+            marker.scale.setScalar(PLANE_MODEL_SCALE);
+            marker.quaternion.copy(nedAttitudeQuaternion(fix.rollDeg ?? 0, fix.pitchDeg ?? 0, fix.yawDeg ?? 0));
+            marker.traverse(o => {
+                if (o.isMesh) {
+                    o.material = new THREE.MeshStandardMaterial({ color, emissive: color, emissiveIntensity: 0.5 });
+                }
+            });
+        } else {
+            // Fallback while the model is still loading (or if it's missing) so
+            // there's never no marker at all.
+            marker = new THREE.Mesh(
+                new THREE.OctahedronGeometry(1.8),
+                new THREE.MeshStandardMaterial({ color, emissive: color, emissiveIntensity: 0.9 })
+            );
+        }
         marker.position.copy(p);
         group.add(marker);
 
-        // stem down to the ground plane so altitude reads clearly
+        // stem down to the ground plane so altitude reads clearly.
+        // Dashed (demo mode) vs. solid (real telemetry) is the marker's own
+        // visual tell for synthetic data, on top of the legend's "DEMO" tag
+        // -- see refreshLivePositions()/the capture handler below.
         const groundPt = nedToScene(fix.north, fix.east, 0);
         const stemGeo = new THREE.BufferGeometry().setFromPoints([p, groundPt]);
-        group.add(new THREE.Line(stemGeo, new THREE.LineBasicMaterial({ color, transparent: true, opacity: 0.5 })));
+        const stemMat = dashed
+            ? new THREE.LineDashedMaterial({ color, transparent: true, opacity: 0.6, dashSize: 0.6, gapSize: 0.4 })
+            : new THREE.LineBasicMaterial({ color, transparent: true, opacity: 0.5 });
+        const stem = new THREE.Line(stemGeo, stemMat);
+        if (dashed) stem.computeLineDistances(); // required by LineDashedMaterial
+        group.add(stem);
 
         // Vehicle-ID billboard label, hovering above the marker (+Y is up
         // in scene space -- see nedToScene()) so it doesn't overlap it.
@@ -969,14 +1017,21 @@
         liveMarkersGroup.add(group);
     }
 
-    function renderLiveMarkers(snapshot) {
+    // `isDemo`: true when `snapshot` came from buildDemoSnapshot() (see the
+    // Demo mode section below) rather than a real GET
+    // /api/trajectory/live-positions read -- draws dashed stems and flips on
+    // the legend's "DEMO" tag so synthetic positions are never mistaken for
+    // a real fix.
+    function renderLiveMarkers(snapshot, isDemo) {
         clearLiveMarkers();
+        const demoTag = document.getElementById('live-legend-demo-tag');
+        if (demoTag) demoTag.hidden = !isDemo;
         if (!snapshot || !snapshot.available) return;
         (snapshot.uavs || []).forEach((fix, i) => {
-            addLiveMarker(fix, DEFAULT_PALETTE[i % DEFAULT_PALETTE.length], fix.id.toUpperCase());
+            addLiveMarker(fix, DEFAULT_PALETTE[i % DEFAULT_PALETTE.length], fix.id.toUpperCase(), isDemo);
         });
         if (snapshot.hasPayload) {
-            addLiveMarker(snapshot.payload, 0xffffff, 'PAYLOAD');
+            addLiveMarker(snapshot.payload, 0xffffff, 'PAYLOAD', isDemo);
         }
         updateLaunchAlignment(snapshot);
     }
@@ -985,24 +1040,88 @@
     // "which color is UAV1 vs UAV2 vs the payload" doesn't have to be
     // re-derived from DEFAULT_PALETTE order during troubleshooting. Built
     // once at page load -- the mapping (index in snapshot.uavs -> palette
-    // color) is fixed, so this never needs to be rebuilt on refresh.
+    // color) is fixed, so this never needs to be rebuilt on refresh. The
+    // "DEMO" tag inside it starts hidden and is toggled by renderLiveMarkers()
+    // on every poll, not rebuilt here.
     function renderLiveLegend() {
         const el = document.getElementById('live-legend');
         if (!el) return;
         const swatch = (hex) => `<span style="display:inline-block;width:9px;height:9px;border-radius:50%;background:#${hex.toString(16).padStart(6, '0')};margin-right:5px;vertical-align:middle"></span>`;
-        el.innerHTML = `${swatch(DEFAULT_PALETTE[0])}UAV1&nbsp;&nbsp;${swatch(DEFAULT_PALETTE[1])}UAV2&nbsp;&nbsp;${swatch(0xffffff)}Payload`;
+        el.innerHTML = `${swatch(DEFAULT_PALETTE[0])}UAV1&nbsp;&nbsp;${swatch(DEFAULT_PALETTE[1])}UAV2&nbsp;&nbsp;${swatch(0xffffff)}Payload`
+            + `<span id="live-legend-demo-tag" hidden style="color:var(--orange);margin-left:8px;font-weight:700">— DEMO</span>`;
+    }
+
+    function demoFixFromPhase(phaseDeg, radiusMeter, downMeters) {
+        const rad = THREE.MathUtils.degToRad(phaseDeg);
+        return {
+            north: radiusMeter * Math.cos(rad),
+            east: radiusMeter * Math.sin(rad),
+            down: downMeters,
+        }
+    }
+
+    // Fixed synthetic UAV1/UAV2 (+ optional payload) positions for Demo
+    // mode (see the sidebar section of the same name), used in place of a
+    // real GET /api/trajectory/live-positions read. Chosen so that
+    // capturing them and generating a preview reproduces this GCS's own
+    // existing defaults -- aircraftZ0Meters=1.382, tetherLengthAtLaunchMeters
+    // =30, phase 0/180 -- rather than an arbitrary-looking layout. The
+    // reference point for that math (see the capture handler below) is
+    // always the origin (0,0,0) whether or not the demo payload is
+    // included, so toggling the payload on/off only adds/removes the
+    // payload marker/alignment readout -- it never changes the UAV numbers.
+    function buildDemoSnapshot(includePayload) {
+
+        const snapshot = {
+            available: true,
+            uavs: [
+                { id: 'uav1', ...demoFixFromPhase(5, 27.45, -1.385), rollDeg: 10, pitchDeg: 19, yawDeg: 0},
+                { id: 'uav2', ...demoFixFromPhase(178, 27.45, -1.385), rollDeg: 10, pitchDeg: 19, yawDeg: 180},
+            ],
+            hasPayload: false,
+            payload: null,
+        };
+        if (includePayload) {
+            snapshot.hasPayload = true;
+            snapshot.payload = { id: 'payload', north: 0, east: 0, down: 0 };
+        }
+        return snapshot;
+    }
+
+    function isDemoModeActive() {
+        return document.getElementById('gen-demo-mode').checked;
+    }
+    function isDemoPayloadActive() {
+        return document.getElementById('gen-demo-payload').checked;
     }
 
     let latestLiveFixes = null;
     async function refreshLivePositions() {
+        if (isDemoModeActive()) {
+            latestLiveFixes = buildDemoSnapshot(isDemoPayloadActive());
+            renderLiveMarkers(latestLiveFixes, true);
+            return;
+        }
         try {
             const res = await fetch('/api/trajectory/live-positions');
             latestLiveFixes = await res.json();
-            renderLiveMarkers(latestLiveFixes);
+            renderLiveMarkers(latestLiveFixes, false);
         } catch (err) {
             console.error('Failed to load live positions:', err);
         }
     }
+
+    // Demo mode toggles apply immediately (rather than waiting up to 2s for
+    // the next poll) and "Include demo payload" is only meaningful while
+    // demo mode itself is on -- greyed out otherwise so it's not mistaken
+    // for a control that also affects real telemetry.
+    document.getElementById('gen-demo-mode').addEventListener('change', () => {
+        document.getElementById('gen-demo-payload').disabled = !isDemoModeActive();
+        refreshLivePositions();
+    });
+    document.getElementById('gen-demo-payload').addEventListener('change', () => {
+        if (isDemoModeActive()) refreshLivePositions();
+    });
 
     /* ---------- fetch origin + trajectory from the real GCS ---------- */
     async function loadOrigin() {
@@ -1240,6 +1359,13 @@
     // actually do anything right now, and with what position. Call this
     // whenever the hidden fields change (after a capture) and once at page
     // load, so a reload showing generator defaults doesn't show stale text.
+    // Sticks past the capture that set it (unlike the one-shot status-pill
+    // message) so the snap status line below keeps warning "demo data" for
+    // as long as that's genuinely what's saved in the snap fields -- e.g. if
+    // the operator captures from demo mode, then walks away and comes back
+    // to hit Apply without re-capturing for real.
+    let lastSnapCaptureWasDemo = false;
+
     function updateSnapStatusText() {
         const el = document.getElementById('gen-snap-status');
         if (!el) return;
@@ -1256,7 +1382,12 @@
             const d = parseFloat(document.getElementById('gen-uav2SnapDownMeters').value) || 0;
             parts.push(`UAV2 (N ${n.toFixed(2)}, E ${e.toFixed(2)}, D ${d.toFixed(2)})`);
         }
-        el.textContent = parts.length ? `Captured: ${parts.join('; ')}. Re-click "Capture live positions" to update.` : 'No position captured yet.';
+        if (!parts.length) {
+            el.textContent = 'No position captured yet.';
+            return;
+        }
+        const demoWarning = lastSnapCaptureWasDemo ? ' [DEMO DATA, not a real fix]' : '';
+        el.textContent = `Captured: ${parts.join('; ')}. Re-click "Capture live positions" to update.${demoWarning}`;
     }
 
     async function loadGeneratorDefaults() {
@@ -1334,12 +1465,14 @@
     }
 
     document.getElementById('gen-capture-btn').addEventListener('click', async () => {
-        setGenStatus('Capturing live positions…', 'busy');
+        const demoActive = isDemoModeActive();
+        setGenStatus(demoActive ? 'Capturing demo positions…' : 'Capturing live positions…', 'busy');
         try {
-            const res = await fetch('/api/trajectory/live-positions');
-            const snap = await res.json();
+            const snap = demoActive
+                ? buildDemoSnapshot(isDemoPayloadActive())
+                : await (await fetch('/api/trajectory/live-positions')).json();
             latestLiveFixes = snap;
-            renderLiveMarkers(snap);
+            renderLiveMarkers(snap, demoActive);
 
             if (!snap.available) {
                 setGenStatus('No live fix yet — waiting for GPS lock / navigation origin.', 'error');
@@ -1413,16 +1546,18 @@
                 document.getElementById('gen-uav2SnapEastMeters').value = uav2.east.toFixed(3);
                 document.getElementById('gen-uav2SnapDownMeters').value = uav2.down.toFixed(3);
             }
+            lastSnapCaptureWasDemo = demoActive;
             updateSnapStatusText();
 
             const missing = [!uav1 && 'UAV 1', !uav2 && 'UAV 2'].filter(Boolean);
             const originNote = snap.hasPayload
                 ? 'origin, '
                 : 'no live payload fix, so origin offset was left as-is (fine if it was already set at the anchor) — ';
+            const demoNote = demoActive ? ' [demo data — not a real fix]' : '';
             if (missing.length) {
-                setGenStatus(`Captured ${originNote}phase, launch altitude, length at launch, and snap position, but no live fix for ${missing.join(' and ')} — its phase angle and snap position were left unchanged.`, 'preview');
+                setGenStatus(`Captured ${originNote}phase, launch altitude, length at launch, and snap position, but no live fix for ${missing.join(' and ')} — its phase angle and snap position were left unchanged.${demoNote}`, 'preview');
             } else {
-                setGenStatus(`Captured ${originNote}phase, launch altitude, length at launch, and snap position — review the values above, then Generate preview.`, 'preview');
+                setGenStatus(`Captured ${originNote}phase, launch altitude, length at launch, and snap position — review the values above, then Generate preview.${demoNote}`, 'preview');
             }
         } catch (err) {
             console.error('Failed to capture live positions:', err);

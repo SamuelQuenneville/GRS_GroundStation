@@ -524,11 +524,12 @@ struct TrajectoryGenerationParams {
 struct LiveVehicleFix {
     std::string id;      // e.g. "uav1", "payload"
     double north = 0.0, east = 0.0, down = 0.0;
-    double yawDeg = 0.0; // 0 for the payload, which has no independent heading
+    double rollDeg = 0.0, pitchDeg = 0.0, yawDeg = 0.0;
 
     std::string toJson() const {
         JsonWriter root;
-        root.add("id", id).add("north", north).add("east", east).add("down", down).add("yawDeg", yawDeg);
+        root.add("id", id).add("north", north).add("east", east).add("down", down)
+            .add("rollDeg", rollDeg).add("pitchDeg", pitchDeg).add("yawDeg", yawDeg);
         return root.str();
     }
 };
