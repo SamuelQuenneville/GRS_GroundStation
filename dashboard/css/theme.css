@@ -521,8 +521,8 @@ input[type="range"] { width: 100%; accent-color: var(--blue); }
  */
 .floating-panel {
     position: absolute;
-    left: 14px; bottom: 14px;
-    width: 340px; height: 440px;
+    left: 14px; top: 14px;
+    width: 340px; height: 380px;
     min-width: 260px; min-height: 220px;
     max-width: calc(100% - 28px);
     max-height: calc(100% - 28px);

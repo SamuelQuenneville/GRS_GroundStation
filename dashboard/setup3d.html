@@ -45,8 +45,8 @@
             <text x="46" y="30" fill="#8890a0" font-size="8" text-anchor="middle">E</text>
         </svg></div>
         <div id="tooltip"></div>
-        <div id="error-banner" style="display:none;position:absolute;left:14px;top:14px;right:14px;max-width:640px;background:#2a1218;border:1px solid var(--red);color:#ffd6d6;border-radius:8px;padding:12px 14px;font-size:12.5px;line-height:1.5;"></div>
-        <div id="live-legend" title="Live UAV/payload marker colors" style="position:absolute;left:14px;bottom:14px;background:rgba(15,17,21,0.75);border:1px solid var(--border);color:var(--text);border-radius:8px;padding:6px 10px;font-size:11.5px;line-height:1.6;pointer-events:none;"></div>
+        <div id="error-banner" style="display:none;position:absolute;left:14px;top:14px;right:14px;max-width:640px;background:#2a1218;border:1px solid var(--red);color:#ffd6d6;border-radius:8px;padding:12px 14px;font-size:12px;line-height:1.5;"></div>
+        <div id="live-legend" title="Live UAV/payload marker colors" style="position:absolute;left:14px;bottom:14px;background:rgba(15,17,21,0.75);border:1px solid var(--border);color:var(--text);border-radius:8px;padding:6px 10px;font-size:12px;line-height:1.6;pointer-events:none;"></div>
 
         <div class="floating-panel" id="timeseries-panel" hidden>
             <div class="floating-panel-head">
@@ -84,7 +84,7 @@
         </div>
 
         <div class="card" id="generator-card">
-            <h3>GENERATOR</h3>
+            <h3>TRAJECTORY OPTIONS</h3>
             <div class="section-gap"></div>
 
             <span class="ro-label">Aircraft path</span>
@@ -114,7 +114,6 @@
             <span class="ro-label">Tether slip clutch</span>
             <div class="gen-row"><label for="gen-tetherLengthAtLaunchMeters">Length at launch (m)</label><input type="number" id="gen-tetherLengthAtLaunchMeters" step="0.1"></div>
             <div class="gen-row"><label for="gen-tetherPayoutDurationSeconds">Rollout duration (s)</label><input type="number" id="gen-tetherPayoutDurationSeconds" step="0.1"></div>
-            <div class="empty-hint">If "Length at launch" is shorter than "Tether length", the generator ramps it smoothly to full length rollout duration.</div>
 
             <div class="section-gap"></div>
             <span class="ro-label">Field calibration</span>
@@ -128,31 +127,34 @@
             <div class="gen-row"><label for="gen-uav1PhaseDeg">UAV 1 phase (deg)</label><input type="number" id="gen-uav1PhaseDeg" step="1"></div>
             <div class="gen-row"><label for="gen-uav2PhaseDeg">UAV 2 phase (deg)</label><input type="number" id="gen-uav2PhaseDeg" step="1"></div>
             <div class="gen-row"><label for="gen-aircraftZ0Meters">Altitude on launcher (m)</label><input type="number" id="gen-aircraftZ0Meters" step="0.05"></div>
-            <div class="empty-hint">NED-down offset of the aircraft on the launcher at t=0, relative to the payload (or the origin/anchor). Sets the launch tether's elevation angle together with "Length at launch" above -- guessing this wrong shifts every takeoff waypoint even if phase and length are right. "Capture live positions" below fills it in from the real live fix.</div>
-            <div class="gen-row"><label for="gen-snapToLiveLaunchPosition">Snap launch point to captured position</label><input type="checkbox" id="gen-snapToLiveLaunchPosition"></div>
-            <div class="empty-hint" id="gen-snap-hint">Shifts each UAV's whole trajectory so waypoint 0 lands exactly on the position captured with "Capture live positions" below -- a guaranteed-exact alternative to getting phase/altitude/length above just right. Per-UAV (no shared-value averaging with two UAVs), but position-only: it doesn't change the climb angle/velocity direction those three still imply. Uses whatever was last captured, unchanged, until you capture again -- it does NOT re-read live GPS on every Generate/Apply. UAVs never captured are left as generated.</div>
             <input type="checkbox" id="gen-uav1SnapCaptured" hidden><input type="number" id="gen-uav1SnapNorthMeters" hidden><input type="number" id="gen-uav1SnapEastMeters" hidden><input type="number" id="gen-uav1SnapDownMeters" hidden>
             <input type="checkbox" id="gen-uav2SnapCaptured" hidden><input type="number" id="gen-uav2SnapNorthMeters" hidden><input type="number" id="gen-uav2SnapEastMeters" hidden><input type="number" id="gen-uav2SnapDownMeters" hidden>
-            <div class="empty-hint" id="gen-snap-status" style="color:var(--text-dim)">No position captured yet.</div>
 
             <div class="section-gap"></div>
-            <span class="ro-label">Testing, reduced-order NMPC build</span>
+            <span class="ro-label" style="color:var(--orange)">Testing, reduced-order NMPC build</span>
+            <div class="empty-hint" id="gen-test-hint">Narrows the same generated mission before it's sent to the controller.</div>
             <div class="gen-row"><label for="gen-testEnabled">Enable</label><input type="checkbox" id="gen-testEnabled"></div>
             <div class="gen-row"><label for="gen-testIncludeUav1">Include UAV 1</label><input type="checkbox" id="gen-testIncludeUav1"></div>
             <div class="gen-row"><label for="gen-testIncludeUav2">Include UAV 2</label><input type="checkbox" id="gen-testIncludeUav2"></div>
             <div class="gen-row"><label for="gen-testIncludePayload">Include payload</label><input type="checkbox" id="gen-testIncludePayload"></div>
             <div class="gen-row"><label for="gen-testMaxDurationSeconds">Max duration (s)</label><input type="number" id="gen-testMaxDurationSeconds" step="1" min="0"></div>
-            <div class="empty-hint" id="gen-test-hint">Narrows the same generated mission before it's sent to the controller. For testing a reduced-order NMPC build without a second config. Leave "Enable" off for the normal full-mission behavior.</div>
 
             <div class="section-gap"></div>
-            <span class="ro-label">Demo mode</span>
+            <span class="ro-label" style="color:var(--orange)">Demo mode</span>
+            <div class="empty-hint" id="gen-demo-hint">Replaces the live GPS read below with fixed synthetic UAV positions.</div>
             <div class="gen-row"><label for="gen-demo-mode">Use synthetic positions</label><input type="checkbox" id="gen-demo-mode"></div>
             <div class="gen-row"><label for="gen-demo-payload">Include demo payload</label><input type="checkbox" id="gen-demo-payload" disabled></div>
-            <div class="empty-hint" id="gen-demo-hint">Replaces the live GPS read below with fixed synthetic UAV positions (matching this GCS's own default launch altitude/tether length/phase, so Capture + Generate preview shows a recognizable trajectory right away) -- for seeing what the live markers/legend look like and trying "Capture live positions" + the snap above without a UAV connected. Demo markers get a dashed stem and a "DEMO" tag on the legend so they're never mistaken for a real fix. Turn this back off before a real flight -- "Capture live positions" below writes whatever this is currently showing into the snap fields, demo or real.</div>
+
+            <div class="section-gap"></div>
+
+        </div>
+
+        <div class="card">
+            <h3>CAPTURE & GENERATE</h3>
 
             <div class="section-gap"></div>
             <button class="btn" id="gen-capture-btn" style="width:100%">Capture live positions</button>
-            <div class="empty-hint" id="gen-capture-hint">Reads the UAVs' and payload's real live GPS fix right now and fills in the origin offset, phase angles, launch altitude, and length at launch above, from the measured payload-to-UAV (or origin-to-UAV, with no payload link) offset -- and saves each UAV's exact position for "Snap launch point to captured position" above. Works with just one UAV tethered to the ground. Review the values before generating! Click again any time to re-capture (e.g. after moving a UAV on the launcher) -- the saved snap position only changes when you click this button. Reads the demo positions above instead when Demo mode is on.</div>
+            <div class="gen-row"><label for="gen-snapToLiveLaunchPosition">Snap launch point to captured position</label><input type="checkbox" id="gen-snapToLiveLaunchPosition"></div>
 
             <div class="section-gap"></div>
             <div class="btn-row">
@@ -160,8 +162,10 @@
                 <button class="btn primary" id="gen-apply-btn" style="flex:1">Apply to controller</button>
             </div>
             <div class="section-gap"></div>
-            <div class="pill" id="gen-status-pill"><span class="dot" style="background:var(--text-dim)"></span><span id="gen-status-text">No preview generated yet</span></div>
+            <div class="empty-hint" id="gen-snap-status" style="color:var(--text-dim)">No position captured yet.</div>
             <div class="empty-hint" id="gen-alignment-hint"></div>
+            <div class="pill" id="gen-status-pill"><span class="dot" style="background:var(--text-dim)"></span><span id="gen-status-text">No preview generated yet</span></div>
+
         </div>
 
         <div class="card">
@@ -922,14 +926,11 @@
     originGroup.add(originRing, originPin);
     scene.add(originGroup);
 
-    /* ---------- live UAV/payload markers (ADR-001 Phase 3) ----------
+    /*
      * Distinct from the reference-trajectory markers above: these track
      * GET /api/trajectory/live-positions (real GPS-derived NED, polled
      * periodically -- there's no WebSocket push for this, it's a one-shot
-     * read like /api/origin). Rendered as small bright diamonds so they
-     * don't get lost among the reference-trajectory dots; a thin vertical
-     * stem drops each marker to the ground plane, since GPS altitude alone
-     * can be hard to judge from an orbiting 3D camera.
+     * read like /api/origin).
      */
     const liveMarkersGroup = new THREE.Group();
     scene.add(liveMarkersGroup);
@@ -1000,19 +1001,6 @@
         }
         marker.position.copy(p);
         group.add(marker);
-
-        // stem down to the ground plane so altitude reads clearly.
-        // Dashed (demo mode) vs. solid (real telemetry) is the marker's own
-        // visual tell for synthetic data, on top of the legend's "DEMO" tag
-        // -- see refreshLivePositions()/the capture handler below.
-        const groundPt = nedToScene(fix.north, fix.east, 0);
-        const stemGeo = new THREE.BufferGeometry().setFromPoints([p, groundPt]);
-        const stemMat = dashed
-            ? new THREE.LineDashedMaterial({ color, transparent: true, opacity: 0.6, dashSize: 0.6, gapSize: 0.4 })
-            : new THREE.LineBasicMaterial({ color, transparent: true, opacity: 0.5 });
-        const stem = new THREE.Line(stemGeo, stemMat);
-        if (dashed) stem.computeLineDistances(); // required by LineDashedMaterial
-        group.add(stem);
 
         // Vehicle-ID billboard label, hovering above the marker (+Y is up
         // in scene space -- see nedToScene()) so it doesn't overlap it.
@@ -1289,7 +1277,7 @@
     loadOrigin();
     loadTrajectoryFromServer();
 
-    /* ---------- ADR-001 Phase 2: trajectory generator sidebar ----------
+    /*
      * GET  /api/trajectory/generator-defaults -> flat TrajectoryGenerationParams JSON, seeds the inputs.
      * POST /api/trajectory/generate  -> pure preview, same { vehicles: [...] } shape as GET /api/trajectory.
      *                                    Does NOT touch the controller.
@@ -1311,7 +1299,7 @@
         'testMaxDurationSeconds',
     ];
 
-    // ADR-001 Phase 4: reduced-order testing checkboxes -- read/written via
+    // Reduced-order testing checkboxes -- read/written via
     // .checked rather than parseFloat(...).value like GEN_FIELDS above. The
     // snap fields carry the "Capture live positions" button's saved result
     // across repeated Generate/Apply clicks -- see the click handler below.
@@ -1497,10 +1485,7 @@
             // Reference point for phase/geometry: the payload's live fix when
             // there is one (2-UAV lifting mission), otherwise the local
             // origin itself (0,0,0) -- the right stand-in for a single UAV
-            // tethered to a fixed ground anchor (ADR-001 Phase 4's reduced
-            // system), since the origin marker IS "the launch point" by
-            // definition (see the origin-marker comment above) as long as
-            // the anchor's own GPS was used to set it.
+            // tethered to a fixed ground anchor.
             const reference = snap.hasPayload ? snap.payload : { north: 0, east: 0, down: 0 };
 
             if (snap.hasPayload) {
@@ -1564,7 +1549,7 @@
             if (missing.length) {
                 setGenStatus(`Captured ${originNote}phase, launch altitude, length at launch, and snap position, but no live fix for ${missing.join(' and ')} — its phase angle and snap position were left unchanged.${demoNote}`, 'preview');
             } else {
-                setGenStatus(`Captured ${originNote}phase, launch altitude, length at launch, and snap position — review the values above, then Generate preview.${demoNote}`, 'preview');
+                setGenStatus(`Captured ${originNote}phase, launch altitude, length at launch, and snap position.${demoNote}`, 'preview');
             }
         } catch (err) {
             console.error('Failed to capture live positions:', err);
