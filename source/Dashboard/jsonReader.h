@@ -11,12 +11,12 @@
 
 #pragma once
 
-// Minimal counterpart to jsonWriter.h -- this codebase deliberately doesn't
-// pull in a JSON library (see jsonWriter.h's comment), so this only reads
-// what it needs to: a bare number following "key": in a flat JSON object.
-// Not a general JSON parser -- fine for POST bodies our own dashboard
-// frontend sends (see TrajectoryGenerationParams::fromJson in
-// dashboardTypes.h), not for parsing arbitrary/untrusted JSON.
+/**
+ * @brief Minimal counterpart to JsonWriter -- reads one key at a time out
+ * of a flat JSON object. Not a general JSON parser: only for POST bodies
+ * the dashboard's own frontend sends (see docs/Dashboard.md), never for
+ * arbitrary/untrusted JSON.
+ */
 
 #include <cctype>
 #include <string>
@@ -26,8 +26,9 @@ class JsonReader {
 public:
     explicit JsonReader(std::string body) : m_body(std::move(body)) {}
 
-    // Returns `fallback` if `key` isn't present or isn't followed by a plain
-    // number (covers missing fields, and true/false/null/objects/arrays).
+    /// @param fallback Returned if `key` is missing or not followed by a
+    ///        plain number (covers missing fields, and true/false/null/
+    ///        objects/arrays).
     [[nodiscard]] double getNumber(const std::string& key, const double fallback) const {
         const std::string needle = "\"" + key + "\"";
         size_t pos = m_body.find(needle);
@@ -50,9 +51,10 @@ public:
         }
     }
 
-    // Returns `fallback` if `key` isn't present or isn't followed by a
-    // literal `true`/`false` -- JsonWriter::add(key, bool) is what emits
-    // those (see jsonWriter.h), not 0/1, so getNumber() can't read them back.
+    /// @param fallback Returned if `key` is missing or not followed by a
+    ///        literal `true`/`false` (JsonWriter::add(key, bool) always
+    ///        emits one of those, never 0/1, so getNumber() can't read a
+    ///        bool field back).
     [[nodiscard]] bool getBool(const std::string& key, const bool fallback) const {
         const std::string needle = "\"" + key + "\"";
         size_t pos = m_body.find(needle);

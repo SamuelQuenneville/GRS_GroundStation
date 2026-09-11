@@ -20,6 +20,8 @@
 
 extern char **environ;
 
+/// Opens the dashboard in an app-style browser window on startup. See
+/// docs/Dashboard.md for the hardcoded-browser-name gotcha on VMware/Mesa.
 class BrowserLauncher {
 
 public:
@@ -30,7 +32,10 @@ public:
         std::error_code error{};
     };
 
-
+    /// @param url Opened via `chromium --app=<url>`.
+    /// @return `success=false` with `error` set if the spawn itself failed
+    ///         (e.g. chromium not installed), does not confirm the
+    ///         browser actually rendered anything.
     static Result launch(const std::string_view url) {
         std::vector<std::string> arguments =
         {
@@ -48,7 +53,6 @@ public:
         }
 
         argv.push_back(nullptr);
-
 
         // Custom environment
         std::vector<std::string> environment = {"GTK_MODULES=",};
@@ -80,10 +84,10 @@ public:
 
 
         if (rc != 0) {
-            return {false, -1, std::error_code(rc, std::generic_category())};
+            return {.success = false, .pid = -1, .error = std::error_code(rc, std::generic_category())};
         }
 
-        return {true,pid,{}};
+        return {.success = true, .pid = pid, .error = {}};
     }
 
 private:

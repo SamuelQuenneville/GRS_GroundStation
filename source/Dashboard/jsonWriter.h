@@ -12,9 +12,13 @@
 
 #pragma once
 
-// Minimal helper for building small, flat-ish JSON objects without pulling in
-// an external JSON library. This is only meant for *emitting* the telemetry
-// payloads the dashboard sends to the browser -- it does not parse JSON.
+/**
+ * @brief Builds a small, flat JSON object without an external JSON library.
+ *
+ * See docs/Dashboard.md for why this exists and its scope (flat objects
+ * only; use addRaw() to nest pre-serialized JSON). Not a general JSON
+ * writer -- only for the dashboard's own telemetry payloads.
+ */
 
 #include <sstream>
 #include <string>
@@ -52,14 +56,15 @@ public:
         return *this;
     }
 
-    // Embeds an already-serialized JSON value (object/array/etc.) verbatim,
-    // e.g. for nesting one JsonWriter's output inside another.
+    /// Embeds an already-serialized JSON value (object/array/etc.) verbatim
+    /// under `key`, e.g. to nest one JsonWriter's output inside another.
     JsonWriter& addRaw(const std::string& key, const std::string& rawJson) {
         separator();
         oss_ << quote(key) << ":" << rawJson;
         return *this;
     }
 
+    /// @return The accumulated object, closed with a trailing `}`.
     std::string str() const { return oss_.str() + "}"; }
 
 private:

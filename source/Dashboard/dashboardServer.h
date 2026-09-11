@@ -23,13 +23,17 @@
 #include "httplib.h"
 #include "dashboardTypes.h"
 
+/// Embedded HTTP + WebSocket server for the operator dashboard. See
+/// docs/Dashboard.md for the REST endpoint table, the snapshot-cache-and-
+/// serve threading model, and the handler-injection pattern used below.
 class DashboardServer {
 
 public:
-    // port: the single port the dashboard is served on (static files +
-    //       WebSocket both happen here, at ws(s)://host:port/ws).
-    // staticRoot: path to resources/dashboard (contains index.html/css/js).
-    // broadcastRateHz: how often buffered telemetry is pushed to clients.
+    /// @param port Single port serving both static files and the
+    ///        WebSocket endpoint (ws(s)://host:port/ws).
+    /// @param staticRoot Path to the directory containing index.html/css/js.
+    /// @param broadcastRateHz How often buffered telemetry is pushed to
+    ///        clients.
     DashboardServer(uint16_t port, std::string staticRoot, int broadcastRateHz = 5);
     ~DashboardServer();
 
@@ -39,8 +43,8 @@ public:
     void start();
     void stop();
 
-    // Thread-safe.
-    // Just updates the buffered snapshot, the broadcast thread decides when to actually send it out.
+    /// Thread-safe. Only updates the buffered snapshot -- the broadcast
+    /// thread decides when to actually send it out.
     void updateTelemetry(const UavTelemetrySnapshot& snapshot);
     void updatePayloadTelemetry(const PayloadTelemetrySnapshot& snapshot);
     void updateLauncherTelemetry(const LauncherTelemetrySnapshot& snapshot);
@@ -48,38 +52,31 @@ public:
     void setOrigin(const OriginSnapshot& snapshot);
     void setTrajectory(const TrajectorySnapshot& snapshot);
 
-    // ADR-001 Phase 2: trajectory-generation sidebar on setup3d.html.
-    // `defaults` seeds the UI (GET /api/trajectory/generator-defaults).
-    // `generateHandler` answers POST /api/trajectory/generate -- pure
-    // preview, must not mutate controller state. `applyHandler` answers
-    // POST /api/trajectory/apply -- commits, and its return value is what's
-    // sent back as this request's response (callers typically re-derive it
-    // from the now-updated controller rather than reusing the preview, so
-    // the response reflects what's actually loaded). Both handlers may
-    // throw; the exception's what() is returned as a 400 JSON error body.
+    /// Wires the trajectory-generator sidebar on setup3d.html; see
+    /// docs/Dashboard.md's REST endpoint table for what each handler
+    /// backs. `generateHandler` must not mutate controller state (pure
+    /// preview); `applyHandler` commits, and its return value is sent back
+    /// as the response. Both may throw -- caught and returned as a 400
+    /// JSON error body.
     void setTrajectoryGeneratorDefaults(const TrajectoryGenerationParams& defaults);
     void setTrajectoryGenerateHandler(std::function<TrajectorySnapshot(const TrajectoryGenerationParams&)> handler);
     void setTrajectoryApplyHandler(std::function<TrajectorySnapshot(const TrajectoryGenerationParams&)> handler);
 
-    // ADR-001 Phase 3: "Capture live positions" in the generator sidebar --
-    // answers GET /api/trajectory/live-positions. Computed on demand (not
-    // cached/pushed) since it's only read on an explicit operator click, not
-    // at telemetry rates.
+    /// Backs GET /api/trajectory/live-positions ("Capture live positions").
+    /// Computed on demand, not cached/pushed -- only read on an explicit
+    /// operator click, not at telemetry rates.
     void setLivePositionsHandler(std::function<LivePositionsSnapshot()> handler);
 
-    // "Set origin from payload GPS" button on setup3d.html -- answers
-    // POST /api/origin/from-payload. `handler` should capture the payload's
-    // current GPS fix and set it as the NavigationFrameManager origin,
-    // returning the resulting OriginSnapshot; may throw (-> 400 JSON error,
-    // same convention as the trajectory generate/apply handlers) if no
-    // payload GPS fix is available yet.
+    /// Backs POST /api/origin/from-payload ("Set origin from payload GPS").
+    /// `handler` should capture the payload's current GPS fix, set it as
+    /// the NavigationFrameManager origin, and return the resulting
+    /// OriginSnapshot; may throw if no payload GPS fix is available yet.
     void setOriginFromPayloadHandler(std::function<OriginSnapshot()> handler);
 
-    // "Save current trajectory" button on setup3d.html -- answers
-    // POST /api/trajectory/save. `handler` should write whatever's
-    // currently loaded in the NMPC controller to disk and return the path
-    // written to; may throw (-> 400 JSON error, same convention as the
-    // other handlers) if there's nothing to save or the write fails.
+    /// Backs POST /api/trajectory/save ("Save current trajectory").
+    /// `handler` should write whatever's currently loaded in the NMPC
+    /// controller to disk and return the path written to; may throw if
+    /// there's nothing to save or the write fails.
     void setSaveTrajectoryHandler(std::function<std::string()> handler);
 
     size_t connectedBrowserCount() const;
