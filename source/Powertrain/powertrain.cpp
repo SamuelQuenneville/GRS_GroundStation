@@ -8,7 +8,18 @@
 
 #include "powertrain.h"
 
-inline evalResult evalThrustModel(const float n, const float x, const float y, const float z, const float phi, const float psi, const float thrustTarget) {
+namespace {
+    /// APC 16x8E propeller thrust model, fit from wind tunnel data:
+    /// thrust = (-x*u^2 - y*u + z) * rho * rps^2 * D^4, u = airspeed / (rps*D).
+    constexpr float kAirDensity = 1.225f;            // [kg/m^3]
+    constexpr float kPropDiameter = 16.0f * 0.0254f; // [m]
+    constexpr float kThrustCoeffX = 0.1588f;
+    constexpr float kThrustCoeffY = 0.0106f;
+    constexpr float kThrustCoeffZ = 0.0757f;
+}
+
+
+inline evalResult evalThrustModel(const float n, const float phi, const float psi, const float thrustTarget) {
     const float inv_n  = 1.0f / n;
     const float inv_n2 = inv_n * inv_n;
     const float inv_n3 = inv_n2 * inv_n;
@@ -16,7 +27,7 @@ inline evalResult evalThrustModel(const float n, const float x, const float y, c
     const float n2   = n * n;
     const float phi2 = phi * phi;
 
-    const float inner = -x * phi2 * inv_n2 - y * phi * inv_n + z;
+    const float inner = -kThrustCoeffX * phi2 * inv_n2 - kThrustCoeffY * phi * inv_n + kThrustCoeffZ;
 
     evalResult out{};
 
@@ -24,7 +35,7 @@ inline evalResult evalThrustModel(const float n, const float x, const float y, c
     out.f = inner * psi * n2 - thrustTarget;
 
     // df
-    const float term1 = (2.0f * x * phi2 * inv_n3 + y * phi * inv_n2) * psi * n2;
+    const float term1 = (2.0f * kThrustCoeffX * phi2 * inv_n3 + kThrustCoeffY * phi * inv_n2) * psi * n2;
     const float term2 = inner * 2.0f * psi * n;
 
     out.df = term1 + term2;
@@ -32,14 +43,14 @@ inline evalResult evalThrustModel(const float n, const float x, const float y, c
     return out;
 }
 
-float f(const float n, const float x, const float y, const float z, const float phi, const float psi, const float thrustTarget)
+float f(const float n, const float phi, const float psi, const float thrustTarget)
 {
-    return (-x*phi*phi/(n*n) - y*phi/n + z) * psi*n*n - thrustTarget;
+    return (-kThrustCoeffX*phi*phi/(n*n) - kThrustCoeffY*phi/n + kThrustCoeffZ) * psi*n*n - thrustTarget;
 }
 
-float df(const float n, const float x, const float y, const float z, const float phi, const float psi)
+float df(const float n, const float phi, const float psi)
 {
-    return (2*x*phi*phi/(n*n*n) + y*phi/(n*n)) * psi*n*n + (-x*phi*phi/(n*n) - y*phi/n + z) * 2*psi*n;
+    return (2*kThrustCoeffX*phi*phi/(n*n*n) + kThrustCoeffY*phi/(n*n)) * psi*n*n + (-kThrustCoeffX*phi*phi/(n*n) - kThrustCoeffY*phi/n + kThrustCoeffZ) * 2*psi*n;
 }
 
 /*
@@ -51,15 +62,8 @@ double thrust2rpm(const float airspeed, const float thrustTarget) {
     if (thrustTarget <= 2.0f)
         return 0.0;
 
-    constexpr float rho = 1.225;      // air density in kg/m^2
-    constexpr float D = 16*0.0254;    // propeller diameter in meter
-    const float phi = 60*airspeed/D;
-    constexpr float psi = rho*D*D*D*D/3600.0f;
-
-    // Define with wind tunnel testing
-    constexpr float x = 0.1588;
-    constexpr float y = 0.0106;
-    constexpr float z = 0.0757;
+    const float phi = 60*airspeed/kPropDiameter;
+    constexpr float psi = kAirDensity*kPropDiameter*kPropDiameter*kPropDiameter*kPropDiameter/3600.0f;
 
     float x0 = 4000;        // initial guess about half range
     float x1 = 0;
@@ -69,11 +73,11 @@ double thrust2rpm(const float airspeed, const float thrustTarget) {
     int i = 0;
     while (std::fabs(res) > 10.0f && i++ < MAX_ITER_RPM)
     {
-        const auto [f0, df0] = evalThrustModel(x0, x, y, z, phi, psi, thrustTarget);
+        const auto [f0, df0] = evalThrustModel(x0, phi, psi, thrustTarget);
 
         x1 = x0 - f0/df0;
 
-        res = f(x1,x,y,z,phi,psi,thrustTarget);
+        res = f(x1, phi, psi, thrustTarget);
         x0 = x1;
     }
 
@@ -85,31 +89,14 @@ double thrust2rpm(const float airspeed, const float thrustTarget) {
 }
 
 double rpm2thrust(const float airspeed, const float rpmTarget) {
-    constexpr float rho = 1.225;      // air density in kg/m^2
-    constexpr float D = 16*0.0254;    // propeller diameter in meter
-
     const float rps = rpmTarget / 60.0f;
-    const float airspeedOverRpsD = airspeed / (rps*D);
+    const float airspeedOverRpsD = airspeed / (rps*kPropDiameter);
 
-    // Define with wind tunnel testing
-    constexpr float x = 0.1588;
-    constexpr float y = 0.0106;
-    constexpr float z = 0.0757;
-
-    return (-x * airspeedOverRpsD*airspeedOverRpsD - y * airspeedOverRpsD + z) * rho * rps*rps * D*D*D*D;
+    return (-kThrustCoeffX * airspeedOverRpsD*airspeedOverRpsD - kThrustCoeffY * airspeedOverRpsD + kThrustCoeffZ) * kAirDensity * rps*rps * kPropDiameter*kPropDiameter*kPropDiameter*kPropDiameter;
 }
 
 float maxThrust(const float airspeed) {
-    constexpr float rho = 1.225;      // air density in kg/m^2
-    constexpr float D = 16*0.0254;    // propeller diameter in meter
+    constexpr float maxRpm = 9000.0f;
 
-    constexpr float maxRps = 9000.0f / 60.0f;
-    const float airspeedOverRpsD = airspeed / (maxRps*D);
-
-    // Define with wind tunnel testing
-    constexpr float x = 0.1588;
-    constexpr float y = 0.0106;
-    constexpr float z = 0.0757;
-
-    return (-x * airspeedOverRpsD*airspeedOverRpsD - y * airspeedOverRpsD + z) * rho * maxRps*maxRps * D*D*D*D;
+    return static_cast<float>(rpm2thrust(airspeed, maxRpm));
 }
