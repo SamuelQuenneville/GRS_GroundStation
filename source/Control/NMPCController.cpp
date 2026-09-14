@@ -156,10 +156,10 @@ std::map<uint8_t, uavCommandsFlags> NMPCController::solve(const std::map<uint8_t
         }
         m_pendingSteps = idx - m_lastIdxTraj;
         m_lastIdxTraj = idx;
-    }
 
-    if (m_lastIdxTraj == m_endIdxTraj) {
-        m_endedTraj = true;
+        if (m_endIdxTraj == 0 || idx +1 >= m_endIdxTraj) {
+            m_endedTraj = true;
+        }
     }
 
     m_packParameters();

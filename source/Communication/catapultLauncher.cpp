@@ -534,7 +534,7 @@ void CatapultLauncher::m_watchdogLoop() const {
             Link& link = *linkPtr;
             const CatapultState state = link.state.load();
             if (state == CatapultState::Disconnected || state == CatapultState::Fault || link.fd < 0) continue;
-            
+
             if (now - link.lastPingSent > std::chrono::milliseconds(PING_INTERVAL_MS)) {
                 m_sendPacket(link, catapultMakePacket(MSG_PING, 0, 0));
                 link.lastPingSent = now;
