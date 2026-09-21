@@ -82,6 +82,9 @@ GroundControlStation::GroundControlStation()
         snap.numUavs              = m_controlInterface->numUavs();
         snap.hasPayload           = m_controlInterface->trajectoryHasPayload();
         snap.loopPeriodMs         = m_loopPeriodMs;
+        snap.lastFlag             = info.lastFlag;
+        snap.lastMaxConstraintViolation = info.lastMaxConstraintViolation;
+        snap.backendName          = info.backendName;
 
         m_dashboardServer->updateNmpcTelemetry(snap);
     });

@@ -29,7 +29,12 @@ void ControlInterface::initialize(const gcsConfig& config) {
         YAML::Node node = YAML::LoadFile(config.configPath);
         solverConfig solverConfig = ConfigurationParser::parseSolverConfig(node);
 
-        m_nmpc = std::make_unique<NMPCController>(solverConfig);
+        // Backend selection is a startup-only choice -- see
+        // gcs-sitl-integration-plan.md's Decisions. numUavs picks the
+        // concrete SolverBackend once, here; nothing downstream needs to
+        // know which one it got.
+        auto backend = createSolverBackend(solverConfig.numUavs);
+        m_nmpc = std::make_unique<NMPCController>(solverConfig, std::move(backend));
     }
 }
 

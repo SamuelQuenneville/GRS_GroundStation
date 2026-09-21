@@ -231,6 +231,16 @@ struct NmpcTelemetrySnapshot {
     /// stall detector off the actual loop rate, not a hardcoded constant.
     double loopPeriodMs = 0.0;
 
+    /// Raw solver return-status flag and worst constraint violation from
+    /// the last solve, and which SolverBackend produced it. NOT a Fatrop
+    /// iteration count -- the codegen'd C solver interface doesn't expose
+    /// one (see NMPCController::DebugInfo's comment); this is the most
+    /// detail that's actually available without a deeper Fatrop-side
+    /// change.
+    int lastFlag = 0;
+    double lastMaxConstraintViolation = 0.0;
+    std::string backendName;
+
     [[nodiscard]] std::string toJson() const {
         JsonWriter root;
         root.add("type", "nmpc")
@@ -245,7 +255,10 @@ struct NmpcTelemetrySnapshot {
             .add("trajectoryLoadedAtMs", static_cast<double>(trajectoryLoadedAtMs))
             .add("numUavs", numUavs)
             .add("hasPayload", hasPayload)
-            .add("loopPeriodMs", loopPeriodMs);
+            .add("loopPeriodMs", loopPeriodMs)
+            .add("lastFlag", lastFlag)
+            .add("lastMaxConstraintViolation", lastMaxConstraintViolation)
+            .add("backendName", backendName);
         return root.str();
     }
 };

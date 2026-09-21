@@ -12,6 +12,7 @@
 #pragma once
 
 #include <map>
+#include <memory>
 #include <cstring>
 #include <cassert>
 
@@ -21,8 +22,10 @@
 #include "Mathematics/math.h"
 #include "Log/logger.h"
 
-// CasADi-generated solver
-#include "solver_oneGround.h"
+// Solver-agnostic -- NMPCController talks only to this interface, never to
+// a specific codegen'd solver's global symbols. See SolverBackend.h for
+// why (symbol-collision finding, gcs-sitl-integration-plan.md §3).
+#include "solverBackend.h"
 
 class NMPCController {
 public:
@@ -32,7 +35,10 @@ public:
         double unwrapped = 0.0;
     };
 
-    explicit NMPCController(const solverConfig& config);
+    // backend is owned by this controller for its whole lifetime -- build
+    // it with createSolverBackend(config.numUavs) (SolverBackendFactory.h)
+    // and hand it in here.
+    NMPCController(const solverConfig& config, std::unique_ptr<SolverBackend> backend);
     ~NMPCController();
 
     void initLaunch();
@@ -73,6 +79,18 @@ public:
         size_t trackingNumber = 0;
         size_t trajectoryIndex = 0;
         size_t trajectoryTotal = 0;
+
+        // Best available stand-ins for "Fatrop iteration count" -- the
+        // bare codegen'd C API (see SolverBackend.h) only ever returns the
+        // pass/fail flag, not iteration counts; nlpsol's own .stats() with
+        // that detail is a C++/Python-only interface, not something
+        // solver.generate() emits into the C solve() call. Until/unless
+        // that's worth building (e.g. a custom Fatrop stats callback),
+        // this is what's actually surfaced: the raw flag and the worst
+        // constraint violation from the last solve.
+        int lastFlag = 0;
+        double lastMaxConstraintViolation = 0.0;
+        const char* backendName = "";
     };
     DebugInfo getDebugInfo() const;
 
@@ -97,6 +115,7 @@ public:
 
 private:
     solverConfig m_config;
+    std::unique_ptr<SolverBackend> m_backend;
 
     static constexpr int kUavBlockSize = 8;
     static constexpr int kPayloadBlockSize = 6;
@@ -127,36 +146,45 @@ private:
 
     size_t m_trackingNumber = 0;
 
-    // Solver memory handle
-    int m_mem = -1;
-
     bool m_violation = false;
+    int m_lastFlag = 0;
+    double m_lastMaxConstraintViolation = 0.0;
+
+    // Previously-applied control [T, roll, pitch] per UAV, physical units
+    // -- packed into the solver's U_prev parameter every solve so the
+    // dU0 (first-stage control-rate) cost term has something to compare
+    // against. Rdu0 is 0 by default in the shipped config (see
+    // configuration.yaml), so this is inert until Rdu0 is tuned, but it's
+    // packed correctly from day one rather than left as a TODO.
+    std::vector<double> m_uPrev;
 
     // Solver C API pointers
-    std::vector<const casadi_real*> m_arg;  // Input pointers
-    std::vector<casadi_real*>       m_res;  // Output pointers
+    std::vector<const double*> m_arg;  // Input pointers
+    std::vector<double*>       m_res;  // Output pointers
 
     // Solver Inputs
-    std::vector<casadi_real> m_x0;
-    std::vector<casadi_real> m_p;
-    std::vector<casadi_real> m_lbx;
-    std::vector<casadi_real> m_ubx;
-    std::vector<casadi_real> m_lbg;
-    std::vector<casadi_real> m_ubg;
-    std::vector<casadi_real> m_lam_x0;
-    std::vector<casadi_real> m_lam_g0;
+    std::vector<double> m_x0;
+    std::vector<double> m_p;
+    std::vector<double> m_lbx;
+    std::vector<double> m_ubx;
+    std::vector<double> m_lbg;
+    std::vector<double> m_ubg;
+    std::vector<double> m_lam_x0;
+    std::vector<double> m_lam_g0;
 
     // Solver Outputs
-    std::vector<casadi_real> m_x;
-    std::vector<casadi_real> m_f;
-    std::vector<casadi_real> m_g;
-    std::vector<casadi_real> m_lam_x;
-    std::vector<casadi_real> m_lam_g;
-    std::vector<casadi_real> m_lam_p;
+    std::vector<double> m_x;
+    std::vector<double> m_f;
+    std::vector<double> m_g;
+    std::vector<double> m_lam_x;
+    std::vector<double> m_lam_g;
+    std::vector<double> m_lam_p;
 
-    // CasADi workspace arrays
-    std::vector<casadi_int>  m_iw;
-    std::vector<casadi_real> m_w;
+    // Solver workspace arrays, sized from m_backend->workIntSize()/
+    // workRealSize() at construction (backend-specific, so no compile-time
+    // SZ_IW/SZ_W constant is available here anymore).
+    std::vector<long long> m_iw;
+    std::vector<double>    m_w;
 
     // Synchronization
     mutable std::mutex m_solveMutex;

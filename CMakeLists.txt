@@ -105,6 +105,11 @@ set(GRS_CONTROL
         source/Control/controlDispatcher.h
         source/Control/NMPCController.cpp
         source/Control/NMPCController.h
+        source/Control/solverBackend.h
+        source/Control/solverBackendFactory.cpp
+        source/Control/solverBackendFactory.h
+        source/Control/oneUavNmpcBackend.cpp
+        source/Control/oneUavNmpcBackend.h
         source/Control/navigationFrameManager.cpp
         source/Control/navigationFrameManager.h
 )
@@ -215,8 +220,8 @@ find_library(BLASFEO_LIB blasfeo PATHS ${CASADI_DIR} REQUIRED)
 find_library(FATROP_LIB fatrop PATHS ${CASADI_DIR} REQUIRED)
 
 add_library(nmpc_solver STATIC
-        source/Control/solver_oneGround.c
-        source/Control/solver_oneGround.h
+        source/Control/solver_oneGround_nmpc.c
+        source/Control/solver_oneGround_nmpc.h
 )
 
 target_compile_options(nmpc_solver PRIVATE

@@ -23,6 +23,7 @@
 #include "Powertrain/powertrain.h"
 #include "navigationFrameManager.h"
 #include "NMPCController.h"
+#include "solverBackendFactory.h"
 #include "Trajectory/trajectoryGenerator.h"
 
 class ControlInterface {

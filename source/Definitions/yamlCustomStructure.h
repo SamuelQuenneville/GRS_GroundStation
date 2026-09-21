@@ -65,8 +65,12 @@ namespace YAML {
                 rhs.nx             = node["NX"].as<int>();
                 rhs.nu             = node["NU"].as<int>();
                 rhs.np             = node["NP"].as<int>();
+                rhs.nd             = node["ND"].as<int>();
+                rhs.nL0            = node["NL0"].as<int>();
                 rhs.N              = node["N"].as<int>();
                 rhs.numUavs        = node["NUM_UAVS"].as<int>();
+                rhs.dt             = node["DT"].as<double>();
+                rhs.tetherL0       = node["L0"].as<double>();
                 rhs.weight         = node["WEIGHT"].as<std::vector<double>>();
                 rhs.lbxStates      = node["LBX_STATES"].as<std::vector<double>>();
                 rhs.ubxStates      = node["UBX_STATES"].as<std::vector<double>>();

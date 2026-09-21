@@ -11,30 +11,27 @@
 #include <fstream>
 #include <iomanip>
 
-NMPCController::NMPCController(const solverConfig& config)
+NMPCController::NMPCController(const solverConfig& config, std::unique_ptr<SolverBackend> backend)
     : m_config(config)
-    , m_iw(solver_SZ_IW)
-    , m_w(solver_SZ_W)
+    , m_backend(std::move(backend))
+    , m_iw(m_backend->workIntSize())
+    , m_w(m_backend->workRealSize())
 {
     m_refStride = m_config.nx + m_config.nu;
 
     m_initialStates.resize(m_config.nx);
+    m_uPrev.assign(m_config.nu, 0.0);
 
     m_initializeSolverIO();
     m_packBounds();
 
-    m_arg.resize(solver_n_in());
-    m_res.resize(solver_n_out());
+    // Fixed 8-in/6-out nlpsol layout -- see SolverBackend.h.
+    m_arg.resize(8);
+    m_res.resize(6);
     m_bindSolverIO();
-
-    m_mem = solver_checkout();
-    solver_init_mem(m_mem);
 }
 
-NMPCController::~NMPCController() {
-    solver_release(m_mem);
-    m_mem = -1;
-}
+NMPCController::~NMPCController() = default;
 
 void NMPCController::initLaunch() {
     m_launched = true;
@@ -169,13 +166,28 @@ std::map<uint8_t, uavCommandsFlags> NMPCController::solve(const std::map<uint8_t
     // Solve
     {
         PROFILE_SCOPE_OUT("casadi_solve", &m_lastSolveMs, false);
-        const int flag = solver(m_arg.data(), m_res.data(), m_iw.data(), m_w.data(), m_mem);
+        const int flag = m_backend->solve(m_arg.data(), m_res.data(), m_iw.data(), m_w.data());
+        m_lastFlag = flag;
 
         const auto converged = m_solutionIsValid(flag);
+        (void)converged;
     }
 
     // Extract and return u0 for each UAV
     auto controls = m_extractControls();
+
+    // Remember the just-applied first-stage control (physical units, UAV
+    // 1's block -- U_prev in the one-UAV NLP has no per-UAV structure to
+    // worry about) for next solve's dU0 rate-penalty parameter. Skipped on
+    // a violation: m_x may not hold a meaningful solution then, and
+    // m_extractControls() already fell back to the reference trajectory's
+    // planned control for the returned command in that case.
+    if (!m_violation) {
+        const int offset = m_config.nx;
+        for (int i = 0; i < m_config.nu; ++i) {
+            m_uPrev[i] = m_x[offset + i] * m_config.scalesControls[i];
+        }
+    }
 
     m_logTransitions();
 
@@ -229,6 +241,9 @@ NMPCController::DebugInfo NMPCController::getDebugInfo() const {
     info.trackingNumber = m_trackingNumber;
     info.trajectoryIndex = m_lastIdxTraj;
     info.trajectoryTotal = m_numTrajectoryPoints;
+    info.lastFlag = m_lastFlag;
+    info.lastMaxConstraintViolation = m_lastMaxConstraintViolation;
+    info.backendName = m_backend->name();
     return info;
 }
 
@@ -268,22 +283,22 @@ std::vector<NMPCController::TrajectoryPointView> NMPCController::getTrajectoryFo
 
 void NMPCController::m_initializeSolverIO() {
     // Inputs
-    m_x0.assign(solver_sparsity_in(0)[0], 0.0);
-    m_p.assign(solver_sparsity_in(1)[0], 0.0);
-    m_lbx.assign(solver_sparsity_in(2)[0], 0.0);
-    m_ubx.assign(solver_sparsity_in(3)[0], 0.0);
-    m_lbg.assign(solver_sparsity_in(4)[0], 0.0);
-    m_ubg.assign(solver_sparsity_in(5)[0], 0.0);
-    m_lam_x0.assign(solver_sparsity_in(6)[0], 0.0);
-    m_lam_g0.assign(solver_sparsity_in(7)[0], 0.0);
+    m_x0.assign(m_backend->inputSize(0), 0.0);
+    m_p.assign(m_backend->inputSize(1), 0.0);
+    m_lbx.assign(m_backend->inputSize(2), 0.0);
+    m_ubx.assign(m_backend->inputSize(3), 0.0);
+    m_lbg.assign(m_backend->inputSize(4), 0.0);
+    m_ubg.assign(m_backend->inputSize(5), 0.0);
+    m_lam_x0.assign(m_backend->inputSize(6), 0.0);
+    m_lam_g0.assign(m_backend->inputSize(7), 0.0);
 
     // Outputs
-    m_x.assign(solver_sparsity_out(0)[0], 0.0);
-    m_f.assign(solver_sparsity_out(1)[0], 0.0);
-    m_g.assign(solver_sparsity_out(2)[0], 0.0);
-    m_lam_x.assign(solver_sparsity_out(3)[0], 0.0);
-    m_lam_g.assign(solver_sparsity_out(4)[0], 0.0);
-    m_lam_p.assign(solver_sparsity_out(5)[0], 0.0);
+    m_x.assign(m_backend->outputSize(0), 0.0);
+    m_f.assign(m_backend->outputSize(1), 0.0);
+    m_g.assign(m_backend->outputSize(2), 0.0);
+    m_lam_x.assign(m_backend->outputSize(3), 0.0);
+    m_lam_g.assign(m_backend->outputSize(4), 0.0);
+    m_lam_p.assign(m_backend->outputSize(5), 0.0);
 }
 
 void NMPCController::m_bindSolverIO() {
@@ -408,8 +423,8 @@ void NMPCController::m_packBounds() {
     }
 
     assert(offset == m_lbx.size());
-    assert(m_lbx.size() == solver_sparsity_in(2)[0]);
-    assert(m_ubx.size() == solver_sparsity_in(3)[0]);
+    assert(m_lbx.size() == static_cast<size_t>(m_backend->inputSize(2)));
+    assert(m_ubx.size() == static_cast<size_t>(m_backend->inputSize(3)));
 }
 
 void NMPCController::m_packInitialGuess() {
@@ -437,14 +452,22 @@ void NMPCController::m_packInitialGuess() {
     }
 
 
-    assert(m_x0.size() == solver_sparsity_in(0)[0]);
+    assert(m_x0.size() == static_cast<size_t>(m_backend->inputSize(0)));
 }
 
 void NMPCController::m_packParameters() {
 
+    // Layout must match build_nlp_oneGround_nmpc.m's P_optim order exactly:
+    //   [x0_ref; {X_ref_k, U_ref_k}_{k=1..N}, X_ref_{N+1};
+    //    Wind_est; D_est; Weight; U_prev; L0]
+    // (see the "Parameter vector layout" comment at the top of that file).
+    // This is a different, LONGER layout than the retired solver_oneGround
+    // expected -- D_est, U_prev and L0 did not exist as parameters before.
+
     size_t offset = 0;
 
     const size_t nx = m_config.nx;
+    const size_t nu = m_config.nu;
     const size_t stride = m_refStride;
     const size_t N = m_config.N;
 
@@ -461,17 +484,29 @@ void NMPCController::m_packParameters() {
     std::memcpy(p + offset, m_referenceTrajectory.data() + offsetRef, count * sizeof(double));
     offset += count;
 
-    // p_ref (wind)
-    double wind[3] = {0.0, 0.0, 0.0}; // TODO Wind could come from an estimator later on
-    std::memcpy(p + offset, wind, sizeof(wind));
-    offset += 3;
+    // Wind_est -- TODO Wind could come from an estimator later on (no NMHE
+    // wired into the GCS yet, see gcs-sitl-integration-plan.md §2).
+    std::fill_n(p + offset, m_config.np, 0.0);
+    offset += m_config.np;
 
-    // cost function weight
+    // D_est -- same TODO as wind: zero until NMHE exists.
+    std::fill_n(p + offset, m_config.nd, 0.0);
+    offset += m_config.nd;
+
+    // Weight = [Q(nx); R(nu); Qf(nx); Rdu(nu); Rdu0(nu)]
     std::memcpy(p + offset, m_config.weight.data(), m_config.weight.size() * sizeof(double));
     offset += m_config.weight.size();
 
+    // U_prev, physical units [T, roll, pitch] -- see m_uPrev's own comment.
+    std::memcpy(p + offset, m_uPrev.data(), nu * sizeof(double));
+    offset += nu;
+
+    // L0 (tether rest length), physical units.
+    std::fill_n(p + offset, m_config.nL0, m_config.tetherL0);
+    offset += m_config.nL0;
+
     assert(offset == m_p.size());
-    assert(m_p.size() == solver_sparsity_in(1)[0]);
+    assert(m_p.size() == static_cast<size_t>(m_backend->inputSize(1)));
 }
 
 std::map<uint8_t, uavCommandsFlags> NMPCController::m_extractControls() const {
@@ -531,20 +566,30 @@ std::map<uint8_t, uavCommandsFlags> NMPCController::m_extractControls() const {
 bool NMPCController::m_solutionIsValid(const int flag) {
     m_violation = false;
 
-    if (flag != 0)
+    if (flag != 0) {
+        // Previously fell through without setting m_violation -- meaning a
+        // raw solver failure (as opposed to a feasibility/NaN issue caught
+        // below) never triggered m_extractControls()'s fallback to the
+        // planned open-loop control, and would have extracted m_x as if it
+        // held a valid solution even though the solve itself failed.
+        m_violation = true;
+        m_lastMaxConstraintViolation = -1.0; // not evaluated -- solver itself failed
         return false;
+    }
 
     constexpr double feas_tol = 5e-4;
 
     // Check constraints
     double max_violation = 0.0;
 
-    for (int i = 0; i < m_g.size(); ++i) {
+    for (size_t i = 0; i < m_g.size(); ++i) {
         double v_low  = m_lbg[i] - m_g[i];
         double v_high = m_g[i] - m_ubg[i];
         double violation = std::max({0.0, v_low, v_high});
         max_violation = std::max(max_violation, violation);
     }
+
+    m_lastMaxConstraintViolation = max_violation;
 
     if (max_violation > feas_tol) {
         m_violation = true;
