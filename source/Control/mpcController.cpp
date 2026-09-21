@@ -6,12 +6,12 @@
  * Createk Innovation Lab
  */
 
-#include "NMPCController.h"
+#include "mpcController.h"
 
 #include <fstream>
 #include <iomanip>
 
-NMPCController::NMPCController(const solverConfig& config, std::unique_ptr<SolverBackend> backend)
+MpcController::MpcController(const solverConfig& config, std::unique_ptr<SolverBackend> backend)
     : m_config(config)
     , m_backend(std::move(backend))
     , m_iw(m_backend->workIntSize())
@@ -31,9 +31,9 @@ NMPCController::NMPCController(const solverConfig& config, std::unique_ptr<Solve
     m_bindSolverIO();
 }
 
-NMPCController::~NMPCController() = default;
+MpcController::~MpcController() = default;
 
-void NMPCController::initLaunch() {
+void MpcController::initLaunch() {
     m_launched = true;
     m_timeAtLaunched = std::chrono::steady_clock::now();
 
@@ -42,7 +42,7 @@ void NMPCController::initLaunch() {
         + std::to_string(Logger::nowWallTimeMs()) + ",LAUNCH triggered");
 }
 
-void NMPCController::loadTrajectory(const std::string& file) {
+void MpcController::loadTrajectory(const std::string& file) {
 
     std::ifstream fileStream(file);
     if (!fileStream.is_open())
@@ -68,7 +68,7 @@ void NMPCController::loadTrajectory(const std::string& file) {
     LOG_INFO("Trajectory loaded from file, number of points = " + std::to_string(m_numTrajectoryPoints));
 }
 
-void NMPCController::saveTrajectory(const std::string& file) const {
+void MpcController::saveTrajectory(const std::string& file) const {
     std::lock_guard lock(m_solveMutex); // same guard getTrajectoryForVehicle()/getDebugInfo() use -- may run while solve() is active
 
     if (m_referenceTrajectory.empty())
@@ -97,7 +97,7 @@ void NMPCController::saveTrajectory(const std::string& file) const {
     LOG_INFO("Trajectory saved to file, number of points = " + std::to_string(m_numTrajectoryPoints));
 }
 
-void NMPCController::setReferenceTrajectory(std::vector<double> referenceTrajectory) {
+void MpcController::setReferenceTrajectory(std::vector<double> referenceTrajectory) {
     std::lock_guard lock(m_solveMutex); // same guard getTrajectoryForVehicle()/getDebugInfo() use
 
     if (referenceTrajectory.size() % m_refStride != 0) {
@@ -110,7 +110,7 @@ void NMPCController::setReferenceTrajectory(std::vector<double> referenceTraject
     LOG_INFO("Trajectory generated in-process, number of points = " + std::to_string(m_numTrajectoryPoints));
 }
 
-void NMPCController::m_onReferenceTrajectoryChanged() {
+void MpcController::m_onReferenceTrajectoryChanged() {
     m_numTrajectoryPoints = m_referenceTrajectory.size() / m_refStride;
     m_endIdxTraj = m_numTrajectoryPoints > m_config.N ? m_numTrajectoryPoints - m_config.N : 0;
 
@@ -123,7 +123,7 @@ void NMPCController::m_onReferenceTrajectoryChanged() {
     Logger::instance().log(LogType::NMPC_EVENT, msg.str());
 }
 
-std::map<uint8_t, uavCommandsFlags> NMPCController::solve(const std::map<uint8_t, uavStates>& latestStates) {
+std::map<uint8_t, uavCommandsFlags> MpcController::solve(const std::map<uint8_t, uavStates>& latestStates) {
 
     std::lock_guard lock(m_solveMutex);
 
@@ -195,7 +195,7 @@ std::map<uint8_t, uavCommandsFlags> NMPCController::solve(const std::map<uint8_t
     return controls;
 }
 
-void NMPCController::m_logTransitions() {
+void MpcController::m_logTransitions() {
     if (m_inFlight != m_prevInFlight) {
         Logger::instance().log(LogType::NMPC_EVENT,
             std::to_string(m_trackingNumber) + "," + std::to_string(Logger::instance().nowMilliseconds()) + ","
@@ -225,11 +225,11 @@ void NMPCController::m_logTransitions() {
     }
 }
 
-double NMPCController::lastSolveMs() const {
+double MpcController::lastSolveMs() const {
     return m_lastSolveMs;
 }
 
-NMPCController::DebugInfo NMPCController::getDebugInfo() const {
+MpcController::DebugInfo MpcController::getDebugInfo() const {
     std::lock_guard lock(m_solveMutex);
 
     DebugInfo info;
@@ -247,7 +247,7 @@ NMPCController::DebugInfo NMPCController::getDebugInfo() const {
     return info;
 }
 
-std::vector<NMPCController::TrajectoryPointView> NMPCController::getTrajectoryForVehicle(const int vehicleIndex) const {
+std::vector<MpcController::TrajectoryPointView> MpcController::getTrajectoryForVehicle(const int vehicleIndex) const {
     std::lock_guard lock(m_solveMutex);  // same guard getDebugInfo() uses
 
     int offset, blockSize;
@@ -281,7 +281,7 @@ std::vector<NMPCController::TrajectoryPointView> NMPCController::getTrajectoryFo
     return points;
 }
 
-void NMPCController::m_initializeSolverIO() {
+void MpcController::m_initializeSolverIO() {
     // Inputs
     m_x0.assign(m_backend->inputSize(0), 0.0);
     m_p.assign(m_backend->inputSize(1), 0.0);
@@ -301,7 +301,7 @@ void NMPCController::m_initializeSolverIO() {
     m_lam_p.assign(m_backend->outputSize(5), 0.0);
 }
 
-void NMPCController::m_bindSolverIO() {
+void MpcController::m_bindSolverIO() {
     // Inputs
     // 0: x0, 1: p, 2: lbx, 3: ubx, 4: lbg, 5: ubg, 6: lam_x0, 7: lam_g0
     m_arg[0] = m_x0.data();
@@ -323,7 +323,7 @@ void NMPCController::m_bindSolverIO() {
     m_res[5] = m_lam_p.data();
 }
 
-double NMPCController::m_computeReferenceCost(const size_t idx) const {
+double MpcController::m_computeReferenceCost(const size_t idx) const {
     const size_t refOffset = idx * m_refStride;
 
     double cost = 0.0;
@@ -339,7 +339,7 @@ double NMPCController::m_computeReferenceCost(const size_t idx) const {
     return cost;
 }
 
-void NMPCController::m_shiftSolution() {
+void MpcController::m_shiftSolution() {
 
     const size_t nx     = m_config.nx;
     const size_t nu     = m_config.nu;
@@ -389,45 +389,17 @@ void NMPCController::m_shiftSolution() {
     std::ranges::fill(m_lam_g0, 0.0);
 }
 
-void NMPCController::m_packBounds() {
+void MpcController::m_packBounds() {
+    // This NLP's decision-variable bounds tiling is m_backend's concern now
+    // -- see solverBackend.h for why packParameters()/packBounds() moved
+    // off this class.
+    m_backend->packBounds(m_config, m_lbx, m_ubx);
 
-    std::vector<double> lbxStates(m_config.nx);
-    std::vector<double> ubxStates(m_config.nx);
-    for (size_t i = 0; i < m_config.nx; ++i) {
-        lbxStates[i] = m_config.lbxStates[i] * m_config.invScalesStates[i];
-        ubxStates[i] = m_config.ubxStates[i] * m_config.invScalesStates[i];
-    }
-
-    std::vector<double> lbxControls(m_config.nu);
-    std::vector<double> ubxControls(m_config.nu);
-    for (size_t i = 0; i < m_config.nu; ++i) {
-        lbxControls[i] = m_config.lbxControls[i] * m_config.invScalesControls[i];
-        ubxControls[i] = m_config.ubxControls[i] * m_config.invScalesControls[i];
-    }
-
-    size_t offset = 0;
-
-    for (size_t k = 0; k <= static_cast<size_t>(m_config.N); ++k) {
-
-        std::ranges::copy(lbxStates, m_lbx.begin() + static_cast<std::ptrdiff_t>(offset));
-        std::ranges::copy(ubxStates, m_ubx.begin() + static_cast<std::ptrdiff_t>(offset));
-
-        offset += lbxStates.size();
-
-        if (k < static_cast<size_t>(m_config.N)) {
-            std::ranges::copy(lbxControls, m_lbx.begin() + static_cast<std::ptrdiff_t>(offset));
-            std::ranges::copy(ubxControls, m_ubx.begin() + static_cast<std::ptrdiff_t>(offset));
-
-            offset += lbxControls.size();
-        }
-    }
-
-    assert(offset == m_lbx.size());
     assert(m_lbx.size() == static_cast<size_t>(m_backend->inputSize(2)));
     assert(m_ubx.size() == static_cast<size_t>(m_backend->inputSize(3)));
 }
 
-void NMPCController::m_packInitialGuess() {
+void MpcController::m_packInitialGuess() {
 
     // N * (nx+nu) + xN
     // ref: [x0 u0 x1 u1 ... xN uN]
@@ -455,61 +427,17 @@ void NMPCController::m_packInitialGuess() {
     assert(m_x0.size() == static_cast<size_t>(m_backend->inputSize(0)));
 }
 
-void NMPCController::m_packParameters() {
+void MpcController::m_packParameters() {
+    // This NLP's parameter-vector ordering (wind, weight, U_prev, L0, ...)
+    // is m_backend's concern now -- see solverBackend.h for why
+    // packParameters()/packBounds() moved off this class.
+    const size_t offsetRef = m_lastIdxTraj * m_refStride;
+    m_backend->packParameters(m_config, m_initialStates, m_referenceTrajectory, offsetRef, m_uPrev, m_p);
 
-    // Layout must match build_nlp_oneGround_nmpc.m's P_optim order exactly:
-    //   [x0_ref; {X_ref_k, U_ref_k}_{k=1..N}, X_ref_{N+1};
-    //    Wind_est; D_est; Weight; U_prev; L0]
-    // (see the "Parameter vector layout" comment at the top of that file).
-    // This is a different, LONGER layout than the retired solver_oneGround
-    // expected -- D_est, U_prev and L0 did not exist as parameters before.
-
-    size_t offset = 0;
-
-    const size_t nx = m_config.nx;
-    const size_t nu = m_config.nu;
-    const size_t stride = m_refStride;
-    const size_t N = m_config.N;
-
-    double* p = m_p.data();
-
-    // x_initial
-    std::memcpy(p + offset, m_initialStates.data(), nx * sizeof(double));
-    offset += nx;
-
-    const size_t count = N * stride + nx;
-    const size_t offsetRef = m_lastIdxTraj * stride;
-
-    // copy [x0 u0 ... xN-1 uN-1 xN]
-    std::memcpy(p + offset, m_referenceTrajectory.data() + offsetRef, count * sizeof(double));
-    offset += count;
-
-    // Wind_est -- TODO Wind could come from an estimator later on (no NMHE
-    // wired into the GCS yet, see gcs-sitl-integration-plan.md §2).
-    std::fill_n(p + offset, m_config.np, 0.0);
-    offset += m_config.np;
-
-    // D_est -- same TODO as wind: zero until NMHE exists.
-    std::fill_n(p + offset, m_config.nd, 0.0);
-    offset += m_config.nd;
-
-    // Weight = [Q(nx); R(nu); Qf(nx); Rdu(nu); Rdu0(nu)]
-    std::memcpy(p + offset, m_config.weight.data(), m_config.weight.size() * sizeof(double));
-    offset += m_config.weight.size();
-
-    // U_prev, physical units [T, roll, pitch] -- see m_uPrev's own comment.
-    std::memcpy(p + offset, m_uPrev.data(), nu * sizeof(double));
-    offset += nu;
-
-    // L0 (tether rest length), physical units.
-    std::fill_n(p + offset, m_config.nL0, m_config.tetherL0);
-    offset += m_config.nL0;
-
-    assert(offset == m_p.size());
     assert(m_p.size() == static_cast<size_t>(m_backend->inputSize(1)));
 }
 
-std::map<uint8_t, uavCommandsFlags> NMPCController::m_extractControls() const {
+std::map<uint8_t, uavCommandsFlags> MpcController::m_extractControls() const {
 
     std::map<uint8_t, uavCommandsFlags> out;
 
@@ -563,7 +491,7 @@ std::map<uint8_t, uavCommandsFlags> NMPCController::m_extractControls() const {
     return out;
 }
 
-bool NMPCController::m_solutionIsValid(const int flag) {
+bool MpcController::m_solutionIsValid(const int flag) {
     m_violation = false;
 
     if (flag != 0) {
@@ -612,7 +540,7 @@ bool NMPCController::m_solutionIsValid(const int flag) {
     return true;
 }
 
-double NMPCController::m_unwrapYaw(const uint8_t sysId, const double yawRadWrapped) {
+double MpcController::m_unwrapYaw(const uint8_t sysId, const double yawRadWrapped) {
 
     auto& s = m_yawStates[sysId];
 
@@ -637,7 +565,7 @@ double NMPCController::m_unwrapYaw(const uint8_t sysId, const double yawRadWrapp
     return s.unwrapped;
 }
 
-void NMPCController::m_unpackLatestStates(const std::map<uint8_t, uavStates>& latestStates, std::vector<double>& unpackStates) {
+void MpcController::m_unpackLatestStates(const std::map<uint8_t, uavStates>& latestStates, std::vector<double>& unpackStates) {
 
     size_t offset = 0;
 

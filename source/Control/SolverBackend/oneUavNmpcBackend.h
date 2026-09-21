@@ -36,6 +36,24 @@ public:
     [[nodiscard]] size_t workIntSize() const override;
     [[nodiscard]] size_t workRealSize() const override;
     int solve(const double** arg, double** res, long long* iw, double* w) override;
+
+    // P_optim layout for build_nlp_oneGround_nmpc.m's NLP:
+    //   [x0_ref; {X_ref_k, U_ref_k}_{k=1..N}, X_ref_{N+1};
+    //    Wind_est(np); D_est(nd); Weight(nx+nu+nx+nu+nu); U_prev(nu); L0(nL0)]
+    // (see the "Parameter vector layout" comment at the top of that file).
+    void packParameters(
+        const solverConfig& config,
+        const std::vector<double>& initialStates,
+        const std::vector<double>& referenceTrajectory,
+        size_t refOffset,
+        const std::vector<double>& uPrev,
+        std::vector<double>& p) const override;
+
+    void packBounds(
+        const solverConfig& config,
+        std::vector<double>& lbx,
+        std::vector<double>& ubx) const override;
+
     [[nodiscard]] const char* name() const override;
 
 private:

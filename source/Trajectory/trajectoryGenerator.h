@@ -69,7 +69,7 @@ struct SubsetSelection {
     /// Overrides whether toSolverReference()'s output should include the
     /// payload block. nullopt (default) lets the caller decide, e.g.
     /// ControlInterface::generateTrajectory() defers to the loaded
-    /// NMPCController's own hasPayload(). Set explicitly only to
+    /// MpcController's own hasPayload(). Set explicitly only to
     /// deliberately mismatch the mission's own payload data (e.g. testing
     /// a no-payload build against a mission that still has a payload).
     std::optional<bool> includePayload;
@@ -119,12 +119,12 @@ public:
         const std::vector<std::optional<Vec3d>>& liveLaunchPositionsNed);
 
     /// Flattens a mission into the exact [x0 u0 x1 u1 ... xN uN] stride
-    /// format NMPCController::loadTrajectory()/setReferenceTrajectory()
+    /// format MpcController::loadTrajectory()/setReferenceTrajectory()
     /// expect: each stage is numUavs state blocks of 8
     /// (N,E,D,vN,vE,vD,roll,pitch), then, if hasPayload, one state block
     /// of 6 (N,E,D,vN,vE,vD), then numUavs control blocks of 3
     /// (thrust,roll,pitch); matches
-    /// NMPCController::kUavBlockSize/kPayloadBlockSize and
+    /// MpcController::kUavBlockSize/kPayloadBlockSize and
     /// m_extractControls's control layout.
     [[nodiscard]] static std::vector<double> toSolverReference(const GeneratedMission& mission, bool hasPayload = true);
 

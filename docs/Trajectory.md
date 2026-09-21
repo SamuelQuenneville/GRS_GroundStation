@@ -82,7 +82,7 @@ not yet field-calibrated.
   The payload array is always copied through (just truncated); `includePayload`
   only tells the caller what to pass to `toSolverReference()`.
 - **`toSolverReference(mission, hasPayload)`** — flattens a mission into the
-  `[x0 u0 x1 u1 ... xN uN]` stride `NMPCController` expects: per stage,
+  `[x0 u0 x1 u1 ... xN uN]` stride `MpcController` expects: per stage,
   `numUavs` state blocks of 8 (N,E,D,vN,vE,vD,roll,pitch), then (if
   `hasPayload`) one state block of 6 for the payload, then `numUavs` control
   blocks of 3 (thrust,roll,pitch). Must match whatever `SolverConfiguration`

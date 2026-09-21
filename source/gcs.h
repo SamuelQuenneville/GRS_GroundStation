@@ -47,7 +47,7 @@ public:
     // the "Save current trajectory" button on the dashboard, and also
     // called automatically right after a successful Apply (see
     // setDashboard()) so a GCS restart doesn't silently lose the applied
-    // trajectory (NMPCController::m_referenceTrajectory is otherwise
+    // trajectory (MpcController::m_referenceTrajectory is otherwise
     // pure in-memory state -- see ADR-001 status doc). `file`: explicit
     // path, or empty to auto-name into ./trajectories/ with a timestamp.
     // Returns the path actually written to. Throws (control mode != MPC,
@@ -148,7 +148,7 @@ private:
     // ADR-001 Phase 3: answers GET /api/trajectory/live-positions. Reads
     // ControlInterface::getLiveNavigationStates() (already NED-corrected) and
     // splits it into UAVs (sysId <= numUavs()) vs. payload (the highest
-    // remaining sysId, if any) -- same convention NMPCController's own
+    // remaining sysId, if any) -- same convention MpcController's own
     // state-unpacking already relies on.
     LivePositionsSnapshot m_buildLivePositionsSnapshot() const;
 

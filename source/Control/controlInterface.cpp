@@ -9,6 +9,10 @@
 #include "controlInterface.h"
 #include "gcs.h"
 
+// The concrete Controller implementation -- only this file ever needs to
+// know it's MpcController (see controlInterface.h's include comment).
+#include "mpcController.h"
+
 #include <stdexcept>
 
 ControlInterface::ControlInterface()
@@ -34,7 +38,7 @@ void ControlInterface::initialize(const gcsConfig& config) {
         // concrete SolverBackend once, here; nothing downstream needs to
         // know which one it got.
         auto backend = createSolverBackend(solverConfig.numUavs);
-        m_nmpc = std::make_unique<NMPCController>(solverConfig, std::move(backend));
+        m_controller = std::make_unique<MpcController>(solverConfig, std::move(backend));
     }
 }
 
@@ -54,7 +58,7 @@ void ControlInterface::setCommandCallback(std::function<void(const std::map<uint
     m_sendCommand = std::move(cb);
 }
 
-void ControlInterface::setNmpcDebugCallback(std::function<void(const NMPCController::DebugInfo&)> cb) {
+void ControlInterface::setNmpcDebugCallback(std::function<void(const Controller::DebugInfo&)> cb) {
     m_nmpcDebugCallback = std::move(cb);
 }
 
@@ -66,16 +70,16 @@ void ControlInterface::setTrajectoryLoadedCallback(std::function<void()> cb) {
     m_trajectoryLoadedCallback = std::move(cb);
 }
 
-std::vector<NMPCController::TrajectoryPointView> ControlInterface::getTrajectoryForVehicle(const int vehicleIndex) const {
-    return m_nmpc ? m_nmpc->getTrajectoryForVehicle(vehicleIndex) : std::vector<NMPCController::TrajectoryPointView>{};
+std::vector<Controller::TrajectoryPointView> ControlInterface::getTrajectoryForVehicle(const int vehicleIndex) const {
+    return m_controller ? m_controller->getTrajectoryForVehicle(vehicleIndex) : std::vector<Controller::TrajectoryPointView>{};
 }
 
 int ControlInterface::numUavs() const {
-    return m_nmpc ? m_nmpc->numUavs() : 0;
+    return m_controller ? m_controller->numUavs() : 0;
 }
 
 bool ControlInterface::trajectoryHasPayload() const {
-    return m_nmpc && m_nmpc->hasPayload();
+    return m_controller && m_controller->hasPayload();
 }
 
 bool ControlInterface::getOrigin(double& latitudeDegrees, double& longitudeDegrees, double& altitude) const {
@@ -112,19 +116,19 @@ void ControlInterface::setCommandsList(const std::map<uint8_t, std::vector<uavCo
 }
 
 void ControlInterface::initLaunch() const {
-    m_nmpc->initLaunch();
+    m_controller->initLaunch();
 }
 
 void ControlInterface::loadTrajectory(const std::string& file) const {
-    m_nmpc->loadTrajectory(file);
+    m_controller->loadTrajectory(file);
     if (m_trajectoryLoadedCallback) m_trajectoryLoadedCallback();
 }
 
 void ControlInterface::saveTrajectory(const std::string& file) const {
-    if (!m_nmpc) {
+    if (!m_controller) {
         throw std::runtime_error("saveTrajectory: control mode [MPC] is required (no NMPC controller instantiated)");
     }
-    m_nmpc->saveTrajectory(file);
+    m_controller->saveTrajectory(file);
 }
 
 grs::trajgen::GeneratedMission ControlInterface::previewTrajectory(const grs::trajgen::TrajectoryConfig& config,
@@ -143,16 +147,16 @@ grs::trajgen::GeneratedMission ControlInterface::previewTrajectory(const grs::tr
 void ControlInterface::generateTrajectory(const grs::trajgen::TrajectoryConfig& config,
     const grs::trajgen::SubsetSelection& selection,
     const std::vector<std::optional<grs::Vec3d>>& liveLaunchPositionsNed) const {
-    if (!m_nmpc) {
+    if (!m_controller) {
         LOG_ERROR("generateTrajectory: control mode [MPC] is required (no NMPC controller instantiated)");
         return;
     }
 
     const auto mission = previewTrajectory(config, selection, liveLaunchPositionsNed);
 
-    const bool hasPayload = selection.includePayload.value_or(m_nmpc->hasPayload());
+    const bool hasPayload = selection.includePayload.value_or(m_controller->hasPayload());
     auto reference = grs::trajgen::TrajectoryGenerator::toSolverReference(mission, hasPayload);
-    m_nmpc->setReferenceTrajectory(std::move(reference));
+    m_controller->setReferenceTrajectory(std::move(reference));
 
     if (m_trajectoryLoadedCallback) m_trajectoryLoadedCallback();
 }
@@ -222,14 +226,14 @@ void ControlInterface::m_controlLoop() {
                 }
 
             } else if (m_config.controlMode == ControlMode::MPC) {
-                cmds = m_nmpc->solve(navStates);
+                cmds = m_controller->solve(navStates);
 
                 for (auto& [sysId, states] : cmds) {
                     states.commands.thrust = static_cast<float>(thrust2rpm(navStates[sysId].airspeedMeterSecond, states.commands.thrust));
                 }
 
                 if (m_nmpcDebugCallback) {
-                    m_nmpcDebugCallback(m_nmpc->getDebugInfo());
+                    m_nmpcDebugCallback(m_controller->getDebugInfo());
                 }
 
             } else if (m_config.controlMode == ControlMode::ATTITUDE_FILE) {

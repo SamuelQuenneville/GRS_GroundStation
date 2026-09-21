@@ -6,8 +6,8 @@
  * Createk Innovation Lab
  */
 
-#ifndef NMPCCONTROLLER_H
-#define NMPCCONTROLLER_H
+#ifndef MPCCONTROLLER_H
+#define MPCCONTROLLER_H
 
 #pragma once
 
@@ -22,12 +22,17 @@
 #include "Mathematics/math.h"
 #include "Log/logger.h"
 
-// Solver-agnostic -- NMPCController talks only to this interface, never to
-// a specific codegen'd solver's global symbols. See SolverBackend.h for
-// why (symbol-collision finding, gcs-sitl-integration-plan.md §3).
-#include "solverBackend.h"
+// The Controller interface this class implements -- see controller.h for
+// why it exists and what a second implementation (TVLQR) would look like.
+#include "controller.h"
 
-class NMPCController {
+// Solver-agnostic -- MpcController talks only to this interface, never to
+// a specific codegen'd solver's global symbols, and never to that solver's
+// parameter-vector layout either (see solverBackend.h -- packParameters()/
+// packBounds() live there now, not in this class).
+#include "SolverBackend/solverBackend.h"
+
+class MpcController final : public Controller {
 public:
     struct unwrapState {
         bool initialized = false;
@@ -38,12 +43,12 @@ public:
     // backend is owned by this controller for its whole lifetime -- build
     // it with createSolverBackend(config.numUavs) (SolverBackendFactory.h)
     // and hand it in here.
-    NMPCController(const solverConfig& config, std::unique_ptr<SolverBackend> backend);
-    ~NMPCController();
+    MpcController(const solverConfig& config, std::unique_ptr<SolverBackend> backend);
+    ~MpcController() override;
 
-    void initLaunch();
+    void initLaunch() override;
 
-    void loadTrajectory(const std::string& file);
+    void loadTrajectory(const std::string& file) override;
 
     // Inverse of loadTrajectory(file): writes the current in-memory
     // m_referenceTrajectory back out to `file`, one line per trajectory
@@ -53,7 +58,7 @@ public:
     // for display) so the file round-trips through loadTrajectory()
     // unchanged. Throws if no trajectory has been loaded/generated yet, or
     // if `file` can't be opened for writing.
-    void saveTrajectory(const std::string& file) const;
+    void saveTrajectory(const std::string& file) const override;
 
     // In-process equivalent of loadTrajectory(file), for a trajectory built
     // by TrajectoryGenerator (see source/Trajectory) rather than read from a
@@ -61,57 +66,23 @@ public:
     // solver's [x0 u0 x1 u1 ... xN uN] stride (TrajectoryGenerator::
     // toSolverReference() produces exactly this layout) and sampled at the
     // solver's dt; this does no resampling or validation of either.
-    void setReferenceTrajectory(std::vector<double> referenceTrajectory);
+    void setReferenceTrajectory(std::vector<double> referenceTrajectory) override;
 
     // Main entry point: convert states → run solver → return commands
-    std::map<uint8_t, uavCommandsFlags> solve(const std::map<uint8_t, uavStates>& latestStates);
-    double lastSolveMs() const;
+    std::map<uint8_t, uavCommandsFlags> solve(const std::map<uint8_t, uavStates>& latestStates) override;
+    [[nodiscard]] double lastSolveMs() const override;
 
-    // Debug/health snapshot for dashboards or logging -- deliberately a
-    // plain struct here (not a dashboard type) so this header stays
-    // independent of Dashboard/.
-    struct DebugInfo {
-        bool launched = false;
-        bool inFlight = false;
-        bool endedTraj = false;
-        bool violation = false;
-        double lastSolveMs = 0.0;
-        size_t trackingNumber = 0;
-        size_t trajectoryIndex = 0;
-        size_t trajectoryTotal = 0;
-
-        // Best available stand-ins for "Fatrop iteration count" -- the
-        // bare codegen'd C API (see SolverBackend.h) only ever returns the
-        // pass/fail flag, not iteration counts; nlpsol's own .stats() with
-        // that detail is a C++/Python-only interface, not something
-        // solver.generate() emits into the C solve() call. Until/unless
-        // that's worth building (e.g. a custom Fatrop stats callback),
-        // this is what's actually surfaced: the raw flag and the worst
-        // constraint violation from the last solve.
-        int lastFlag = 0;
-        double lastMaxConstraintViolation = 0.0;
-        const char* backendName = "";
-    };
-    DebugInfo getDebugInfo() const;
-
-    // Reference-trajectory readback for setup/orientation tooling (e.g. the
-    // dashboard's 3D view) -- deliberately a plain struct, same reasoning
-    // as DebugInfo above. Angles in degrees.
-    struct TrajectoryPointView {
-        double north = 0.0, east = 0.0, down = 0.0;
-        double vx = 0.0, vy = 0.0, vz = 0.0;
-        double roll = 0.0, pitch = 0.0;   // stays 0 for the payload, which has no attitude state (see below)
-    };
+    [[nodiscard]] DebugInfo getDebugInfo() const override;
 
     // vehicleIndex: 0..numUavs()-1 are UAVs, numUavs() itself is the
     // payload if hasPayload() is true. Empty vector for an out-of-range index.
-    std::vector<TrajectoryPointView> getTrajectoryForVehicle(int vehicleIndex) const;
-    int numUavs() const { return m_config.numUavs; }
+    [[nodiscard]] std::vector<TrajectoryPointView> getTrajectoryForVehicle(int vehicleIndex) const override;
+    [[nodiscard]] int numUavs() const override { return m_config.numUavs; }
     // See m_unpackLatestStates(): state layout is numUavs() blocks of 8
     // (UAV: north,east,down,vN,vE,vD,roll,pitch), then -- only if this
     // trajectory's nx accounts for it -- one block of 6 for the payload
     // (no roll/pitch; it's towed, not independently attituded here).
-    bool hasPayload() const { return m_config.nx > kUavBlockSize * m_config.numUavs; }
+    [[nodiscard]] bool hasPayload() const override { return m_config.nx > kUavBlockSize * m_config.numUavs; }
 
 private:
     solverConfig m_config;
@@ -219,4 +190,4 @@ private:
     void m_onReferenceTrajectoryChanged();
 };
 
-#endif //NMPCCONTROLLER_H
+#endif //MPCCONTROLLER_H

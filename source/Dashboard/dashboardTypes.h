@@ -234,7 +234,7 @@ struct NmpcTelemetrySnapshot {
     /// Raw solver return-status flag and worst constraint violation from
     /// the last solve, and which SolverBackend produced it. NOT a Fatrop
     /// iteration count -- the codegen'd C solver interface doesn't expose
-    /// one (see NMPCController::DebugInfo's comment); this is the most
+    /// one (see Controller::DebugInfo's comment); this is the most
     /// detail that's actually available without a deeper Fatrop-side
     /// change.
     int lastFlag = 0;
@@ -412,7 +412,7 @@ struct TrajectoryGenerationParams {
     /// @name Reduced-order testing
     /// Apply/preview only a subset of the full 2-UAV+payload mission, e.g.
     /// to exercise a simplified NMPC build. `testEnabled=false` (default)
-    /// is a strict no-op, deferring to the loaded NMPCController's own
+    /// is a strict no-op, deferring to the loaded MpcController's own
     /// hasPayload()/numUavs(). Only consulted when testEnabled=true.
     /// @{
     bool testEnabled = false;

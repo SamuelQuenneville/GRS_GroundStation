@@ -25,7 +25,7 @@ per-tick CSV dump when `verboseLogging` isn't set in config.
 **`LogType::NMPC_EVENT` is the one exception to the enabled/disabled
 gate** — sparse, human-readable NMPC controller transition events (launch,
 in-flight, trajectory loaded/ended, solver violation entered/cleared,
-emitted by `NMPCController::m_logTransitions()`) are always written,
+emitted by `MpcController::m_logTransitions()`) are always written,
 regardless of `verboseLogging`, since they're low-volume and useful even
 without full telemetry logging on.
 

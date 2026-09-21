@@ -55,22 +55,35 @@ they're recorded once here rather than re-explained per file.
   state — it's towed, not independently attituded). `nx`/`nu` in
   `solverConfig` are joint dimensions across *all* vehicles, not per-vehicle.
   Payload presence is inferred by comparing `nx` against
-  `8 × numUavs` (`NMPCController::hasPayload()`).
+  `8 × numUavs` (`MpcController::hasPayload()`).
 - **Payload sysId convention.** The payload is never a distinguished type at
   the MAVLink level — it's whichever connected sysId is *higher* than every
   UAV's sysId (`sysId > numUavs()`), highest wins if more than one. This
   convention is duplicated (deliberately, not accidentally) across
-  `NMPCController::m_unpackLatestStates`, `ControlInterface::
+  `MpcController::m_unpackLatestStates`, `ControlInterface::
   getLiveNavigationStates()`, `ControlInterface::getPayloadGpsFix()`, and
   `GroundControlStation::m_buildLivePositionsSnapshot()`. If you change how
   the payload is identified, all four need updating together.
 - **Event propagation: `std::function` callbacks, not shared types.**
-  Control-layer classes (`ControlInterface`, `NMPCController`) never include
+  Control-layer classes (`ControlInterface`, `MpcController`) never include
   Dashboard headers. Instead `GroundControlStation` calls e.g.
   `ControlInterface::setNmpcDebugCallback()` in its constructor and adapts
-  the `NMPCController::DebugInfo` payload into the dashboard's
+  the `Controller::DebugInfo` payload into the dashboard's
   `NmpcTelemetrySnapshot` type itself. New event types should follow this
   same pattern rather than reaching into `Dashboard/` from `Control/`.
+- **Controller-family abstraction.** `ControlInterface` only ever talks to
+  the `Controller` interface (`source/Control/controller.h`), never a
+  concrete controller class by name — `MpcController` is the only
+  implementation today, but nothing outside `controlInterface.cpp` (the one
+  place that actually constructs one) needs to know that. Similarly,
+  `MpcController` only talks to `SolverBackend`, never a specific codegen'd
+  solver's symbols or that solver's parameter-vector layout directly —
+  `SolverBackend` owns both the raw `nlpsol` C-call mechanics and the
+  packing logic for its own NLP's parameters/bounds (`OneUavNmpcBackend` is
+  the only implementation today). See `docs/Control.md` and
+  `gcs-sitl-integration-plan.md` §3/§3a for the reasoning and what a second
+  implementation of either (`TvlqrController`, `TwoUavPayloadNmpcBackend`)
+  would look like.
 - **Snapshot-cache-and-serve.** `DashboardServer` never sends data eagerly
   from wherever it's produced; producers call `update*()` to overwrite a
   mutex-guarded snapshot, and a dedicated broadcast thread reads and pushes

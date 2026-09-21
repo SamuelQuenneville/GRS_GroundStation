@@ -40,7 +40,7 @@ void Logger::start(const bool enabled, const std::string& logDirectory) {
     }
 
     // Sparse NMPC event log -- always on, regardless of `enabled`: this is
-    // the "high value, not everything" log (see NMPCController's launch/
+    // the "high value, not everything" log (see MpcController's launch/
     // in-flight/trajectory/violation transition logging), meant to stay
     // readable and useful even on a run where the heavy dumps are off.
     m_files[LogType::NMPC_EVENT].open(logDirectory + "/nmpc_events.log");

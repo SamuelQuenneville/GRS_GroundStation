@@ -59,8 +59,8 @@ GroundControlStation::GroundControlStation()
         }
     });
 
-    // Dedicated NMPC controller debug/health panel, decoupled from any UAV.
-    m_controlInterface->setNmpcDebugCallback([this](const NMPCController::DebugInfo& info) {
+    // Dedicated controller debug/health panel, decoupled from any UAV.
+    m_controlInterface->setNmpcDebugCallback([this](const Controller::DebugInfo& info) {
         if (!m_dashboardServer) return;
 
         NmpcTelemetrySnapshot snap;
@@ -212,7 +212,7 @@ void GroundControlStation::setDashboard(DashboardServer* dashboard) {
         generateTrajectory(config, selection, liveLaunchPositions);
 
         // Auto-export so the applied trajectory survives a GCS restart --
-        // NMPCController::m_referenceTrajectory is otherwise pure in-memory
+        // MpcController::m_referenceTrajectory is otherwise pure in-memory
         // state with no other persistence. Best-effort: a save failure here
         // (e.g. disk full) must not fail the Apply the operator is actively
         // waiting on -- they still have the "Save current trajectory"
@@ -555,7 +555,7 @@ LivePositionsSnapshot GroundControlStation::m_buildLivePositionsSnapshot() const
             fix.id = "uav" + std::to_string(sysId);
             snap.uavs.push_back(fix);
         } else {
-            // Highest sysId(s) = payload, matching NMPCController's own
+            // Highest sysId(s) = payload, matching MpcController's own
             // "payload is last sysId" convention -- if more than one entry
             // somehow lands above numUavs, the last iterated (highest sysId,
             // std::map is ordered) wins, same tie-break as that convention.

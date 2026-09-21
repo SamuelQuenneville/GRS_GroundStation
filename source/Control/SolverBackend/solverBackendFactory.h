@@ -23,7 +23,7 @@
 //
 // Phase 2 wires in only numUavs=1 (OneUavNmpcBackend). Phase 3 adds
 // numUavs=2 -> TwoUavPayloadNmpcBackend as one more case here; nothing
-// else in ControlInterface/NMPCController needs to change for that, which
+// else in ControlInterface/MpcController needs to change for that, which
 // is the point of routing construction through this single factory.
 std::unique_ptr<SolverBackend> createSolverBackend(int numUavs);
 

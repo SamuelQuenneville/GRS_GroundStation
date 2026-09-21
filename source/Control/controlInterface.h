@@ -22,8 +22,13 @@
 #include "Log/programLogger.h"
 #include "Powertrain/powertrain.h"
 #include "navigationFrameManager.h"
-#include "NMPCController.h"
-#include "solverBackendFactory.h"
+// Controller-agnostic on purpose -- ControlInterface never needs to know
+// whether the active controller is MpcController or something else, only
+// that it implements Controller (see controller.h and
+// gcs-sitl-integration-plan.md §3a). mpcController.h is only ever included
+// by the .cpp, which is the one place that actually constructs one.
+#include "controller.h"
+#include "SolverBackend/solverBackendFactory.h"
 #include "Trajectory/trajectoryGenerator.h"
 
 class ControlInterface {
@@ -40,16 +45,16 @@ public:
     void updateStates(const std::map<uint8_t, uavStates>& states);
 
     // Fired once per control-loop iteration while running in MPC mode, right
-    // after NMPCController::solve() returns. No-op in MATLAB/ATTITUDE_FILE
-    // mode since there's no NMPC controller to report on.
-    void setNmpcDebugCallback(std::function<void(const NMPCController::DebugInfo&)> cb);
+    // after the active controller's solve() returns. No-op in MATLAB/ATTITUDE_FILE
+    // mode since there's no controller to report on.
+    void setNmpcDebugCallback(std::function<void(const Controller::DebugInfo&)> cb);
 
     void setOriginCallback(std::function<void(double latitudeDegrees, double longitudeDegrees, double altitude)> cb);
     void setTrajectoryLoadedCallback(std::function<void()> cb);
 
     // Passthrough accessors for setup/orientation tooling -- null-safe, since
-    // m_nmpc only exists in MPC control mode (see initialize()).
-    std::vector<NMPCController::TrajectoryPointView> getTrajectoryForVehicle(int vehicleIndex) const;
+    // m_controller only exists in MPC control mode (see initialize()).
+    std::vector<Controller::TrajectoryPointView> getTrajectoryForVehicle(int vehicleIndex) const;
     int numUavs() const;
     bool trajectoryHasPayload() const;
     bool getOrigin(double& latitudeDegrees, double& longitudeDegrees, double& altitude) const;
@@ -70,7 +75,7 @@ public:
     // The payload's current raw GPS fix, for setting the navigation origin
     // directly from where the payload actually is instead of typing lat/lon
     // by hand. Same "payload = highest sysId" convention as
-    // NMPCController::m_unpackLatestStates / getLiveNavigationStates() below
+    // MpcController::m_unpackLatestStates / getLiveNavigationStates() below
     // -- any sysId beyond m_config.numUavs is the payload (highest wins if
     // more than one, matching that convention's tie-break). Returns nullopt
     // if no such telemetry has arrived yet.
@@ -84,7 +89,7 @@ public:
     // the NMPC controller back out to `file`, same CSV format
     // loadTrajectory() reads -- so a save now / load later round-trips.
     // Throws if there's no NMPC controller (control mode != MPC) or if
-    // NMPCController::saveTrajectory() itself throws (nothing loaded yet,
+    // MpcController::saveTrajectory() itself throws (nothing loaded yet,
     // file can't be written).
     void saveTrajectory(const std::string& file) const;
 
@@ -100,7 +105,7 @@ public:
     // sent to the controller -- e.g. one UAV, no payload, only through the
     // first loiter, for exercising a reduced-order NMPC build. The default
     // (no selection) is a strict no-op: full mission, and `hasPayload`
-    // deferred to the loaded NMPCController's own hasPayload(), exactly like
+    // deferred to the loaded MpcController's own hasPayload(), exactly like
     // before this existed.
     //
     // ADR-001 follow-up: `liveLaunchPositionsNed[k]` (indexed the same as
@@ -117,7 +122,7 @@ public:
     // dashboard's generate/preview step (POST /api/trajectory/generate)
     // before the operator commits with generateTrajectory()/"Apply". Safe to
     // call even before initialize() (unlike generateTrajectory(), it doesn't
-    // need m_nmpc). See generateTrajectory() above for what `selection` and
+    // need m_controller). See generateTrajectory() above for what `selection` and
     // `liveLaunchPositionsNed` do.
     [[nodiscard]] grs::trajgen::GeneratedMission previewTrajectory(const grs::trajgen::TrajectoryConfig& config,
         const grs::trajgen::SubsetSelection& selection = {},
@@ -127,12 +132,12 @@ public:
 
     // ADR-001 Phase 3: real launch-position capture for the trajectory
     // generator sidebar. Mirrors exactly what m_controlLoop() feeds
-    // NMPCController every tick -- the latest telemetry, corrected into the
+    // MpcController every tick -- the latest telemetry, corrected into the
     // NavigationFrameManager's NED frame -- so a captured "live" position is
     // the same NED the rest of the system already trusts. Returns an empty
     // map if the nav frame hasn't been initialized yet (no origin / no GPS
     // lock), so callers can tell "no fix yet" from "fix at the origin".
-    // Payload convention, matching NMPCController::m_unpackLatestStates:
+    // Payload convention, matching MpcController::m_unpackLatestStates:
     // when present, the payload is whichever entry has the highest sysId.
     [[nodiscard]] std::map<uint8_t, uavStates> getLiveNavigationStates() const;
 
@@ -151,10 +156,10 @@ private:
 
     gcsConfig m_config;
 
-    std::unique_ptr<NMPCController> m_nmpc;
+    std::unique_ptr<Controller> m_controller;
 
     std::function<void(const std::map<uint8_t, uavCommandsFlags>&)> m_sendCommand;
-    std::function<void(const NMPCController::DebugInfo&)> m_nmpcDebugCallback;
+    std::function<void(const Controller::DebugInfo&)> m_nmpcDebugCallback;
     std::function<void(double, double, double)> m_originCallback;
     std::function<void()> m_trajectoryLoadedCallback;
     std::map<uint8_t, uavStates> m_latestStates;
