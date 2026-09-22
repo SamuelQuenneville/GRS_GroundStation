@@ -14,8 +14,12 @@
 #include <vector>
 
 struct solverConfig {
-    int nx;         // state dimension per UAV
-    int nu;         // control dimension per UAV
+    int nx;         // JOINT state dimension across all vehicles (all UAVs'
+                     // blocks plus the payload's, if present) -- not
+                     // per-vehicle. See "State vector layout" in
+                     // docs/ARCHITECTURE.md.
+    int nu;         // JOINT control dimension across all UAVs -- not
+                     // per-vehicle. Same convention as nx above.
     int np;         // wind parameter count (3, shared -- not per UAV)
     int nd;         // disturbance-bias parameter count (from NMHE/EKF; zero
                      // vector until an estimator is wired in -- see the

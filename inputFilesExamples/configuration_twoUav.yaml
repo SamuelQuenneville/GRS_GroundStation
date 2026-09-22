@@ -1,0 +1,101 @@
+---
+#--------------------------------------------------
+#                Controller Config                #
+#--------------------------------------------------
+#
+# Example profile for the two-UAV + payload cooperative-lift configuration
+# (Phase 3, gcs-sitl-integration-plan.md). Sibling of configuration.yaml
+# (the one-UAV-tethered-to-ground profile) -- SolverBackendFactory picks
+# TwoUavPayloadNmpcBackend purely from this file's
+# SolverConfiguration.NUM_UAVS, so switching profiles is just pointing
+# --config at whichever of the two files matches the run.
+#
+GcsConfiguration:
+  numUavs: 2
+  verbose: false
+  hlcFrequency: 20.0
+  controlMode: MPC        # MPC | MATLAB | ATTITUDE_FILE
+
+Pixhawk:
+  sitl: false               # true -> base IP + port*increment (SITL). false -> use endpoints below.
+  remoteIP: 127.0.0.1
+  tcpPort: 5760
+  tcpPortIncrement: 10
+
+  # Only read when sitl: false -- one dedicated IP:port per real Pixhawk.
+  # We use UDP so IP is WI-FI interface on GCS laptop. UAV1/UAV2 sysId must
+  # match solverConfig's own UAV1/UAV2 ordering (kUavBlockSize blocks,
+  # see docs/ARCHITECTURE.md's "Payload sysId convention" -- the payload,
+  # if it reports its own GPS fix as its own sysId, must be the HIGHEST
+  # sysId of anything connected, higher than both UAVs' here).
+  endpoints:
+    - {id: 1, ip: 192.168.50.10, port: 14400}
+    - {id: 2, ip: 192.168.50.11, port: 14500}
+    #- {id: 3, ip: 192.168.50.10, port: 14600}  # payload GPS, if it reports one
+
+# Connect via TCP
+Catapults:
+  - {id: 1, port: 5800, ip: 192.168.50.20}
+  - {id: 2, port: 5801, ip: 192.168.50.21}
+
+SolverConfiguration:
+  # NX/NU/NP/ND/NL0/N/DT below must match solver_twoUavPayload_nmpc_meta.h
+  # (auto-generated alongside the solver by
+  # export_solver_twoUavPayload_nmpc.m -- TUP_NX/TUP_NU/TUP_NP/TUP_ND/
+  # TUP_NL0/TUP_N/TUP_DT) exactly -- re-verify against it any time the
+  # MATLAB side re-exports. Confirmed directly against that meta header
+  # (not assumed to mirror configuration.yaml's one-UAV values) per
+  # gcs-sitl-integration-plan.md Phase 3.
+  NX: 22   # [UAV1(8); UAV2(8); payload(6)] -- JOINT across all vehicles
+  NU: 6    # [UAV1(3); UAV2(3)] -- JOINT across both UAVs
+  NP: 3    # wind (shared, not per-UAV)
+  ND: 10   # disturbance bias, [d_uav1(5); d_uav2(5)] -- zero vector until NMHE is wired in
+  NL0: 1   # tether rest length, shared by both tethers
+  N: 30
+  DT: 0.05
+  NUM_UAVS: 2
+
+  # Tether rest length [m], packed into every solve's L0 parameter (shared
+  # by both tethers). Fixed here for now, same as configuration.yaml -- see
+  # tether-length-parameterization.md for the GCS-settable version this
+  # will become.
+  L0: 30.0
+
+  # Q(22) | R(6) | Qf(22) | Rdu(6) | Rdu0(6) -- 62 entries, per
+  # build_nlp_twoUavPayload_nmpc.m's Weight layout. Unlike configuration.yaml
+  # (whose WEIGHT was reverse-engineered from an incompatible older scheme,
+  # see its own comment), these values are carried over VERBATIM from
+  # GRS_Controller's sim_twoUavPayload_nmpc.m (its Q_val/R_val/Qf_val/
+  # Rdu_uav/Rdu0_val) -- the MATLAB-side closed-loop validation weights, not
+  # a guess -- so this is on firmer footing than the one-UAV file's WEIGHT
+  # was, but still only MATLAB-sim-validated, not flight-validated. Retune
+  # as SITL/flight results warrant.
+  # Q block: [UAV1: x,y,z,vx,vy,vz,roll,pitch | UAV2: (same) | payload: x,y,z,vx,vy,vz]
+  # R block:  [UAV1: T,roll,pitch | UAV2: (same)]
+  # Qf block: 10 * Q, same per-block layout as Q
+  # Rdu block:  [UAV1: dT,droll,dpitch | UAV2: (same)]
+  # Rdu0 block: 2 * Rdu, same layout
+  # (kept all on one flow sequence, no comments between elements, to avoid
+  # any risk of yaml-cpp parsing a multi-line flow sequence with embedded
+  # comments differently than intended)
+  WEIGHT: [0.1, 0.1, 1, 1, 1, 1, 1, 1,   0.1, 0.1, 1, 1, 1, 1, 1, 1,   1, 1, 1, 1, 1, 1,
+           5, 1, 1,   5, 1, 1,
+           1, 1, 10, 10, 10, 10, 10, 10,   1, 1, 10, 10, 10, 10, 10, 10,   10, 10, 10, 10, 10, 10,
+           0.5, 2.0, 2.0,   0.5, 2.0, 2.0,
+           1.0, 4.0, 4.0,   1.0, 4.0, 4.0]
+  LBX_STATES: [-.inf, -.inf, -.inf, -40.0, -40.0, -10.0, -0.5236, -0.6981,
+               -.inf, -.inf, -.inf, -40.0, -40.0, -10.0, -0.5236, -0.6981,
+               -.inf, -.inf, -.inf, -40.0, -40.0, -10.0]
+  # Payload's pD upper bound is 0.15 (not 0) -- the smooth ground-contact
+  # force model produces a small nominal resting penetration; see the
+  # ubs_pay comment in build_nlp_twoUavPayload_nmpc.m for why a hard 0
+  # bound would make that physically-expected resting state infeasible.
+  UBX_STATES: [ .inf,  .inf,   0.0,  40.0,  40.0,  10.0,  0.5236,  0.6981,
+                .inf,  .inf,   0.0,  40.0,  40.0,  10.0,  0.5236,  0.6981,
+                .inf,  .inf,  0.15,  40.0,  40.0,  10.0]
+  LBX_CONTROLS: [ 0.0, -0.5236, -0.6981,   0.0, -0.5236, -0.6981]
+  UBX_CONTROLS: [60.0,  0.5236,  0.6981,  60.0,  0.5236,  0.6981]
+  SCALES_STATES: [100.0, 100.0, 50.0, 30.0, 30.0, 15.0, 0.4, 0.4,
+                  100.0, 100.0, 50.0, 30.0, 30.0, 15.0, 0.4, 0.4,
+                  100.0, 100.0, 50.0,  5.0,  5.0,  5.0]
+  SCALES_CONTROLS: [30.0, 0.4, 0.4,   30.0, 0.4, 0.4]

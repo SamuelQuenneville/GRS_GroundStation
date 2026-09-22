@@ -111,6 +111,8 @@ set(GRS_CONTROL
         source/Control/SolverBackend/solverBackendFactory.h
         source/Control/SolverBackend/oneUavNmpcBackend.cpp
         source/Control/SolverBackend/oneUavNmpcBackend.h
+        source/Control/SolverBackend/twoUavPayloadNmpcBackend.cpp
+        source/Control/SolverBackend/twoUavPayloadNmpcBackend.h
         source/Control/navigationFrameManager.cpp
         source/Control/navigationFrameManager.h
 )
@@ -220,9 +222,51 @@ target_include_directories(trajectory_generator_tests PRIVATE source)
 find_library(BLASFEO_LIB blasfeo PATHS ${CASADI_DIR} REQUIRED)
 find_library(FATROP_LIB fatrop PATHS ${CASADI_DIR} REQUIRED)
 
+# Fixed here, not in the generated files themselves (each is marked
+# "do not hand-edit" and gets overwritten on every MATLAB re-export):
+# per-source COMPILE_DEFINITIONS give each solver's copy of these symbols
+# a solver-specific name via plain preprocessor token substitution, which
+# safely renames both the definition site and every internal call site
+# within that one translation unit -- purely mechanical, zero behavior
+# change. Applied to every solver's .c file (including the first,
+# solver_oneGround_nmpc.c) rather than leaving one "bare", so the scheme is
+# symmetric and doesn't depend on link order or which solver happened to be
+# added first.
+#
+# Add a new entry here (and a new NMPC_RUNTIME_SYMBOLS foreach block) for
+# every future solver .c file added to this target -- re-derive the symbol
+# list per-pair with the same nm diff if a CasADi/Fatrop version bump ever
+# changes which helper functions are emitted this way.
+set(NMPC_RUNTIME_SYMBOLS
+        casadi_detect_bounds_after
+        casadi_detect_bounds_before
+        casadi_f0_checkout
+        casadi_f0_free_mem
+        casadi_f0_release
+        casadi_fatrop_full_eval_lag_hess
+        casadi_fatrop_solve
+        casadi_max
+        casadi_oracle_call
+        fatrop_free_mem
+        fatrop_init_mem
+)
+
+function(nmpc_solver_isolate_runtime_symbols source_file prefix)
+    set(defs "")
+    foreach(sym ${NMPC_RUNTIME_SYMBOLS})
+        list(APPEND defs "${sym}=${prefix}_${sym}")
+    endforeach()
+    set_source_files_properties(${source_file} PROPERTIES COMPILE_DEFINITIONS "${defs}")
+endfunction()
+
+nmpc_solver_isolate_runtime_symbols(source/Control/CasadiSolver/solver_oneGround_nmpc.c oneGround)
+nmpc_solver_isolate_runtime_symbols(source/Control/CasadiSolver/solver_twoUavPayload_nmpc.c twoUavPayload)
+
 add_library(nmpc_solver STATIC
         source/Control/CasadiSolver/solver_oneGround_nmpc.c
         source/Control/CasadiSolver/solver_oneGround_nmpc.h
+        source/Control/CasadiSolver/solver_twoUavPayload_nmpc.c
+        source/Control/CasadiSolver/solver_twoUavPayload_nmpc.h
 )
 
 target_compile_options(nmpc_solver PRIVATE

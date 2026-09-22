@@ -70,17 +70,28 @@ State-vector and payload-detection conventions (`kUavBlockSize`,
 `hasPayload()`) are documented once in `docs/ARCHITECTURE.md` rather than
 repeated here.
 
-## `SolverBackend` (`solverBackend.h`) / `OneUavNmpcBackend` (`oneUavNmpcBackend.h`/`.cpp`)
+## `SolverBackend` (`SolverBackend/solverBackend.h`) / `OneUavNmpcBackend` / `TwoUavPayloadNmpcBackend` (`SolverBackend/`)
 
 Wraps one codegen'd `nlpsol` solver's C API (8-in/6-out convention) *and*
 that solver's parameter-vector/bounds packing — see the header comment in
 `solverBackend.h` for why both live in one interface rather than being
-split further. `OneUavNmpcBackend` is the only concrete implementation
-today, wrapping `solver_oneGround_nmpc_*`; only its `.cpp` includes the
-generated `solver_oneGround_nmpc.h`, so that header's macros/symbols never
-reach the rest of the codebase. `SolverBackendFactory::createSolverBackend(numUavs)`
-does the startup-only construction. See `gcs-sitl-integration-plan.md` §3
-for the symbol-collision history this design fixes.
+split further. Two concrete implementations today: `OneUavNmpcBackend`
+(wrapping `solver_oneGround_nmpc_*`, numUavs=1) and
+`TwoUavPayloadNmpcBackend` (wrapping `solver_twoUavPayload_nmpc_*`,
+numUavs=2) — each `.cpp` includes only its own generated header
+(`CasadiSolver/solver_oneGround_nmpc.h` / `solver_twoUavPayload_nmpc.h`),
+so those headers' macros/symbols never reach the rest of the codebase or
+each other. Their `packParameters()`/`packBounds()` logic is identical in
+structure (both NLPs use the same `P_optim` order, just with different
+dims), driven entirely off `solverConfig`'s own nx/nu/np/nd/nL0/N rather
+than hardcoded per-vehicle-count constants — confirmed independently for
+each rather than assumed to carry over, see
+`gcs-sitl-integration-plan.md` Phase 3.
+`SolverBackendFactory::createSolverBackend(numUavs)` does the startup-only
+construction, picking the backend purely from `SolverConfiguration.NUM_UAVS`
+in the loaded YAML (`inputFilesExamples/configuration.yaml` vs.
+`configuration_twoUav.yaml`). See `gcs-sitl-integration-plan.md` §3 for the
+symbol-collision history this design fixes.
 
 ## `ControlDispatcher` (`controlDispatcher.h`/`.cpp`)
 

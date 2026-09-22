@@ -79,11 +79,12 @@ they're recorded once here rather than re-explained per file.
   `MpcController` only talks to `SolverBackend`, never a specific codegen'd
   solver's symbols or that solver's parameter-vector layout directly —
   `SolverBackend` owns both the raw `nlpsol` C-call mechanics and the
-  packing logic for its own NLP's parameters/bounds (`OneUavNmpcBackend` is
-  the only implementation today). See `docs/Control.md` and
-  `gcs-sitl-integration-plan.md` §3/§3a for the reasoning and what a second
-  implementation of either (`TvlqrController`, `TwoUavPayloadNmpcBackend`)
-  would look like.
+  packing logic for its own NLP's parameters/bounds — `OneUavNmpcBackend`
+  (numUavs=1) and `TwoUavPayloadNmpcBackend` (numUavs=2) are the two
+  implementations today. See `docs/Control.md` and
+  `gcs-sitl-integration-plan.md` §3/§3a/Phase 3 for the reasoning and what
+  a second implementation of `Controller` (`TvlqrController`) would look
+  like.
 - **Snapshot-cache-and-serve.** `DashboardServer` never sends data eagerly
   from wherever it's produced; producers call `update*()` to overwrite a
   mutex-guarded snapshot, and a dedicated broadcast thread reads and pushes

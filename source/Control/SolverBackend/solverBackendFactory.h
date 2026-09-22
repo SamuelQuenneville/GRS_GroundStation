@@ -21,10 +21,10 @@
 // See "Backend selection is at startup, not at runtime" in
 // gcs-sitl-integration-plan.md.
 //
-// Phase 2 wires in only numUavs=1 (OneUavNmpcBackend). Phase 3 adds
-// numUavs=2 -> TwoUavPayloadNmpcBackend as one more case here; nothing
-// else in ControlInterface/MpcController needs to change for that, which
-// is the point of routing construction through this single factory.
+// numUavs=1 -> OneUavNmpcBackend (Phase 2), numUavs=2 ->
+// TwoUavPayloadNmpcBackend (Phase 3). Nothing in ControlInterface/
+// MpcController needs to change to add either -- that's the point of
+// routing construction through this single factory.
 std::unique_ptr<SolverBackend> createSolverBackend(int numUavs);
 
 #endif //SOLVERBACKENDFACTORY_H

@@ -445,7 +445,20 @@ std::map<uint8_t, uavCommandsFlags> MpcController::m_extractControls() const {
     for (int sysId = 1; sysId <= m_config.numUavs; ++sysId) {
         uavCommandsFlags cmd;
 
-        const int offset = m_config.nx + (m_config.nu / m_config.numUavs) * (sysId - 1);
+        const int perUavNu = m_config.nu / m_config.numUavs;
+        const int offset = m_config.nx + perUavNu * (sysId - 1);
+        // Index into scalesControls/scalesStates for THIS UAV's own control
+        // block -- scalesControls is the full joint vector (all UAVs'
+        // scales concatenated, see solverConfig), not just the first UAV's.
+        // Using [0]/[1]/[2] unconditionally here was fine with exactly one
+        // UAV (nothing else to offset into), but silently applied UAV 1's
+        // scale to every other UAV's raw value once numUavs > 1 -- it only
+        // happened to read the right numbers because every configured
+        // aircraft currently shares identical scales (see scaling_twoUav.m
+        // -- both UAV blocks are literally the same triplet). Fixed here so
+        // a future mixed-aircraft two-UAV config (different scales per UAV)
+        // doesn't silently mis-scale one aircraft's commands.
+        const int scaleOffset = perUavNu * (sysId - 1);
 
         // Controls per UAV are [T, roll, pitch], yaw is always 0
         cmd.commands.sysId = static_cast<uint8_t>(sysId);
@@ -458,9 +471,9 @@ std::map<uint8_t, uavCommandsFlags> MpcController::m_extractControls() const {
             cmd.commands.pitchDegree = grs::radToDeg(static_cast<float>(m_referenceTrajectory.at(ctrlOffset + 2)));
             cmd.commands.yawDegree   = 0.0;
         } else {
-            cmd.commands.thrust      = static_cast<float>(m_x[offset + 0] * m_config.scalesControls[0]);
-            cmd.commands.rollDegree  = grs::radToDeg(static_cast<float>(m_x[offset + 1] * m_config.scalesControls[1]));
-            cmd.commands.pitchDegree = grs::radToDeg(static_cast<float>(m_x[offset + 2] * m_config.scalesControls[2]));
+            cmd.commands.thrust      = static_cast<float>(m_x[offset + 0] * m_config.scalesControls[scaleOffset + 0]);
+            cmd.commands.rollDegree  = grs::radToDeg(static_cast<float>(m_x[offset + 1] * m_config.scalesControls[scaleOffset + 1]));
+            cmd.commands.pitchDegree = grs::radToDeg(static_cast<float>(m_x[offset + 2] * m_config.scalesControls[scaleOffset + 2]));
             cmd.commands.yawDegree   = 0.0;
         }
 
