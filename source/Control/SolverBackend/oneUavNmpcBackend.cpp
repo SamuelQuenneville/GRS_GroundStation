@@ -59,6 +59,8 @@ void OneUavNmpcBackend::packParameters(
     const std::vector<double>& referenceTrajectory,
     const size_t refOffset,
     const std::vector<double>& uPrev,
+    const std::vector<double>& windEst,
+    const std::vector<double>& dEst,
     std::vector<double>& p) const
 {
     // Layout must match build_nlp_oneGround_nmpc.m's P_optim order exactly
@@ -84,13 +86,14 @@ void OneUavNmpcBackend::packParameters(
     std::memcpy(dst + offset, referenceTrajectory.data() + refOffset, count * sizeof(double));
     offset += count;
 
-    // Wind_est -- TODO Wind could come from an estimator later on (no NMHE
-    // wired into the GCS yet, see gcs-sitl-integration-plan.md §2).
-    std::fill_n(dst + offset, config.np, 0.0);
+    // Wind_est -- from whichever Estimator is active (Phase 4), zero until
+    // one is configured (see Controller::setDisturbanceEstimate() and
+    // ControlInterface's estimator wiring).
+    std::memcpy(dst + offset, windEst.data(), config.np * sizeof(double));
     offset += config.np;
 
-    // D_est -- same TODO as wind: zero until NMHE exists.
-    std::fill_n(dst + offset, config.nd, 0.0);
+    // D_est -- same as wind, above.
+    std::memcpy(dst + offset, dEst.data(), config.nd * sizeof(double));
     offset += config.nd;
 
     // Weight = [Q(nx); R(nu); Qf(nx); Rdu(nu); Rdu0(nu)]

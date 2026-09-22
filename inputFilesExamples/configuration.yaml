@@ -8,6 +8,7 @@ GcsConfiguration:
   numUavs: 1
   verbose: false
   hlcFrequency: 20.0
+  nmheFrequency: 5.0      # NMHE update rate -- starting point per gcs-sitl-integration-plan.md's Decisions, not yet validated
   controlMode: MPC        # MPC | MATLAB | ATTITUDE_FILE
 
 Pixhawk:
@@ -49,6 +50,15 @@ SolverConfiguration:
   # GCS-settable version this will become.
   L0: 30.0
 
+  # Angle-of-attack path-constraint bound [rad], symmetric -- must match
+  # build_nlp_oneGround_nmpc.m's own 'alpha_max' option (deg2rad(14) by
+  # MATLAB default, re-verify against solver_oneGround_nmpc_meta.h/the
+  # MATLAB build call any time it re-exports). Packed into every solve's
+  # g bounds by MpcController::m_packInequalityBounds() -- previously
+  # missing entirely, which silently enforced alpha == 0 instead of this
+  # bound; see gcs-sitl-integration-plan.md's open questions.
+  ALPHA_MAX: 0.244346  # deg2rad(14)
+
   # Q(8) | R(3) | Qf(8) | Rdu(3) | Rdu0(3) -- 25 entries, per
   # build_nlp_oneGround_nmpc.m's Weight layout. The WEIGHT this file
   # previously shipped ([0.1,0.1,1,1,1,1,1,1, 5,1,1, 10], 12 entries) used
@@ -70,3 +80,56 @@ SolverConfiguration:
   UBX_CONTROLS: [60.0,  0.5236,  0.6981]
   SCALES_STATES: [100.0, 100.0, 50.0, 30.0, 30.0, 15.0, 0.4, 0.4]
   SCALES_CONTROLS: [30.0, 0.4, 0.4]
+
+# Presence of this section is what enables NMHE -- ControlInterface only
+# constructs an Estimator when it exists (see
+# ConfigurationParser::parseEstimatorConfig()); remove/comment it out to run
+# with wind/d hardcoded at zero, same as before Phase 4. NX/NU/NP/ND/NL0/M/DT
+# below must match nmhe_oneGround_meta.h (auto-generated alongside the
+# solver by export_nmhe_oneGround.m -- NMHE_OG_NX/NMHE_OG_NU/NMHE_OG_NP/
+# NMHE_OG_ND/NMHE_OG_NL0/NMHE_OG_M/NMHE_OG_DT) exactly -- re-verify against
+# it any time the MATLAB side re-exports. X_SCALE/WIND_SCALE/D_SCALE are
+# scaling_oneUav.m's own x_scale/wind_scale/d_scale (single source of truth
+# on the MATLAB side -- X_SCALE here is the same vector as
+# SCALES_STATES above, since both the NMPC and NMHE builders pull it from
+# the same scaling_oneUav.m). WIND_MAX/DF_MAX/B_ATT_MAX are
+# build_nmhe_oneGround.m's own defaults (wind_max=25, dF_max=30,
+# b_att_max=deg2rad(15)) -- see estimatorConfig's own comment in
+# controllerStructures.h for why these still have to be packed at runtime
+# despite being "baked in" at MATLAB build time.
+EstimatorConfiguration:
+  NX: 8
+  NU: 3
+  NP: 3
+  ND: 5
+  NL0: 1
+  M: 40
+  DT: 0.05
+  NUM_UAVS: 1
+
+  # Tether rest length [m] -- same physical tether as SolverConfiguration's
+  # own L0 above, packed into NMHE's L0_param block every estimate() solve
+  # (see OneUavNmheBackend::packParameters()). Previously missing from this
+  # section entirely -- estimatorConfig's decode() has always required it,
+  # this file just never had it, which is what threw "invalid node; first
+  # invalid key: L0" once ALPHA_MAX's own missing-key error was fixed.
+  L0: 30.0
+
+  # W_MEAS(8) | W_WINDP(3) | W_DP(5) -- measurement-fit and arrival-cost
+  # weights, per build_nmhe_oneGround.m's Objective section. NOT pulled
+  # from any validated MATLAB sim run (run_nmhe.m's own call sites weren't
+  # available to this session to carry values over from, unlike Phase 3's
+  # WEIGHT) -- flat, unvalidated first-pass guesses (trust position/
+  # velocity/attitude measurements roughly equally, weak arrival-cost pull
+  # toward the prior). Retune before trusting NMHE's output for anything.
+  W_MEAS: [10, 10, 10, 10, 10, 10, 10, 10]
+  W_WINDP: [1, 1, 1]
+  W_DP: [1, 1, 1, 1, 1]
+
+  WIND_MAX: 25.0
+  DF_MAX: 30.0
+  B_ATT_MAX: 0.261799  # deg2rad(15)
+
+  X_SCALE: [100.0, 100.0, 50.0, 30.0, 30.0, 15.0, 0.4, 0.4]
+  WIND_SCALE: [10.0, 10.0, 10.0]
+  D_SCALE: [20.0, 20.0, 20.0, 0.15, 0.15]

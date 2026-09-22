@@ -71,6 +71,7 @@ namespace YAML {
                 rhs.numUavs        = node["NUM_UAVS"].as<int>();
                 rhs.dt             = node["DT"].as<double>();
                 rhs.tetherL0       = node["L0"].as<double>();
+                rhs.alphaMax       = node["ALPHA_MAX"].as<double>();
                 rhs.weight         = node["WEIGHT"].as<std::vector<double>>();
                 rhs.lbxStates      = node["LBX_STATES"].as<std::vector<double>>();
                 rhs.ubxStates      = node["UBX_STATES"].as<std::vector<double>>();
@@ -85,6 +86,44 @@ namespace YAML {
 
                 for (const auto scale: rhs.scalesControls) {
                     rhs.invScalesControls.push_back(1.0 / scale);
+                }
+
+                return true;
+            }
+        };
+
+    template<>
+        struct convert<estimatorConfig> {
+            static bool decode(const Node& node, estimatorConfig& rhs) {
+                if(!node.IsMap()) {
+                    return false;
+                }
+
+                rhs.nx      = node["NX"].as<int>();
+                rhs.nu      = node["NU"].as<int>();
+                rhs.np      = node["NP"].as<int>();
+                rhs.nd      = node["ND"].as<int>();
+                rhs.nL0     = node["NL0"].as<int>();
+                rhs.nxi     = rhs.nx + rhs.np + rhs.nd;
+                rhs.M       = node["M"].as<int>();
+                rhs.numUavs = node["NUM_UAVS"].as<int>();
+                rhs.dt      = node["DT"].as<double>();
+                rhs.tetherL0 = node["L0"].as<double>();
+
+                rhs.wMeas      = node["W_MEAS"].as<std::vector<double>>();
+                rhs.wWindPrior = node["W_WINDP"].as<std::vector<double>>();
+                rhs.wDPrior    = node["W_DP"].as<std::vector<double>>();
+
+                rhs.windMax = node["WIND_MAX"].as<double>();
+                rhs.dFMax   = node["DF_MAX"].as<double>();
+                rhs.bAttMax = node["B_ATT_MAX"].as<double>();
+
+                rhs.xScale    = node["X_SCALE"].as<std::vector<double>>();
+                rhs.windScale = node["WIND_SCALE"].as<std::vector<double>>();
+                rhs.dScale    = node["D_SCALE"].as<std::vector<double>>();
+
+                for (const auto scale: rhs.xScale) {
+                    rhs.invXScale.push_back(1.0 / scale);
                 }
 
                 return true;

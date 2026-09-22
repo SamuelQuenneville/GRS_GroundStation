@@ -14,6 +14,7 @@ GcsConfiguration:
   numUavs: 2
   verbose: false
   hlcFrequency: 20.0
+  nmheFrequency: 5.0      # NMHE update rate -- starting point per gcs-sitl-integration-plan.md's Decisions, not yet validated
   controlMode: MPC        # MPC | MATLAB | ATTITUDE_FILE
 
 Pixhawk:
@@ -61,6 +62,15 @@ SolverConfiguration:
   # will become.
   L0: 30.0
 
+  # Angle-of-attack path-constraint bound [rad], symmetric, SAME bound for
+  # both UAVs -- must match build_nlp_twoUavPayload_nmpc.m's own
+  # 'alpha_max' option (deg2rad(25) by MATLAB default, NOT the one-UAV
+  # profile's deg2rad(14) -- re-verify against
+  # solver_twoUavPayload_nmpc_meta.h/the MATLAB build call any time it
+  # re-exports). See configuration.yaml's own ALPHA_MAX comment for why
+  # this is packed at all.
+  ALPHA_MAX: 0.436332  # deg2rad(25)
+
   # Q(22) | R(6) | Qf(22) | Rdu(6) | Rdu0(6) -- 62 entries, per
   # build_nlp_twoUavPayload_nmpc.m's Weight layout. Unlike configuration.yaml
   # (whose WEIGHT was reverse-engineered from an incompatible older scheme,
@@ -99,3 +109,40 @@ SolverConfiguration:
                   100.0, 100.0, 50.0, 30.0, 30.0, 15.0, 0.4, 0.4,
                   100.0, 100.0, 50.0,  5.0,  5.0,  5.0]
   SCALES_CONTROLS: [30.0, 0.4, 0.4,   30.0, 0.4, 0.4]
+
+# Same enable-by-presence convention as configuration.yaml's own
+# EstimatorConfiguration -- see that file's comment. NX/NU/NP/ND/NL0/M/DT
+# must match nmhe_twoUavPayload_meta.h (NMHE_TUP_* macros) exactly.
+# X_SCALE/WIND_SCALE/D_SCALE from scaling_twoUav.m (same single-source-of-
+# truth reasoning as configuration.yaml).
+EstimatorConfiguration:
+  NX: 22
+  NU: 6
+  NP: 3
+  ND: 10
+  NL0: 1
+  M: 40
+  DT: 0.05
+  NUM_UAVS: 2
+
+  # Tether rest length [m] -- same as SolverConfiguration's own L0 above
+  # (shared by both tethers), packed into NMHE's L0_param block every
+  # estimate() solve. See configuration.yaml's own L0 comment in its
+  # EstimatorConfiguration section for why this was missing.
+  L0: 30.0
+
+  # Same "flat, unvalidated first-pass guess" caveat as configuration.yaml's
+  # W_MEAS/W_WINDP/W_DP -- retune before trusting NMHE's output.
+  W_MEAS: [10, 10, 10, 10, 10, 10, 10, 10,   10, 10, 10, 10, 10, 10, 10, 10,   10, 10, 10, 10, 10, 10]
+  W_WINDP: [1, 1, 1]
+  W_DP: [1, 1, 1, 1, 1,   1, 1, 1, 1, 1]
+
+  WIND_MAX: 25.0
+  DF_MAX: 30.0
+  B_ATT_MAX: 0.261799  # deg2rad(15)
+
+  X_SCALE: [100.0, 100.0, 50.0, 30.0, 30.0, 15.0, 0.4, 0.4,
+            100.0, 100.0, 50.0, 30.0, 30.0, 15.0, 0.4, 0.4,
+            100.0, 100.0, 50.0,  5.0,  5.0,  5.0]
+  WIND_SCALE: [10.0, 10.0, 10.0]
+  D_SCALE: [20.0, 20.0, 20.0, 0.15, 0.15,   20.0, 20.0, 20.0, 0.15, 0.15]

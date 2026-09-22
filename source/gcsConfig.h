@@ -94,6 +94,13 @@ struct gcsConfig {
     int numUavs = 1;
     double telemetry_publish_hz = -1.0;
     double hlcFrequency = 20.0;
+    // NMHE update rate [Hz], decoupled from hlcFrequency above -- starting
+    // point 5 Hz per gcs-sitl-integration-plan.md's Decisions, a tunable
+    // not yet validated against a real SITL benchmark. Only consulted when
+    // an "EstimatorConfiguration" section exists in the YAML (see
+    // ConfigurationParser::parseEstimatorConfig()) -- otherwise no
+    // Estimator is constructed at all and this is unused.
+    double nmheFrequency = 5.0;
     pixhawkConfig pixhawk;
     std::vector<pixhawkEndpointConfig> pixhawkEndpoints; // used when pixhawk.sitl == false
     std::optional<std::pair<std::string, uint16_t>> matlab;

@@ -22,8 +22,6 @@
 #include "Mathematics/math.h"
 #include "Log/logger.h"
 
-// The Controller interface this class implements -- see controller.h for
-// why it exists and what a second implementation (TVLQR) would look like.
 #include "controller.h"
 
 // Solver-agnostic -- MpcController talks only to this interface, never to
@@ -47,6 +45,8 @@ public:
     ~MpcController() override;
 
     void initLaunch() override;
+
+    void setDisturbanceEstimate(const std::vector<double>& wind, const std::vector<double>& d) override;
 
     void loadTrajectory(const std::string& file) override;
 
@@ -129,6 +129,16 @@ private:
     // packed correctly from day one rather than left as a TODO.
     std::vector<double> m_uPrev;
 
+    // Latest wind/disturbance estimate, physical units, length
+    // config.np/config.nd -- zero until an Estimator is configured and
+    // calls setDisturbanceEstimate() (Phase 4). Zero-order held between
+    // calls, same convention Estimator::windEstimate()/dEstimate() use
+    // (see estimator.h) -- set on the estimator's own cadence, not once
+    // per solve() here.
+    std::vector<double> m_windEst;
+    std::vector<double> m_dEst;
+    mutable std::mutex m_disturbanceMutex;
+
     // Solver C API pointers
     std::vector<const double*> m_arg;  // Input pointers
     std::vector<double*>       m_res;  // Output pointers
@@ -170,6 +180,20 @@ private:
 
     void m_shiftSolution();
     void m_packBounds();
+    // Fills m_lbg/m_ubg with the per-stage alpha (angle-of-attack) path-
+    // constraint bounds. m_initializeSolverIO() only zero-sizes m_lbg/m_ubg
+    // -- left at all-zero, every g row (including the alpha inequality
+    // rows) is enforced as an equality (alpha == 0), which is wrong: only
+    // g's dynamics rows are equalities, the alpha rows are the NLP's one
+    // genuine inequality, [-alpha_max, alpha_max] (see
+    // build_nlp_oneGround_nmpc.m / build_nlp_twoUavPayload_nmpc.m). g's
+    // row layout (fixed by those builders, not solver/backend-specific):
+    // [nx initial-condition equality rows], then for each of the N stages,
+    // [nx dynamics equality rows, numUavs alpha inequality rows] --
+    // interleaved per stage on purpose, for Fatrop's structure detection.
+    // Called once at construction, right after m_packBounds() -- these
+    // bounds never change solve-to-solve, unlike m_lbx/m_ubx.
+    void m_packInequalityBounds();
     void m_packInitialGuess();
     void m_packParameters();
     std::map<uint8_t, uavCommandsFlags> m_extractControls() const;

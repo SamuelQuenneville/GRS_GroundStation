@@ -21,9 +21,12 @@ MpcController::MpcController(const solverConfig& config, std::unique_ptr<SolverB
 
     m_initialStates.resize(m_config.nx);
     m_uPrev.assign(m_config.nu, 0.0);
+    m_windEst.assign(m_config.np, 0.0);
+    m_dEst.assign(m_config.nd, 0.0);
 
     m_initializeSolverIO();
     m_packBounds();
+    m_packInequalityBounds();
 
     // Fixed 8-in/6-out nlpsol layout -- see SolverBackend.h.
     m_arg.resize(8);
@@ -32,6 +35,14 @@ MpcController::MpcController(const solverConfig& config, std::unique_ptr<SolverB
 }
 
 MpcController::~MpcController() = default;
+
+void MpcController::setDisturbanceEstimate(const std::vector<double>& wind, const std::vector<double>& d) {
+    std::lock_guard lock(m_disturbanceMutex);
+    assert(wind.size() == static_cast<size_t>(m_config.np));
+    assert(d.size() == static_cast<size_t>(m_config.nd));
+    m_windEst = wind;
+    m_dEst = d;
+}
 
 void MpcController::initLaunch() {
     m_launched = true;
@@ -399,6 +410,32 @@ void MpcController::m_packBounds() {
     assert(m_ubx.size() == static_cast<size_t>(m_backend->inputSize(3)));
 }
 
+void MpcController::m_packInequalityBounds() {
+    // m_lbg/m_ubg were zero-sized (all-zero) by m_initializeSolverIO() --
+    // that's correct for every dynamics row (equality: g == 0) but wrong
+    // for the alpha rows, which need [-alphaMax, alphaMax]. See this
+    // method's declaration comment for the row layout being reproduced
+    // here; it mirrors build_nlp_oneGround_nmpc.m / build_nlp_twoUavPayload
+    // _nmpc.m's own g/lbg/ubg construction exactly.
+    const auto nx = static_cast<size_t>(m_config.nx);
+    const auto N = static_cast<size_t>(m_config.N);
+    const auto alphaRowsPerStage = static_cast<size_t>(m_config.numUavs);
+    const double alphaMax = m_config.alphaMax;
+
+    size_t idx = nx; // skip the leading nx initial-condition equality rows
+    for (size_t k = 0; k < N; ++k) {
+        idx += nx; // skip this stage's nx dynamics equality rows
+        for (size_t a = 0; a < alphaRowsPerStage; ++a) {
+            m_lbg[idx] = -alphaMax;
+            m_ubg[idx] = alphaMax;
+            ++idx;
+        }
+    }
+
+    assert(idx == m_lbg.size());
+    assert(idx == m_ubg.size());
+}
+
 void MpcController::m_packInitialGuess() {
 
     // N * (nx+nu) + xN
@@ -432,7 +469,13 @@ void MpcController::m_packParameters() {
     // is m_backend's concern now -- see solverBackend.h for why
     // packParameters()/packBounds() moved off this class.
     const size_t offsetRef = m_lastIdxTraj * m_refStride;
-    m_backend->packParameters(m_config, m_initialStates, m_referenceTrajectory, offsetRef, m_uPrev, m_p);
+    std::vector<double> windEst, dEst;
+    {
+        std::lock_guard lock(m_disturbanceMutex);
+        windEst = m_windEst;
+        dEst = m_dEst;
+    }
+    m_backend->packParameters(m_config, m_initialStates, m_referenceTrajectory, offsetRef, m_uPrev, windEst, dEst, m_p);
 
     assert(m_p.size() == static_cast<size_t>(m_backend->inputSize(1)));
 }

@@ -89,12 +89,22 @@ public:
     //                          of this solve's window start
     //   uPrev               -- previously-applied control, physical units,
     //                          length config.nu
+    //   windEst/dEst        -- current wind/disturbance estimate, physical
+    //                          units, length config.np/config.nd. Comes
+    //                          from whichever Estimator is active (see
+    //                          Controller::setDisturbanceEstimate()) --
+    //                          zero-filled by the caller until an estimator
+    //                          exists, no longer this backend's own TODO to
+    //                          zero internally (Phase 4, see
+    //                          gcs-sitl-integration-plan.md §2).
     virtual void packParameters(
         const solverConfig& config,
         const std::vector<double>& initialStates,
         const std::vector<double>& referenceTrajectory,
         size_t refOffset,
         const std::vector<double>& uPrev,
+        const std::vector<double>& windEst,
+        const std::vector<double>& dEst,
         std::vector<double>& p) const = 0;
 
     // Fills `lbx`/`ubx` (already sized to inputSize(2)/inputSize(3)) with

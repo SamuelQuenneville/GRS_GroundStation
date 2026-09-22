@@ -106,6 +106,9 @@ set(GRS_CONTROL
         source/Control/controller.h
         source/Control/mpcController.cpp
         source/Control/mpcController.h
+        source/Control/estimator.h
+        source/Control/nmheEstimator.cpp
+        source/Control/nmheEstimator.h
         source/Control/SolverBackend/solverBackend.h
         source/Control/SolverBackend/solverBackendFactory.cpp
         source/Control/SolverBackend/solverBackendFactory.h
@@ -113,6 +116,13 @@ set(GRS_CONTROL
         source/Control/SolverBackend/oneUavNmpcBackend.h
         source/Control/SolverBackend/twoUavPayloadNmpcBackend.cpp
         source/Control/SolverBackend/twoUavPayloadNmpcBackend.h
+        source/Control/SolverBackend/estimatorBackend.h
+        source/Control/SolverBackend/estimatorBackendFactory.cpp
+        source/Control/SolverBackend/estimatorBackendFactory.h
+        source/Control/SolverBackend/oneUavNmheBackend.cpp
+        source/Control/SolverBackend/oneUavNmheBackend.h
+        source/Control/SolverBackend/twoUavPayloadNmheBackend.cpp
+        source/Control/SolverBackend/twoUavPayloadNmheBackend.h
         source/Control/navigationFrameManager.cpp
         source/Control/navigationFrameManager.h
 )

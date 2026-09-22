@@ -29,6 +29,10 @@
 // by the .cpp, which is the one place that actually constructs one.
 #include "controller.h"
 #include "SolverBackend/solverBackendFactory.h"
+// Same agnosticism as controller.h above, for the estimator side -- see
+// estimator.h and gcs-sitl-integration-plan.md §3a/Phase 4.
+#include "estimator.h"
+#include "SolverBackend/estimatorBackendFactory.h"
 #include "Trajectory/trajectoryGenerator.h"
 
 class ControlInterface {
@@ -146,6 +150,20 @@ private:
 
     void m_controlLoop();
 
+    // Builds the same joint-across-vehicles state layout MpcController::
+    // m_unpackLatestStates() uses (numUavs blocks of 8, then -- only if
+    // m_estimator's config.nx accounts for it -- one block of 6 for the
+    // payload), but from RAW telemetry always, no pre-launch reference-
+    // trajectory substitution (that's an MpcController-specific safeguard
+    // against feeding the controller garbage before flight; the estimator
+    // has no reference trajectory to fall back to, and running on real,
+    // if-static, pre-launch telemetry is a perfectly fine cold-start
+    // window for it). Duplicated here rather than shared with
+    // MpcController's private method -- the two have diverged in exactly
+    // this one respect (fallback vs. always-raw), so sharing would mean
+    // threading a flag through a private controller method instead.
+    void m_buildEstimatorStateVector(const std::map<uint8_t, uavStates>& states, std::vector<double>& out) const;
+
     void m_initMatlabConnection(const char* ip, uint16_t port);
     void m_sendDataToMatlab(const std::map<uint8_t, uavStates>& states);
     std::map<uint8_t, uavCommands> m_receiveDataFromMatlab();
@@ -157,6 +175,16 @@ private:
     gcsConfig m_config;
 
     std::unique_ptr<Controller> m_controller;
+
+    // Only constructed when the YAML has an "EstimatorConfiguration"
+    // section (see ConfigurationParser::parseEstimatorConfig()) -- null
+    // otherwise, same optional-component convention m_controller itself
+    // follows for non-MPC control modes. Runs on its own cadence inside
+    // m_controlLoop() (m_config.nmheFrequency, decoupled from
+    // m_config.hlcFrequency) -- see m_controlLoop()'s own comment.
+    std::unique_ptr<Estimator> m_estimator;
+    std::vector<double> m_estimatorAppliedControl; // last tick's commanded control, physical units, fed to m_estimator->addSample() as its "applied control" -- see m_controlLoop()
+    double m_nmheAccumulatorMs = 0.0;
 
     std::function<void(const std::map<uint8_t, uavCommandsFlags>&)> m_sendCommand;
     std::function<void(const Controller::DebugInfo&)> m_nmpcDebugCallback;

@@ -40,6 +40,17 @@ public:
 
     virtual void initLaunch() = 0;
 
+    // Feeds a fresh wind/disturbance estimate in, replacing whatever was
+    // packed before (zero, until an estimator exists -- see the wind/
+    // disturbance gap in gcs-sitl-integration-plan.md §2). Physical units,
+    // length np/nd matching this controller's own solverConfig. Called by
+    // ControlInterface after a successful Estimator::estimate() (see
+    // estimator.h), on the estimator's own cadence -- NOT once per control
+    // tick -- so the value packed into the NEXT few solve()s is simply
+    // whatever was set here last (zero-order hold), same convention
+    // Estimator::windEstimate()/dEstimate() themselves use.
+    virtual void setDisturbanceEstimate(const std::vector<double>& wind, const std::vector<double>& d) = 0;
+
     // Inverse of loadTrajectory(file): writes the current in-memory
     // reference trajectory back out to `file`. Throws if no trajectory has
     // been loaded/generated yet, or if `file` can't be opened for writing.

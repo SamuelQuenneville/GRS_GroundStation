@@ -59,6 +59,8 @@ public:
         const std::vector<double>& referenceTrajectory,
         size_t refOffset,
         const std::vector<double>& uPrev,
+        const std::vector<double>& windEst,
+        const std::vector<double>& dEst,
         std::vector<double>& p) const override;
 
     void packBounds(
