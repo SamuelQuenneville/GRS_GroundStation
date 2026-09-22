@@ -259,14 +259,25 @@ function(nmpc_solver_isolate_runtime_symbols source_file prefix)
     set_source_files_properties(${source_file} PROPERTIES COMPILE_DEFINITIONS "${defs}")
 endfunction()
 
-nmpc_solver_isolate_runtime_symbols(source/Control/CasadiSolver/solver_oneGround_nmpc.c oneGround)
-nmpc_solver_isolate_runtime_symbols(source/Control/CasadiSolver/solver_twoUavPayload_nmpc.c twoUavPayload)
+# Each solver gets its own prefix, including across NMPC/NMHE for the same
+# vehicle config (oneGroundNmpc vs oneGroundNmhe, not both "oneGround") --
+# reusing a prefix across two files would just recreate this exact
+# collision one level up, between the two files' now-identically-renamed
+# copies.
+nmpc_solver_isolate_runtime_symbols(source/Control/CasadiSolver/solver_oneGround_nmpc.c oneGroundNmpc)
+nmpc_solver_isolate_runtime_symbols(source/Control/CasadiSolver/solver_twoUavPayload_nmpc.c twoUavPayloadNmpc)
+nmpc_solver_isolate_runtime_symbols(source/Control/CasadiSolver/nmhe_oneGround.c oneGroundNmhe)
+nmpc_solver_isolate_runtime_symbols(source/Control/CasadiSolver/nmhe_twoUavPayload.c twoUavPayloadNmhe)
 
 add_library(nmpc_solver STATIC
         source/Control/CasadiSolver/solver_oneGround_nmpc.c
         source/Control/CasadiSolver/solver_oneGround_nmpc.h
         source/Control/CasadiSolver/solver_twoUavPayload_nmpc.c
         source/Control/CasadiSolver/solver_twoUavPayload_nmpc.h
+        source/Control/CasadiSolver/nmhe_oneGround.c
+        source/Control/CasadiSolver/nmhe_oneGround.h
+        source/Control/CasadiSolver/nmhe_twoUavPayload.c
+        source/Control/CasadiSolver/nmhe_twoUavPayload.h
 )
 
 target_compile_options(nmpc_solver PRIVATE
