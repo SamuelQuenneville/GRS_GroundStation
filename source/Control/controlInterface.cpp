@@ -169,6 +169,12 @@ void ControlInterface::generateTrajectory(const grs::trajgen::TrajectoryConfig& 
 
     const auto mission = previewTrajectory(config, selection, liveLaunchPositionsNed);
 
+    if (static_cast<int>(mission.aircraft.size()) != m_controller->numUavs()) {
+        throw std::runtime_error("generateTrajectory: mission has " + std::to_string(mission.aircraft.size()) +
+            " aircraft but the loaded controller (" + std::to_string(m_controller->numUavs()) +
+            " UAV(s)) expects a different count -- wrong --config profile loaded, or a SubsetSelection.uavIndices mismatch?");
+    }
+
     const bool hasPayload = selection.includePayload.value_or(m_controller->hasPayload());
     auto reference = grs::trajgen::TrajectoryGenerator::toSolverReference(mission, hasPayload);
     m_controller->setReferenceTrajectory(std::move(reference));

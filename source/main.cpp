@@ -25,6 +25,13 @@ int main(const int argc, const char * argv[]) {
 
     gcsConfig config;
 
+    for (int i = 1; i < argc; ++i) {
+        const std::string arg = argv[i];
+        if (arg.find("--config=") == 0) {
+            config.configPath = arg.substr(arg.find('=') + 1);
+        }
+    }
+
     try {
         YAML::Node node = YAML::LoadFile(config.configPath);
         config = ConfigurationParser::parseGcsConfig(node, config);
@@ -39,6 +46,10 @@ int main(const int argc, const char * argv[]) {
 
         if (arg == "--verbose") {
             config.verbose = true;
+
+        } else if (arg.find("--config=") == 0) {
+            // Already applied above, before the YAML load -- just don't
+            // fall through to "Unknown option" for it here.
 
         } else if (arg.find("--UAVs=") == 0) {
             const auto value = grs::parseInt<int>(arg.substr(arg.find('=') + 1));
@@ -91,6 +102,12 @@ int main(const int argc, const char * argv[]) {
                       << "Options:\n"
                       << "  --help                Show this help message\n"
                       << "  --verbose             Enable verbose mode\n"
+                      << "  --config=[path]       GCS config YAML to load (default: "
+                      << gcsConfig{}.configPath << "). Picks WHICH\n"
+                      << "                        SolverConfiguration/EstimatorConfiguration --\n"
+                      << "                        i.e. which vehicle profile -- gets loaded; use\n"
+                      << "                        inputFilesExamples/configuration_twoUav.yaml\n"
+                      << "                        for the two-UAV+payload NMPC/NMHE solvers.\n"
                       << "  --UAVs=[Number]       Number of UAVs\n"
                       << "  --hlc-freq=[freq]     Controller frequency in Hz\n"
                       << "  --matlab=[ip]:[port]  Enable matlab controller via UDP\n"
