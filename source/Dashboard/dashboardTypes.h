@@ -232,7 +232,7 @@ struct NmpcTelemetrySnapshot {
     double loopPeriodMs = 0.0;
 
     /// Raw solver return-status flag and worst constraint violation from
-    /// the last solve, and which SolverBackend produced it. NOT a Fatrop
+    /// the last solve, and which generated solver produced it. NOT a Fatrop
     /// iteration count -- the codegen'd C solver interface doesn't expose
     /// one (see Controller::DebugInfo's comment); this is the most
     /// detail that's actually available without a deeper Fatrop-side

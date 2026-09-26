@@ -70,15 +70,13 @@ ControlStack buildControlStack(YAML::Node& node, const bool withEstimator) {
     ControlStack stack;
     stack.solver = ConfigurationParser::parseSolverConfig(node);
 
-    // Backend selection is a startup-only choice. numUavs picks the concrete SolverBackend once, here.
-    stack.controller = std::make_unique<MpcController>(stack.solver, createSolverBackend(stack.solver.numUavs));
+    stack.controller = std::make_unique<MpcController>(stack.solver);
 
     // Presence of "EstimatorConfiguration" in the YAML is the enable.
     if (withEstimator) {
         stack.estimator = ConfigurationParser::parseEstimatorConfig(node);
         if (stack.estimator) {
-            stack.estimatorInstance = std::make_unique<NmheEstimator>(
-                *stack.estimator, createEstimatorBackend(stack.estimator->numUavs));
+            stack.estimatorInstance = std::make_unique<NmheEstimator>(*stack.estimator);
         }
     }
     return stack;

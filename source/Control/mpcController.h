@@ -12,7 +12,6 @@
 #pragma once
 
 #include <chrono>
-#include <memory>
 #include <mutex>
 #include <sstream>
 #include <unordered_map>
@@ -27,12 +26,7 @@
 
 #include "controller.h"
 
-// Solver-agnostic -- MpcController talks only to this interface, never to
-// a specific codegen'd solver's global symbols, and never to that solver's
-// parameter-vector layout either (see solverBackend.h -- packParameters()/
-// packBounds() live there now, not in this class).
-#include "SolverBackend/solverBackend.h"
-#include "SolverBackend/nlpsolIo.h"
+#include "nlpsol.h"
 #include "stateVector.h"
 
 class MpcController final : public Controller {
@@ -43,10 +37,7 @@ public:
         double unwrapped = 0.0;
     };
 
-    // backend is owned by this controller for its whole lifetime -- build
-    // it with createSolverBackend(config.numUavs) (SolverBackendFactory.h)
-    // and hand it in here.
-    MpcController(const solverConfig& config, std::unique_ptr<SolverBackend> backend);
+    explicit MpcController(const solverConfig& config);
     ~MpcController() override;
 
     void initLaunch() override;
@@ -89,7 +80,7 @@ public:
 
 private:
     solverConfig m_config;
-    std::unique_ptr<SolverBackend> m_backend;
+    Nlpsol m_solver;
 
     grs::control::StateLayout m_layout;
 
@@ -146,10 +137,6 @@ private:
     std::vector<double> m_dEst;
     mutable std::mutex m_disturbanceMutex;
 
-    // Solver inputs/outputs/workspaces (see nlpsolIo.h). Declared after
-    // m_backend, which sizes it.
-    NlpsolIo m_io;
-
     // Synchronization
     mutable std::mutex m_solveMutex;
 
@@ -159,25 +146,19 @@ private:
     double m_computeReferenceCost(size_t idx) const;
 
     void m_shiftSolution();
+    // Decision-variable bounds, scaled: [x0 u0 ... x(N-1) u(N-1) xN].
     void m_packBounds();
-    // Fills m_io.lbg/ubg with the per-stage alpha (angle-of-attack) path-
-    // constraint bounds. NlpsolIo zero-fills them -- left at all-zero, every g row (including the alpha inequality
-    // rows) is enforced as an equality (alpha == 0), which is wrong: only
-    // g's dynamics rows are equalities, the alpha rows are the NLP's one
-    // genuine inequality, [-alpha_max, alpha_max] (see
-    // build_nlp_oneGround_nmpc.m / build_nlp_twoUavPayload_nmpc.m). g's
-    // row layout (fixed by those builders, not solver/backend-specific):
-    // [nx initial-condition equality rows], then for each of the N stages,
-    // [nx dynamics equality rows, numUavs alpha inequality rows] --
-    // interleaved per stage on purpose, for Fatrop's structure detection.
-    // Called once at construction, right after m_packBounds() -- these
-    // bounds never change solve-to-solve.
+    // g rows (build_nlp_*_nmpc.m): nx initial-condition equalities, then per
+    // stage nx dynamics equalities followed by numUavs angle-of-attack rows.
+    // Only the alpha rows are inequalities, [-alphaMax, alphaMax].
     void m_packInequalityBounds();
     void m_packInitialGuess();
+    // P_optim (build_nlp_*_nmpc.m): [x_initial; reference window x0 u0 ... xN;
+    // Wind_est; D_est; Weight; U_prev; L0].
     void m_packParameters();
     std::map<uint8_t, uavCommandsFlags> m_extractControls() const;
 
-    // Sets m_violation / m_lastMaxConstraintViolation from m_io.check().
+    // Sets m_violation / m_lastMaxConstraintViolation from m_solver.check().
     bool m_solutionIsValid(int flag);
 
     double m_unwrapYaw(uint8_t sysId, double yawRadWrapped);

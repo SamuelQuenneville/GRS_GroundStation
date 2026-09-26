@@ -26,8 +26,6 @@
 #include "estimatorRunner.h"
 #include "stateVector.h"
 #include "Configuration/configurationParser.h"
-#include "SolverBackend/estimatorBackendFactory.h"
-#include "SolverBackend/solverBackendFactory.h"
 
 // One control-loop tick of the MPC control mode: hand the controller the
 // newest finished NMHE estimate, push this tick's sample to the estimator,

@@ -10,26 +10,28 @@
 
 #include <algorithm>
 #include <cassert>
-#include <cmath>
+#include <limits>
 
 #include "Util/profilingTimer.h"
 
-NmheEstimator::NmheEstimator(const estimatorConfig& config, std::unique_ptr<EstimatorBackend> backend)
+namespace {
+
+// Entry i of a scale vector, repeated if shorter; 1 when empty.
+double scaleAt(const std::vector<double>& scale, const int i) {
+    return scale.empty() ? 1.0 : scale[i % scale.size()];
+}
+
+} // namespace
+
+NmheEstimator::NmheEstimator(const estimatorConfig& config)
     : m_config(config)
-    , m_backend(std::move(backend))
-    , m_io(*m_backend)
+    , m_solver(Nlpsol::Problem::Nmhe, config.numUavs)
 {
     m_windEst.assign(m_config.np, 0.0);
     m_dEst.assign(m_config.nd, 0.0);
 
-    // Bounds are the same every solve (tiled from config, no state
-    // dependency) -- packed once here, same as MpcController::m_packBounds()
-    // does for the NMPC side.
-    m_backend->packBounds(m_config, m_io.lbx, m_io.ubx);
-
-    // g is purely the M stage-linking dynamics equalities (no path
-    // constraints), so lbg = ubg = 0 for every row: NlpsolIo's zero-fill is
-    // final, unlike the NMPC's alpha inequality rows.
+    m_packBounds();
+    // g holds only the dynamics equalities: lbg = ubg = 0 as constructed.
 }
 
 NmheEstimator::~NmheEstimator() = default;
@@ -60,34 +62,19 @@ bool NmheEstimator::estimate() {
         return false;
     }
 
-    // Flatten the sliding windows, oldest to newest -- EstimatorBackend::
-    // packParameters()'s expected layout.
-    std::vector<double> measurementWindow;
-    measurementWindow.reserve(m_stateWindow.size() * m_config.nx);
-    for (const auto& s : m_stateWindow) {
-        measurementWindow.insert(measurementWindow.end(), s.begin(), s.end());
-    }
-
-    std::vector<double> controlWindow;
-    controlWindow.reserve(m_controlWindow.size() * m_config.nu);
-    for (const auto& u : m_controlWindow) {
-        controlWindow.insert(controlWindow.end(), u.begin(), u.end());
-    }
-
-    // m_windEst/m_dEst still hold the PREVIOUS solve's estimate here --
-    // that's deliberately what's fed in as this solve's arrival-cost
-    // prior, before being overwritten below with this solve's own result.
-    m_backend->packParameters(m_config, measurementWindow, controlWindow, m_windEst, m_dEst, m_io.p);
+    // m_windEst/m_dEst still hold the previous estimate: this solve's
+    // arrival-cost prior.
+    m_packParameters();
     m_packInitialGuess();
 
     int flag = 0;
     {
         PROFILE_SCOPE_OUT("nmhe_solve", &m_lastSolveMs, false);
-        flag = m_io.solve(*m_backend);
+        flag = m_solver.solve();
         m_lastFlag = flag;
     }
 
-    const auto check = m_io.check(flag);
+    const auto check = m_solver.check(flag);
     m_lastMaxConstraintViolation = check.maxConstraintViolation;
     const bool valid = check.valid;
 
@@ -102,12 +89,10 @@ bool NmheEstimator::estimate() {
         const size_t dOffset = windOffset + m_config.np;
 
         for (int i = 0; i < m_config.np; ++i) {
-            const double scale = m_config.windScale.empty() ? 1.0 : m_config.windScale[i % m_config.windScale.size()];
-            m_windEst[i] = m_io.x[windOffset + i] * scale;
+            m_windEst[i] = m_solver.x[windOffset + i] * scaleAt(m_config.windScale, i);
         }
         for (int i = 0; i < m_config.nd; ++i) {
-            const double scale = m_config.dScale.empty() ? 1.0 : m_config.dScale[i % m_config.dScale.size()];
-            m_dEst[i] = m_io.x[dOffset + i] * scale;
+            m_dEst[i] = m_solver.x[dOffset + i] * scaleAt(m_config.dScale, i);
         }
     }
     // On a violation, m_windEst/m_dEst are deliberately left unchanged --
@@ -138,7 +123,7 @@ Estimator::DebugInfo NmheEstimator::getDebugInfo() const {
     info.lastSolveMs = m_lastSolveMs;
     info.lastFlag = m_lastFlag;
     info.lastMaxConstraintViolation = m_lastMaxConstraintViolation;
-    info.backendName = m_backend->name();
+    info.backendName = m_solver.name();
     return info;
 }
 
@@ -154,20 +139,51 @@ void NmheEstimator::m_packInitialGuess() {
     for (const auto& s : m_stateWindow) {
         const size_t offset = stage * nxi;
         for (int i = 0; i < m_config.nx; ++i) {
-            const double scale = m_config.invXScale.empty() ? 1.0 : m_config.invXScale[i % m_config.invXScale.size()];
-            m_io.x0[offset + i] = s[i] * scale;
+            m_solver.x0[offset + i] = s[i] * scaleAt(m_config.invXScale, i);
         }
         for (int i = 0; i < m_config.np; ++i) {
-            const double scale = m_config.windScale.empty() ? 1.0 : 1.0 / m_config.windScale[i % m_config.windScale.size()];
-            m_io.x0[offset + m_config.nx + i] = m_windEst[i] * scale;
+            m_solver.x0[offset + m_config.nx + i] = m_windEst[i] / scaleAt(m_config.windScale, i);
         }
         for (int i = 0; i < m_config.nd; ++i) {
-            const double scale = m_config.dScale.empty() ? 1.0 : 1.0 / m_config.dScale[i % m_config.dScale.size()];
-            m_io.x0[offset + m_config.nx + m_config.np + i] = m_dEst[i] * scale;
+            m_solver.x0[offset + m_config.nx + m_config.np + i] = m_dEst[i] / scaleAt(m_config.dScale, i);
         }
         ++stage;
     }
 
     assert(stage == static_cast<size_t>(m_config.M) + 1);
-    assert(m_io.x0.size() == static_cast<size_t>(m_backend->inputSize(0)));
+}
+
+void NmheEstimator::m_packBounds() {
+    const double inf = std::numeric_limits<double>::infinity();
+    const double dBound[] = {m_config.dFMax, m_config.dFMax, m_config.dFMax, m_config.bAttMax, m_config.bAttMax};
+
+    std::vector<double> ub(m_config.nxi, inf);
+    for (int i = 0; i < m_config.np; ++i) {
+        ub[m_config.nx + i] = m_config.windMax / scaleAt(m_config.windScale, i);
+    }
+    for (int i = 0; i < m_config.nd; ++i) {
+        ub[m_config.nx + m_config.np + i] = dBound[i % 5] / scaleAt(m_config.dScale, i);
+    }
+
+    for (int k = 0; k <= m_config.M; ++k) {
+        for (int i = 0; i < m_config.nxi; ++i) {
+            m_solver.lbx[k * m_config.nxi + i] = -ub[i];
+            m_solver.ubx[k * m_config.nxi + i] = ub[i];
+        }
+    }
+}
+
+void NmheEstimator::m_packParameters() {
+    auto dst = m_solver.p.begin();
+    for (size_t k = 0; k < m_stateWindow.size(); ++k) {
+        dst = std::ranges::copy(m_stateWindow[k], dst).out;
+        if (k < m_controlWindow.size()) {
+            dst = std::ranges::copy(m_controlWindow[k], dst).out;
+        }
+    }
+    for (const auto* v : {&m_windEst, &m_dEst, &m_config.wMeas, &m_config.wWindPrior, &m_config.wDPrior}) {
+        dst = std::ranges::copy(*v, dst).out;
+    }
+    dst = std::fill_n(dst, m_config.nL0, m_config.tetherL0);
+    assert(dst == m_solver.p.end());
 }

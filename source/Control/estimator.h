@@ -16,10 +16,8 @@
 
 // Top-level abstraction over "the thing estimating wind/disturbance this
 // tick" -- the estimator-side counterpart to Controller (see controller.h
-// and gcs-sitl-integration-plan.md §3a). NmheEstimator is the first (and,
-// as of this writing, only) implementation, driving either NMHE solver
-// through EstimatorBackend the same way MpcController drives either NMPC
-// solver through SolverBackend.
+// and gcs-sitl-integration-plan.md §3a). NmheEstimator is the only
+// implementation.
 //
 // Deliberately runs on its own cadence, decoupled from the 20 Hz control
 // loop (see ControlInterface -- the NMHE update rate is its own config

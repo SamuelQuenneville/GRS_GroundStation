@@ -22,7 +22,6 @@
 #include "Powertrain/powertrain.h"
 #include "navigationFrameManager.h"
 #include "Mathematics/math.h"
-#include "SolverBackend/solverBackendFactory.h"
 #include "controlStep.h"
 #include "Trajectory/trajectoryGenerator.h"
 

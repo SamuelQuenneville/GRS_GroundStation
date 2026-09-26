@@ -94,22 +94,8 @@ set(GRS_CONTROL_CORE
         source/Control/estimator.h
         source/Control/nmheEstimator.cpp
         source/Control/nmheEstimator.h
-        source/Control/SolverBackend/nlpsolIo.cpp
-        source/Control/SolverBackend/nlpsolIo.h
-        source/Control/SolverBackend/solverBackend.h
-        source/Control/SolverBackend/solverBackendFactory.cpp
-        source/Control/SolverBackend/solverBackendFactory.h
-        source/Control/SolverBackend/oneUavNmpcBackend.cpp
-        source/Control/SolverBackend/oneUavNmpcBackend.h
-        source/Control/SolverBackend/twoUavPayloadNmpcBackend.cpp
-        source/Control/SolverBackend/twoUavPayloadNmpcBackend.h
-        source/Control/SolverBackend/estimatorBackend.h
-        source/Control/SolverBackend/estimatorBackendFactory.cpp
-        source/Control/SolverBackend/estimatorBackendFactory.h
-        source/Control/SolverBackend/oneUavNmheBackend.cpp
-        source/Control/SolverBackend/oneUavNmheBackend.h
-        source/Control/SolverBackend/twoUavPayloadNmheBackend.cpp
-        source/Control/SolverBackend/twoUavPayloadNmheBackend.h
+        source/Control/nlpsol.cpp
+        source/Control/nlpsol.h
 )
 
 set(GRS_CONTROL

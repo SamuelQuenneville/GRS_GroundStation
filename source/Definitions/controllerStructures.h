@@ -105,17 +105,8 @@ struct estimatorConfig {
     std::vector<double> wWindPrior;
     std::vector<double> wDPrior;
 
-    // Bakes in the SAME wind_max/dF_max/b_att_max values build_nmhe_*.m
-    // was called with at MATLAB build/export time (see the export scripts'
-    // own header comment -- these are baked into the NLP's bound STRUCTURE
-    // at build time, not runtime-packed like solverConfig's NMPC bounds).
-    // Still passed to the compiled solver at every solve() as ordinary
-    // nlpsol lbx/ubx inputs though (that part of the 8-in/6-out convention
-    // is fixed regardless -- see EstimatorBackend.h), so the concrete
-    // backend still has to build them every solve; keeping the source
-    // values here (rather than hardcoding them per backend) at least makes
-    // a MATLAB/GCS config drift visible instead of silently wrong, same
-    // reasoning as solverConfig::dt.
+    // Must match the wind_max/dF_max/b_att_max build_nmhe_*.m was exported
+    // with; packed into lbx/ubx by NmheEstimator.
     double windMax;
     double dFMax;
     double bAttMax;

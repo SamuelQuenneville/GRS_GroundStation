@@ -11,10 +11,9 @@
 #include <fstream>
 #include <iomanip>
 
-MpcController::MpcController(const solverConfig& config, std::unique_ptr<SolverBackend> backend)
+MpcController::MpcController(const solverConfig& config)
     : m_config(config)
-    , m_backend(std::move(backend))
-    , m_io(*m_backend)
+    , m_solver(Nlpsol::Problem::Nmpc, config.numUavs)
 {
     m_refStride = m_config.nx + m_config.nu;
     m_layout = {m_config.numUavs, hasPayload()};
@@ -180,7 +179,7 @@ std::map<uint8_t, uavCommandsFlags> MpcController::solve(const std::map<uint8_t,
     // Solve
     {
         PROFILE_SCOPE_OUT("casadi_solve", &m_lastSolveMs, false);
-        const int flag = m_io.solve(*m_backend);
+        const int flag = m_solver.solve();
         m_lastFlag = flag;
 
         const auto converged = m_solutionIsValid(flag);
@@ -193,13 +192,13 @@ std::map<uint8_t, uavCommandsFlags> MpcController::solve(const std::map<uint8_t,
     // Remember the just-applied first-stage control (physical units, UAV
     // 1's block -- U_prev in the one-UAV NLP has no per-UAV structure to
     // worry about) for next solve's dU0 rate-penalty parameter. Skipped on
-    // a violation: m_io.x may not hold a meaningful solution then, and
+    // a violation: m_solver.x may not hold a meaningful solution then, and
     // m_extractControls() already fell back to the reference trajectory's
     // planned control for the returned command in that case.
     if (!m_violation) {
         const int offset = m_config.nx;
         for (int i = 0; i < m_config.nu; ++i) {
-            m_uPrev[i] = m_io.x[offset + i] * m_config.scalesControls[i];
+            m_uPrev[i] = m_solver.x[offset + i] * m_config.scalesControls[i];
         }
     }
 
@@ -265,7 +264,7 @@ MpcController::DebugInfo MpcController::getDebugInfo() const {
     info.trajectoryTotal = m_numTrajectoryPoints;
     info.lastFlag = m_lastFlag;
     info.lastMaxConstraintViolation = m_lastMaxConstraintViolation;
-    info.backendName = m_backend->name();
+    info.backendName = m_solver.name();
     return info;
 }
 
@@ -335,7 +334,7 @@ void MpcController::m_shiftSolution() {
         const size_t dst = k * stride;
         const size_t src = (k + shift) * stride;
 
-        std::copy_n(m_io.x.begin() + src, stride, m_io.x0.begin() + dst);
+        std::copy_n(m_solver.x.begin() + src, stride, m_solver.x0.begin() + dst);
     }
 
     // -------------------------------------------------
@@ -347,7 +346,7 @@ void MpcController::m_shiftSolution() {
         const size_t dst = k * stride;
         const size_t src = lastValidStage * stride;
 
-        std::copy_n(m_io.x.begin() + src, stride, m_io.x0.begin() + dst);
+        std::copy_n(m_solver.x.begin() + src, stride, m_solver.x0.begin() + dst);
     }
 
     // -------------------------------------------------
@@ -356,36 +355,37 @@ void MpcController::m_shiftSolution() {
     const size_t xN_src = N * stride;
     const size_t xN_dst = N * stride;
 
-    std::copy_n(m_io.x.begin() + xN_src, nx, m_io.x0.begin() + xN_dst);
+    std::copy_n(m_solver.x.begin() + xN_src, nx, m_solver.x0.begin() + xN_dst);
 
     // -------------------------------------------------
     // 4. Re-anchor initial state with measurement
     // -------------------------------------------------
     for (size_t i = 0; i < nx; ++i) {
-        m_io.x0[i] = m_initialStates[i] * m_config.invScalesStates[i];
+        m_solver.x0[i] = m_initialStates[i] * m_config.invScalesStates[i];
     }
 
-    std::ranges::fill(m_io.lamX0, 0.0);
-    std::ranges::fill(m_io.lamG0, 0.0);
+    std::ranges::fill(m_solver.lamX0, 0.0);
+    std::ranges::fill(m_solver.lamG0, 0.0);
 }
 
 void MpcController::m_packBounds() {
-    // This NLP's decision-variable bounds tiling is m_backend's concern now
-    // -- see solverBackend.h for why packParameters()/packBounds() moved
-    // off this class.
-    m_backend->packBounds(m_config, m_io.lbx, m_io.ubx);
-
-    assert(m_io.lbx.size() == static_cast<size_t>(m_backend->inputSize(2)));
-    assert(m_io.ubx.size() == static_cast<size_t>(m_backend->inputSize(3)));
+    auto lb = m_solver.lbx.begin();
+    auto ub = m_solver.ubx.begin();
+    for (int k = 0; k <= m_config.N; ++k) {
+        for (int i = 0; i < m_config.nx; ++i) {
+            *lb++ = m_config.lbxStates[i] * m_config.invScalesStates[i];
+            *ub++ = m_config.ubxStates[i] * m_config.invScalesStates[i];
+        }
+        if (k == m_config.N) break;
+        for (int i = 0; i < m_config.nu; ++i) {
+            *lb++ = m_config.lbxControls[i] * m_config.invScalesControls[i];
+            *ub++ = m_config.ubxControls[i] * m_config.invScalesControls[i];
+        }
+    }
+    assert(lb == m_solver.lbx.end());
 }
 
 void MpcController::m_packInequalityBounds() {
-    // m_io.lbg/ubg start all-zero (NlpsolIo zero-fills them) --
-    // that's correct for every dynamics row (equality: g == 0) but wrong
-    // for the alpha rows, which need [-alphaMax, alphaMax]. See this
-    // method's declaration comment for the row layout being reproduced
-    // here; it mirrors build_nlp_oneGround_nmpc.m / build_nlp_twoUavPayload
-    // _nmpc.m's own g/lbg/ubg construction exactly.
     const auto nx = static_cast<size_t>(m_config.nx);
     const auto N = static_cast<size_t>(m_config.N);
     const auto alphaRowsPerStage = static_cast<size_t>(m_config.numUavs);
@@ -395,14 +395,14 @@ void MpcController::m_packInequalityBounds() {
     for (size_t k = 0; k < N; ++k) {
         idx += nx; // skip this stage's nx dynamics equality rows
         for (size_t a = 0; a < alphaRowsPerStage; ++a) {
-            m_io.lbg[idx] = -alphaMax;
-            m_io.ubg[idx] = alphaMax;
+            m_solver.lbg[idx] = -alphaMax;
+            m_solver.ubg[idx] = alphaMax;
             ++idx;
         }
     }
 
-    assert(idx == m_io.lbg.size());
-    assert(idx == m_io.ubg.size());
+    assert(idx == m_solver.lbg.size());
+    assert(idx == m_solver.ubg.size());
 }
 
 void MpcController::m_packInitialGuess() {
@@ -412,47 +412,42 @@ void MpcController::m_packInitialGuess() {
     const size_t count = m_config.N * m_refStride + m_config.nx;
     const size_t offsetRef = m_lastIdxTraj * m_refStride;
 
-    std::memcpy(m_io.x0.data(), m_referenceTrajectory.data() + offsetRef, count * sizeof(double));
+    std::memcpy(m_solver.x0.data(), m_referenceTrajectory.data() + offsetRef, count * sizeof(double));
 
-    std::ranges::copy(m_initialStates, m_io.x0.begin());
+    std::ranges::copy(m_initialStates, m_solver.x0.begin());
 
     // Decision vector is [x0 u0 ... x(N-1) u(N-1) xN]: N+1 state blocks but
     // only N control blocks. Scaling a control block at k = N used to write
-    // nu doubles past the end of m_io.x0 (heap overflow on the first solve,
+    // nu doubles past the end of m_solver.x0 (heap overflow on the first solve,
     // found by running grs_batchsim under AddressSanitizer).
     for (size_t k = 0; k < m_config.N + 1; ++k)
     {
         const size_t xOffset = k * m_refStride;
         for (size_t i = 0; i < m_config.nx; ++i) {
-            m_io.x0[xOffset + i] *= m_config.invScalesStates[i];
+            m_solver.x0[xOffset + i] *= m_config.invScalesStates[i];
         }
 
         if (k == static_cast<size_t>(m_config.N)) break;
 
         const size_t uOffset = k * m_refStride + m_config.nx;
         for (size_t i = 0; i < m_config.nu; ++i) {
-            m_io.x0[uOffset + i] *= m_config.invScalesControls[i];
+            m_solver.x0[uOffset + i] *= m_config.invScalesControls[i];
         }
     }
-
-
-    assert(m_io.x0.size() == static_cast<size_t>(m_backend->inputSize(0)));
 }
 
 void MpcController::m_packParameters() {
-    // This NLP's parameter-vector ordering (wind, weight, U_prev, L0, ...)
-    // is m_backend's concern now -- see solverBackend.h for why
-    // packParameters()/packBounds() moved off this class.
-    const size_t offsetRef = m_lastIdxTraj * m_refStride;
-    std::vector<double> windEst, dEst;
+    auto dst = std::ranges::copy(m_initialStates, m_solver.p.begin()).out;
+    dst = std::copy_n(m_referenceTrajectory.begin() + m_lastIdxTraj * m_refStride, m_config.N * m_refStride + m_config.nx, dst);
     {
         std::lock_guard lock(m_disturbanceMutex);
-        windEst = m_windEst;
-        dEst = m_dEst;
+        dst = std::ranges::copy(m_windEst, dst).out;
+        dst = std::ranges::copy(m_dEst, dst).out;
     }
-    m_backend->packParameters(m_config, m_initialStates, m_referenceTrajectory, offsetRef, m_uPrev, windEst, dEst, m_io.p);
-
-    assert(m_io.p.size() == static_cast<size_t>(m_backend->inputSize(1)));
+    dst = std::ranges::copy(m_config.weight, dst).out;
+    dst = std::ranges::copy(m_uPrev, dst).out;
+    dst = std::fill_n(dst, m_config.nL0, m_config.tetherL0);
+    assert(dst == m_solver.p.end());
 }
 
 std::map<uint8_t, uavCommandsFlags> MpcController::m_extractControls() const {
@@ -489,9 +484,9 @@ std::map<uint8_t, uavCommandsFlags> MpcController::m_extractControls() const {
             cmd.commands.pitchDegree = grs::radToDeg(static_cast<float>(m_referenceTrajectory.at(ctrlOffset + 2)));
             cmd.commands.yawDegree   = 0.0;
         } else {
-            cmd.commands.thrust      = static_cast<float>(m_io.x[offset + 0] * m_config.scalesControls[scaleOffset + 0]);
-            cmd.commands.rollDegree  = grs::radToDeg(static_cast<float>(m_io.x[offset + 1] * m_config.scalesControls[scaleOffset + 1]));
-            cmd.commands.pitchDegree = grs::radToDeg(static_cast<float>(m_io.x[offset + 2] * m_config.scalesControls[scaleOffset + 2]));
+            cmd.commands.thrust      = static_cast<float>(m_solver.x[offset + 0] * m_config.scalesControls[scaleOffset + 0]);
+            cmd.commands.rollDegree  = grs::radToDeg(static_cast<float>(m_solver.x[offset + 1] * m_config.scalesControls[scaleOffset + 1]));
+            cmd.commands.pitchDegree = grs::radToDeg(static_cast<float>(m_solver.x[offset + 2] * m_config.scalesControls[scaleOffset + 2]));
             cmd.commands.yawDegree   = 0.0;
         }
 
@@ -523,7 +518,7 @@ std::map<uint8_t, uavCommandsFlags> MpcController::m_extractControls() const {
 }
 
 bool MpcController::m_solutionIsValid(const int flag) {
-    const auto check = m_io.check(flag);
+    const auto check = m_solver.check(flag);
     m_violation = !check.valid;
     m_lastMaxConstraintViolation = check.maxConstraintViolation;
     return check.valid;

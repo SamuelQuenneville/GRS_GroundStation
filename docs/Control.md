@@ -75,13 +75,9 @@ what a second implementation (`TvlqrController`) would look like.
 ## `MpcController` (`mpcController.h`/`.cpp`)
 
 The `Controller` implementation for any NLP-based family (NMPC today, LMPC
-eventually), driven through a `SolverBackend` (`solverBackend.h`) rather
-than a specific codegen'd solver's symbols. `solve(latestStates)` packs the
-current states into the solver's input arrays (delegating the actual
-parameter-vector/bounds layout to `m_backend->packParameters()`/
-`packBounds()` — that knowledge lives with the backend, not here, since a
-different NLP isn't guaranteed to share it), calls `m_backend->solve()`,
-unpacks the result into per-UAV commands, and moves the reference-
+eventually). `solve(latestStates)` fills the solver inputs (initial state,
+parameter vector, warm start), runs an `Nlpsol` (see below), unpacks the
+result into per-UAV commands, and moves the reference-
 trajectory index forward. How it moves is `SolverConfiguration.
 REFERENCE_INDEXING`: `nearest` (default) searches forward for the reference
 point closest in north/east to UAV 1; `time` advances exactly one sample per
@@ -103,28 +99,15 @@ State-vector and payload-detection conventions (`kUavBlockSize`,
 `hasPayload()`) are documented once in `docs/ARCHITECTURE.md` rather than
 repeated here.
 
-## `SolverBackend` (`SolverBackend/solverBackend.h`) / `OneUavNmpcBackend` / `TwoUavPayloadNmpcBackend` (`SolverBackend/`)
+## `Nlpsol` (`nlpsol.h`/`.cpp`)
 
-Wraps one codegen'd `nlpsol` solver's C API (8-in/6-out convention) *and*
-that solver's parameter-vector/bounds packing — see the header comment in
-`solverBackend.h` for why both live in one interface rather than being
-split further. Two concrete implementations today: `OneUavNmpcBackend`
-(wrapping `solver_oneGround_nmpc_*`, numUavs=1) and
-`TwoUavPayloadNmpcBackend` (wrapping `solver_twoUavPayload_nmpc_*`,
-numUavs=2) — each `.cpp` includes only its own generated header
-(`CasadiSolver/solver_oneGround_nmpc.h` / `solver_twoUavPayload_nmpc.h`),
-so those headers' macros/symbols never reach the rest of the codebase or
-each other. Their `packParameters()`/`packBounds()` logic is identical in
-structure (both NLPs use the same `P_optim` order, just with different
-dims), driven entirely off `solverConfig`'s own nx/nu/np/nd/nL0/N rather
-than hardcoded per-vehicle-count constants — confirmed independently for
-each rather than assumed to carry over, see
-`gcs-sitl-integration-plan.md` Phase 3.
-`SolverBackendFactory::createSolverBackend(numUavs)` does the startup-only
-construction, picking the backend purely from `SolverConfiguration.NUM_UAVS`
-in the loaded YAML (`inputFilesExamples/configuration.yaml` vs.
-`configuration_twoUav.yaml`). See `gcs-sitl-integration-plan.md` §3 for the
-symbol-collision history this design fixes.
+One CasADi-generated `nlpsol` from `CasadiSolver/` with its input/output
+buffers (8 in, 6 out, nlpsol order), workspaces and solution check. The
+generated C functions are picked by problem (NMPC or NMHE) and
+`NUM_UAVS` at construction; every generated header is included only in
+`nlpsol.cpp`. Adding a configuration means one `NLPSOL_API(...)` entry
+there. The parameter and bound layouts belong to the problem, not the
+solver: `MpcController` and `NmheEstimator` pack them.
 
 ## `ControlDispatcher` (`controlDispatcher.h`/`.cpp`)
 

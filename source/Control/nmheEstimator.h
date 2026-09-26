@@ -12,25 +12,16 @@
 #pragma once
 
 #include <deque>
-#include <memory>
 #include <mutex>
 #include <vector>
 
 #include "Definitions/controllerStructures.h"
 #include "estimator.h"
-
-// Backend-agnostic -- NmheEstimator talks only to this interface, never to
-// a specific codegen'd solver's global symbols or parameter-vector layout
-// (see estimatorBackend.h), same isolation MpcController/SolverBackend has.
-#include "SolverBackend/estimatorBackend.h"
-#include "SolverBackend/nlpsolIo.h"
+#include "nlpsol.h"
 
 class NmheEstimator final : public Estimator {
 public:
-    // backend is owned by this estimator for its whole lifetime -- build
-    // it with createEstimatorBackend(config.numUavs)
-    // (estimatorBackendFactory.h) and hand it in here.
-    NmheEstimator(const estimatorConfig& config, std::unique_ptr<EstimatorBackend> backend);
+    explicit NmheEstimator(const estimatorConfig& config);
     ~NmheEstimator() override;
 
     void addSample(const std::vector<double>& measuredState, const std::vector<double>& appliedControl) override;
@@ -43,7 +34,7 @@ public:
 
 private:
     estimatorConfig m_config;
-    std::unique_ptr<EstimatorBackend> m_backend;
+    Nlpsol m_solver;
 
     // Sliding window, oldest at front -- stateWindow holds M+1 samples once
     // full, controlWindow holds M (controlWindow[k] applied going from
@@ -58,10 +49,6 @@ private:
     std::vector<double> m_windEst;
     std::vector<double> m_dEst;
 
-    // Solver inputs/outputs/workspaces (see nlpsolIo.h). Declared after
-    // m_backend, which sizes it.
-    NlpsolIo m_io;
-
     mutable std::mutex m_solveMutex;
 
     bool m_windowFull = false;
@@ -70,6 +57,12 @@ private:
     double m_lastMaxConstraintViolation = 0.0;
 
     void m_packInitialGuess();
+    // Per stage [x; wind; d], scaled: x unbounded, wind by windMax, d by
+    // dFMax (force) and bAttMax (attitude bias), per UAV.
+    void m_packBounds();
+    // P_optim (build_nmhe_*.m): [Xmeas_1 Uapp_1 ... Xmeas_M Uapp_M Xmeas_M+1;
+    // Wind_prior; D_prior; W_meas; W_windp; W_dp; L0].
+    void m_packParameters();
 };
 
 #endif //NMHEESTIMATOR_H
