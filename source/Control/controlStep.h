@@ -24,6 +24,7 @@
 #include "controller.h"
 #include "estimator.h"
 #include "estimatorRunner.h"
+#include "stateVector.h"
 #include "Configuration/configurationParser.h"
 #include "SolverBackend/estimatorBackendFactory.h"
 #include "SolverBackend/solverBackendFactory.h"
@@ -76,7 +77,10 @@ private:
     bool m_estimateAppliedThisTick = false;
     EstimatorRunner::Estimate m_appliedEstimate;
 
-    void m_buildEstimatorStateVector(const std::map<uint8_t, uavStates>& states, std::vector<double>& out) const;
+    // Estimator sample, same layout as the controller's state (stateVector.h).
+    // Kept between ticks: a vehicle without telemetry keeps its last value.
+    grs::control::StateLayout m_layout;
+    std::vector<double> m_measuredState;
 };
 
 // Controller + optional estimator built from one YAML profile, the same way

@@ -17,6 +17,8 @@ ControlStep::ControlStep(Controller& controller, std::unique_ptr<EstimatorRunner
 {
     if (m_runner) {
         m_appliedControl.assign(static_cast<size_t>(estimatorNu), 0.0);
+        m_layout = {m_controller.numUavs(), m_controller.hasPayload()};
+        m_measuredState.assign(m_layout.size(), 0.0);
     }
 }
 
@@ -39,9 +41,8 @@ std::map<uint8_t, uavCommandsFlags> ControlStep::tick(const std::map<uint8_t, ua
         //    pre-launch reference substitution (an MpcController-specific
         //    safeguard; static pre-launch telemetry is a fine cold-start
         //    window for the estimator).
-        std::vector<double> measuredState;
-        m_buildEstimatorStateVector(navStates, measuredState);
-        m_runner->pushSample(measuredState, m_appliedControl);
+        grs::control::fillStateVector(navStates, m_layout, m_measuredState);
+        m_runner->pushSample(m_measuredState, m_appliedControl);
     }
 
     // 3. NMPC solve.
@@ -63,40 +64,6 @@ std::map<uint8_t, uavCommandsFlags> ControlStep::tick(const std::map<uint8_t, ua
     }
 
     return cmds;
-}
-
-void ControlStep::m_buildEstimatorStateVector(const std::map<uint8_t, uavStates>& states, std::vector<double>& out) const {
-    // Same joint-across-vehicles layout as MpcController::m_unpackLatestStates()
-    // numUavs blocks of 8, then one block of 6 for the payload if the controller has one.
-    static constexpr int kUavBlockSize = 8;
-    static constexpr int kPayloadBlockSize = 6;
-
-    const int numUavs = m_controller.numUavs();
-    const bool hasPayload = m_controller.hasPayload();
-
-    out.assign(static_cast<size_t>(kUavBlockSize) * numUavs + (hasPayload ? kPayloadBlockSize : 0), 0.0);
-
-    for (const auto& [sysId, s] : states) {
-        if (sysId <= numUavs) {
-            const size_t blockOffset = static_cast<size_t>(sysId - 1) * kUavBlockSize;
-            out.at(blockOffset + 0) = s.northMeter;
-            out.at(blockOffset + 1) = s.eastMeter;
-            out.at(blockOffset + 2) = s.downMeter;
-            out.at(blockOffset + 3) = s.northMeterSecond;
-            out.at(blockOffset + 4) = s.eastMeterSecond;
-            out.at(blockOffset + 5) = s.downMeterSecond;
-            out.at(blockOffset + 6) = grs::degToRad(s.rollDegree);
-            out.at(blockOffset + 7) = grs::degToRad(s.pitchDegree);
-        } else if (hasPayload) {
-            const size_t blockOffset = static_cast<size_t>(kUavBlockSize) * numUavs;
-            out.at(blockOffset + 0) = s.northMeter;
-            out.at(blockOffset + 1) = s.eastMeter;
-            out.at(blockOffset + 2) = s.downMeter;
-            out.at(blockOffset + 3) = s.northMeterSecond;
-            out.at(blockOffset + 4) = s.eastMeterSecond;
-            out.at(blockOffset + 5) = s.downMeterSecond;
-        }
-    }
 }
 
 ControlStack buildControlStack(YAML::Node& node, const bool withEstimator) {

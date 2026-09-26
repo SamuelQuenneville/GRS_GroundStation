@@ -14,24 +14,19 @@
 MpcController::MpcController(const solverConfig& config, std::unique_ptr<SolverBackend> backend)
     : m_config(config)
     , m_backend(std::move(backend))
-    , m_iw(m_backend->workIntSize())
-    , m_w(m_backend->workRealSize())
+    , m_io(*m_backend)
 {
     m_refStride = m_config.nx + m_config.nu;
+    m_layout = {m_config.numUavs, hasPayload()};
+    assert(m_layout.size() == static_cast<size_t>(m_config.nx));
 
-    m_initialStates.resize(m_config.nx);
+    m_initialStates.assign(m_config.nx, 0.0);
     m_uPrev.assign(m_config.nu, 0.0);
     m_windEst.assign(m_config.np, 0.0);
     m_dEst.assign(m_config.nd, 0.0);
 
-    m_initializeSolverIO();
     m_packBounds();
     m_packInequalityBounds();
-
-    // Fixed 8-in/6-out nlpsol layout -- see SolverBackend.h.
-    m_arg.resize(8);
-    m_res.resize(6);
-    m_bindSolverIO();
 }
 
 MpcController::~MpcController() = default;
@@ -138,7 +133,7 @@ std::map<uint8_t, uavCommandsFlags> MpcController::solve(const std::map<uint8_t,
 
     std::lock_guard lock(m_solveMutex);
 
-    m_unpackLatestStates(latestStates, m_initialStates);
+    m_unpackLatestStates(latestStates);
 
     // Shift solution or pack initial guess
     if (m_lastSolveMs <= 0.0) {
@@ -181,13 +176,11 @@ std::map<uint8_t, uavCommandsFlags> MpcController::solve(const std::map<uint8_t,
     }
 
     m_packParameters();
-    m_bindSolverIO();
-
 
     // Solve
     {
         PROFILE_SCOPE_OUT("casadi_solve", &m_lastSolveMs, false);
-        const int flag = m_backend->solve(m_arg.data(), m_res.data(), m_iw.data(), m_w.data());
+        const int flag = m_io.solve(*m_backend);
         m_lastFlag = flag;
 
         const auto converged = m_solutionIsValid(flag);
@@ -200,13 +193,13 @@ std::map<uint8_t, uavCommandsFlags> MpcController::solve(const std::map<uint8_t,
     // Remember the just-applied first-stage control (physical units, UAV
     // 1's block -- U_prev in the one-UAV NLP has no per-UAV structure to
     // worry about) for next solve's dU0 rate-penalty parameter. Skipped on
-    // a violation: m_x may not hold a meaningful solution then, and
+    // a violation: m_io.x may not hold a meaningful solution then, and
     // m_extractControls() already fell back to the reference trajectory's
     // planned control for the returned command in that case.
     if (!m_violation) {
         const int offset = m_config.nx;
         for (int i = 0; i < m_config.nu; ++i) {
-            m_uPrev[i] = m_x[offset + i] * m_config.scalesControls[i];
+            m_uPrev[i] = m_io.x[offset + i] * m_config.scalesControls[i];
         }
     }
 
@@ -217,6 +210,14 @@ std::map<uint8_t, uavCommandsFlags> MpcController::solve(const std::map<uint8_t,
 }
 
 void MpcController::m_logTransitions() {
+    if (m_telemetryComplete != m_prevTelemetryComplete) {
+        Logger::instance().log(LogType::NMPC_EVENT,
+            std::to_string(m_trackingNumber) + "," + std::to_string(Logger::instance().nowMilliseconds()) + ","
+            + std::to_string(Logger::nowWallTimeMs()) + ","
+            + (m_telemetryComplete ? "TELEMETRY complete" : "TELEMETRY incomplete, missing vehicles keep their last state"));
+        m_prevTelemetryComplete = m_telemetryComplete;
+    }
+
     if (m_inFlight != m_prevInFlight) {
         Logger::instance().log(LogType::NMPC_EVENT,
             std::to_string(m_trackingNumber) + "," + std::to_string(Logger::instance().nowMilliseconds()) + ","
@@ -273,11 +274,11 @@ std::vector<MpcController::TrajectoryPointView> MpcController::getTrajectoryForV
 
     int offset, blockSize;
     if (vehicleIndex >= 0 && vehicleIndex < m_config.numUavs) {
-        offset = vehicleIndex * kUavBlockSize;
-        blockSize = kUavBlockSize;
+        offset = static_cast<int>(m_layout.uavOffset(vehicleIndex));
+        blockSize = grs::control::kUavBlockSize;
     } else if (hasPayload() && vehicleIndex == m_config.numUavs) {
-        offset = kUavBlockSize * m_config.numUavs;
-        blockSize = kPayloadBlockSize;
+        offset = static_cast<int>(m_layout.payloadOffset());
+        blockSize = grs::control::kPayloadBlockSize;
     } else {
         return {};
     }
@@ -293,55 +294,13 @@ std::vector<MpcController::TrajectoryPointView> MpcController::getTrajectoryForV
         p.vx    = m_referenceTrajectory[rowStart + 3];
         p.vy    = m_referenceTrajectory[rowStart + 4];
         p.vz    = m_referenceTrajectory[rowStart + 5];
-        if (blockSize == kUavBlockSize) {
+        if (blockSize == grs::control::kUavBlockSize) {
             p.roll  = grs::radToDeg(m_referenceTrajectory[rowStart + 6]);
             p.pitch = grs::radToDeg(m_referenceTrajectory[rowStart + 7]);
         }
         points.push_back(p);
     }
     return points;
-}
-
-void MpcController::m_initializeSolverIO() {
-    // Inputs
-    m_x0.assign(m_backend->inputSize(0), 0.0);
-    m_p.assign(m_backend->inputSize(1), 0.0);
-    m_lbx.assign(m_backend->inputSize(2), 0.0);
-    m_ubx.assign(m_backend->inputSize(3), 0.0);
-    m_lbg.assign(m_backend->inputSize(4), 0.0);
-    m_ubg.assign(m_backend->inputSize(5), 0.0);
-    m_lam_x0.assign(m_backend->inputSize(6), 0.0);
-    m_lam_g0.assign(m_backend->inputSize(7), 0.0);
-
-    // Outputs
-    m_x.assign(m_backend->outputSize(0), 0.0);
-    m_f.assign(m_backend->outputSize(1), 0.0);
-    m_g.assign(m_backend->outputSize(2), 0.0);
-    m_lam_x.assign(m_backend->outputSize(3), 0.0);
-    m_lam_g.assign(m_backend->outputSize(4), 0.0);
-    m_lam_p.assign(m_backend->outputSize(5), 0.0);
-}
-
-void MpcController::m_bindSolverIO() {
-    // Inputs
-    // 0: x0, 1: p, 2: lbx, 3: ubx, 4: lbg, 5: ubg, 6: lam_x0, 7: lam_g0
-    m_arg[0] = m_x0.data();
-    m_arg[1] = m_p.data();
-    m_arg[2] = m_lbx.data();
-    m_arg[3] = m_ubx.data();
-    m_arg[4] = m_lbg.data();
-    m_arg[5] = m_ubg.data();
-    m_arg[6] = m_lam_x0.data();
-    m_arg[7] = m_lam_g0.data();
-
-    // Outputs
-    // 0: x, 1: f, 2: g, 3: lam_x, 4: lam_g, 5: lam_p
-    m_res[0] = m_x.data();
-    m_res[1] = m_f.data();
-    m_res[2] = m_g.data();
-    m_res[3] = m_lam_x.data();
-    m_res[4] = m_lam_g.data();
-    m_res[5] = m_lam_p.data();
 }
 
 double MpcController::m_computeReferenceCost(const size_t idx) const {
@@ -376,7 +335,7 @@ void MpcController::m_shiftSolution() {
         const size_t dst = k * stride;
         const size_t src = (k + shift) * stride;
 
-        std::copy_n(m_x.begin() + src, stride, m_x0.begin() + dst);
+        std::copy_n(m_io.x.begin() + src, stride, m_io.x0.begin() + dst);
     }
 
     // -------------------------------------------------
@@ -388,7 +347,7 @@ void MpcController::m_shiftSolution() {
         const size_t dst = k * stride;
         const size_t src = lastValidStage * stride;
 
-        std::copy_n(m_x.begin() + src, stride, m_x0.begin() + dst);
+        std::copy_n(m_io.x.begin() + src, stride, m_io.x0.begin() + dst);
     }
 
     // -------------------------------------------------
@@ -397,31 +356,31 @@ void MpcController::m_shiftSolution() {
     const size_t xN_src = N * stride;
     const size_t xN_dst = N * stride;
 
-    std::copy_n(m_x.begin() + xN_src, nx, m_x0.begin() + xN_dst);
+    std::copy_n(m_io.x.begin() + xN_src, nx, m_io.x0.begin() + xN_dst);
 
     // -------------------------------------------------
     // 4. Re-anchor initial state with measurement
     // -------------------------------------------------
     for (size_t i = 0; i < nx; ++i) {
-        m_x0[i] = m_initialStates[i] * m_config.invScalesStates[i];
+        m_io.x0[i] = m_initialStates[i] * m_config.invScalesStates[i];
     }
 
-    std::ranges::fill(m_lam_x0, 0.0);
-    std::ranges::fill(m_lam_g0, 0.0);
+    std::ranges::fill(m_io.lamX0, 0.0);
+    std::ranges::fill(m_io.lamG0, 0.0);
 }
 
 void MpcController::m_packBounds() {
     // This NLP's decision-variable bounds tiling is m_backend's concern now
     // -- see solverBackend.h for why packParameters()/packBounds() moved
     // off this class.
-    m_backend->packBounds(m_config, m_lbx, m_ubx);
+    m_backend->packBounds(m_config, m_io.lbx, m_io.ubx);
 
-    assert(m_lbx.size() == static_cast<size_t>(m_backend->inputSize(2)));
-    assert(m_ubx.size() == static_cast<size_t>(m_backend->inputSize(3)));
+    assert(m_io.lbx.size() == static_cast<size_t>(m_backend->inputSize(2)));
+    assert(m_io.ubx.size() == static_cast<size_t>(m_backend->inputSize(3)));
 }
 
 void MpcController::m_packInequalityBounds() {
-    // m_lbg/m_ubg were zero-sized (all-zero) by m_initializeSolverIO() --
+    // m_io.lbg/ubg start all-zero (NlpsolIo zero-fills them) --
     // that's correct for every dynamics row (equality: g == 0) but wrong
     // for the alpha rows, which need [-alphaMax, alphaMax]. See this
     // method's declaration comment for the row layout being reproduced
@@ -436,14 +395,14 @@ void MpcController::m_packInequalityBounds() {
     for (size_t k = 0; k < N; ++k) {
         idx += nx; // skip this stage's nx dynamics equality rows
         for (size_t a = 0; a < alphaRowsPerStage; ++a) {
-            m_lbg[idx] = -alphaMax;
-            m_ubg[idx] = alphaMax;
+            m_io.lbg[idx] = -alphaMax;
+            m_io.ubg[idx] = alphaMax;
             ++idx;
         }
     }
 
-    assert(idx == m_lbg.size());
-    assert(idx == m_ubg.size());
+    assert(idx == m_io.lbg.size());
+    assert(idx == m_io.ubg.size());
 }
 
 void MpcController::m_packInitialGuess() {
@@ -453,31 +412,31 @@ void MpcController::m_packInitialGuess() {
     const size_t count = m_config.N * m_refStride + m_config.nx;
     const size_t offsetRef = m_lastIdxTraj * m_refStride;
 
-    std::memcpy(m_x0.data(), m_referenceTrajectory.data() + offsetRef, count * sizeof(double));
+    std::memcpy(m_io.x0.data(), m_referenceTrajectory.data() + offsetRef, count * sizeof(double));
 
-    std::ranges::copy(m_initialStates, m_x0.begin());
+    std::ranges::copy(m_initialStates, m_io.x0.begin());
 
     // Decision vector is [x0 u0 ... x(N-1) u(N-1) xN]: N+1 state blocks but
     // only N control blocks. Scaling a control block at k = N used to write
-    // nu doubles past the end of m_x0 (heap overflow on the first solve,
+    // nu doubles past the end of m_io.x0 (heap overflow on the first solve,
     // found by running grs_batchsim under AddressSanitizer).
     for (size_t k = 0; k < m_config.N + 1; ++k)
     {
         const size_t xOffset = k * m_refStride;
         for (size_t i = 0; i < m_config.nx; ++i) {
-            m_x0[xOffset + i] *= m_config.invScalesStates[i];
+            m_io.x0[xOffset + i] *= m_config.invScalesStates[i];
         }
 
         if (k == static_cast<size_t>(m_config.N)) break;
 
         const size_t uOffset = k * m_refStride + m_config.nx;
         for (size_t i = 0; i < m_config.nu; ++i) {
-            m_x0[uOffset + i] *= m_config.invScalesControls[i];
+            m_io.x0[uOffset + i] *= m_config.invScalesControls[i];
         }
     }
 
 
-    assert(m_x0.size() == static_cast<size_t>(m_backend->inputSize(0)));
+    assert(m_io.x0.size() == static_cast<size_t>(m_backend->inputSize(0)));
 }
 
 void MpcController::m_packParameters() {
@@ -491,9 +450,9 @@ void MpcController::m_packParameters() {
         windEst = m_windEst;
         dEst = m_dEst;
     }
-    m_backend->packParameters(m_config, m_initialStates, m_referenceTrajectory, offsetRef, m_uPrev, windEst, dEst, m_p);
+    m_backend->packParameters(m_config, m_initialStates, m_referenceTrajectory, offsetRef, m_uPrev, windEst, dEst, m_io.p);
 
-    assert(m_p.size() == static_cast<size_t>(m_backend->inputSize(1)));
+    assert(m_io.p.size() == static_cast<size_t>(m_backend->inputSize(1)));
 }
 
 std::map<uint8_t, uavCommandsFlags> MpcController::m_extractControls() const {
@@ -530,9 +489,9 @@ std::map<uint8_t, uavCommandsFlags> MpcController::m_extractControls() const {
             cmd.commands.pitchDegree = grs::radToDeg(static_cast<float>(m_referenceTrajectory.at(ctrlOffset + 2)));
             cmd.commands.yawDegree   = 0.0;
         } else {
-            cmd.commands.thrust      = static_cast<float>(m_x[offset + 0] * m_config.scalesControls[scaleOffset + 0]);
-            cmd.commands.rollDegree  = grs::radToDeg(static_cast<float>(m_x[offset + 1] * m_config.scalesControls[scaleOffset + 1]));
-            cmd.commands.pitchDegree = grs::radToDeg(static_cast<float>(m_x[offset + 2] * m_config.scalesControls[scaleOffset + 2]));
+            cmd.commands.thrust      = static_cast<float>(m_io.x[offset + 0] * m_config.scalesControls[scaleOffset + 0]);
+            cmd.commands.rollDegree  = grs::radToDeg(static_cast<float>(m_io.x[offset + 1] * m_config.scalesControls[scaleOffset + 1]));
+            cmd.commands.pitchDegree = grs::radToDeg(static_cast<float>(m_io.x[offset + 2] * m_config.scalesControls[scaleOffset + 2]));
             cmd.commands.yawDegree   = 0.0;
         }
 
@@ -564,52 +523,10 @@ std::map<uint8_t, uavCommandsFlags> MpcController::m_extractControls() const {
 }
 
 bool MpcController::m_solutionIsValid(const int flag) {
-    m_violation = false;
-
-    if (flag != 0) {
-        // Previously fell through without setting m_violation -- meaning a
-        // raw solver failure (as opposed to a feasibility/NaN issue caught
-        // below) never triggered m_extractControls()'s fallback to the
-        // planned open-loop control, and would have extracted m_x as if it
-        // held a valid solution even though the solve itself failed.
-        m_violation = true;
-        m_lastMaxConstraintViolation = -1.0; // not evaluated -- solver itself failed
-        return false;
-    }
-
-    constexpr double feas_tol = 5e-4;
-
-    // Check constraints
-    double max_violation = 0.0;
-
-    for (size_t i = 0; i < m_g.size(); ++i) {
-        double v_low  = m_lbg[i] - m_g[i];
-        double v_high = m_g[i] - m_ubg[i];
-        double violation = std::max({0.0, v_low, v_high});
-        max_violation = std::max(max_violation, violation);
-    }
-
-    m_lastMaxConstraintViolation = max_violation;
-
-    if (max_violation > feas_tol) {
-        m_violation = true;
-        return false;
-    }
-
-    // Check decision variables
-    for (int i = 0; i < m_config.nx; ++i)
-        if (!std::isfinite(m_x[i])) {
-            m_violation = true;
-            return false;
-        }
-
-    // Check objective
-    if (!std::isfinite(m_f[0])) {
-        m_violation = true;
-        return false;
-    }
-
-    return true;
+    const auto check = m_io.check(flag);
+    m_violation = !check.valid;
+    m_lastMaxConstraintViolation = check.maxConstraintViolation;
+    return check.valid;
 }
 
 double MpcController::m_unwrapYaw(const uint8_t sysId, const double yawRadWrapped) {
@@ -637,71 +554,35 @@ double MpcController::m_unwrapYaw(const uint8_t sysId, const double yawRadWrappe
     return s.unwrapped;
 }
 
-void MpcController::m_unpackLatestStates(const std::map<uint8_t, uavStates>& latestStates, std::vector<double>& unpackStates) {
+void MpcController::m_unpackLatestStates(const std::map<uint8_t, uavStates>& latestStates) {
+    // A vehicle without telemetry this tick keeps its previous values.
+    const auto fill = grs::control::fillStateVector(latestStates, m_layout, m_initialStates);
+    m_telemetryComplete = fill.complete(m_layout);
 
-    size_t offset = 0;
-
-    size_t connectedUavs = 0;
-    for (const auto& [sysId, states] : latestStates) {
-        if (sysId <= m_config.numUavs) {
-            ++connectedUavs;
-        }
-    }
-    const bool usePayloadTelemetry = hasPayload() && connectedUavs >= 2;
-
-    for (const auto& [sysId, states] : latestStates) {
-        if (sysId <= m_config.numUavs) {
-
-            double speed = std::sqrt(states.northMeterSecond*states.northMeterSecond + states.eastMeterSecond*states.eastMeterSecond + states.downMeterSecond*states.downMeterSecond);
-
-            double north = states.northMeter;
-            double east = states.eastMeter;
-            double down = states.downMeter;
-
-            double vNorth = states.northMeterSecond;
-            double vEast = states.eastMeterSecond;
-            double vDown = states.downMeterSecond;
-
-            if (speed > 12.0) {
-                m_inFlight = true;
-            }
-
-            if (!m_launched || !m_inFlight) {
-                const size_t blockOffset = static_cast<size_t>(sysId - 1) * kUavBlockSize;
-                north  = m_referenceTrajectory.at(blockOffset + 0);
-                east   = m_referenceTrajectory.at(blockOffset + 1);
-                down   = m_referenceTrajectory.at(blockOffset + 2);
-                vNorth = m_referenceTrajectory.at(blockOffset + 3);
-                vEast  = m_referenceTrajectory.at(blockOffset + 4);
-                vDown  = m_referenceTrajectory.at(blockOffset + 5);
-            }
-
-            unpackStates.at(offset++) = north;
-            unpackStates.at(offset++) = east;
-            unpackStates.at(offset++) = down;
-            unpackStates.at(offset++) = vNorth;
-            unpackStates.at(offset++) = vEast;
-            unpackStates.at(offset++) = vDown;
-            unpackStates.at(offset++) = grs::degToRad(states.rollDegree);
-            unpackStates.at(offset++) = grs::degToRad(states.pitchDegree);
-
-
-        } else if (usePayloadTelemetry) {
-            // Payload
-            unpackStates.at(offset++) = states.northMeter;
-            unpackStates.at(offset++) = states.eastMeter;
-            unpackStates.at(offset++) = states.downMeter;
-            unpackStates.at(offset++) = states.northMeterSecond;
-            unpackStates.at(offset++) = states.eastMeterSecond;
-            unpackStates.at(offset++) = states.downMeterSecond;
+    // In flight once any UAV exceeds 12 m/s (catapult launch done).
+    for (int i = 0; i < m_config.numUavs; ++i) {
+        const size_t o = m_layout.uavOffset(i);
+        const double vn = m_initialStates[o + 3], ve = m_initialStates[o + 4], vd = m_initialStates[o + 5];
+        if (fill.uav[i] && std::sqrt(vn * vn + ve * ve + vd * vd) > 12.0) {
+            m_inFlight = true;
         }
     }
 
-    assert(offset == unpackStates.size());
+    // Pre-flight: UAV position/velocity from the reference's first sample
+    // (attitude stays measured), so the solver starts from a consistent state
+    // while the aircraft sit on the launchers.
+    if (!m_launched || !m_inFlight) {
+        for (int i = 0; i < m_config.numUavs; ++i) {
+            const size_t o = m_layout.uavOffset(i);
+            for (size_t k = 0; k < 6; ++k) {
+                m_initialStates[o + k] = m_referenceTrajectory.at(o + k);
+            }
+        }
+    }
 
     std::ostringstream msg;
     msg << std::fixed << std::setprecision(4) << m_trackingNumber << "," << Logger::instance().nowMilliseconds() << "," << Logger::nowWallTimeMs() << ",";
-    for (auto&& x : unpackStates) {
+    for (auto&& x : m_initialStates) {
         msg << x << ",";
     }
     Logger::instance().log(LogType::STATES, msg.str());

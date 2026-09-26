@@ -23,6 +23,7 @@
 // a specific codegen'd solver's global symbols or parameter-vector layout
 // (see estimatorBackend.h), same isolation MpcController/SolverBackend has.
 #include "SolverBackend/estimatorBackend.h"
+#include "SolverBackend/nlpsolIo.h"
 
 class NmheEstimator final : public Estimator {
 public:
@@ -57,29 +58,9 @@ private:
     std::vector<double> m_windEst;
     std::vector<double> m_dEst;
 
-    // Solver C API pointers/buffers -- same fixed 8-in/6-out nlpsol layout
-    // as MpcController, sized from m_backend->inputSize()/outputSize().
-    std::vector<const double*> m_arg;
-    std::vector<double*>       m_res;
-
-    std::vector<double> m_x0;
-    std::vector<double> m_p;
-    std::vector<double> m_lbx;
-    std::vector<double> m_ubx;
-    std::vector<double> m_lbg;
-    std::vector<double> m_ubg;
-    std::vector<double> m_lam_x0;
-    std::vector<double> m_lam_g0;
-
-    std::vector<double> m_x;
-    std::vector<double> m_f;
-    std::vector<double> m_g;
-    std::vector<double> m_lam_x;
-    std::vector<double> m_lam_g;
-    std::vector<double> m_lam_p;
-
-    std::vector<long long> m_iw;
-    std::vector<double>    m_w;
+    // Solver inputs/outputs/workspaces (see nlpsolIo.h). Declared after
+    // m_backend, which sizes it.
+    NlpsolIo m_io;
 
     mutable std::mutex m_solveMutex;
 
@@ -88,16 +69,7 @@ private:
     int m_lastFlag = 0;
     double m_lastMaxConstraintViolation = 0.0;
 
-    void m_initializeSolverIO();
-    void m_bindSolverIO();
     void m_packInitialGuess();
-
-    // Solve validity check, same philosophy as MpcController::
-    // m_solutionIsValid() (raw flag + constraint-violation + NaN check) --
-    // NMHE has no inequality path constraints (ng=0 per stage, only the
-    // stage-linking dynamics equality, see nmhe-fatrop-stage-structure.md),
-    // so this is simpler: every g row is an equality with lbg=ubg=0.
-    bool m_solutionIsValid(int flag);
 };
 
 #endif //NMHEESTIMATOR_H

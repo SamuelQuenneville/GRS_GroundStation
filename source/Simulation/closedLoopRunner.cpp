@@ -13,7 +13,7 @@ namespace grs::sim {
 namespace {
 
 constexpr double kNaN = std::numeric_limits<double>::quiet_NaN();
-constexpr int kUavBlock = 8;
+constexpr int kUavBlock = grs::control::kUavBlockSize;
 
 // Measured joint state -> the per-vehicle telemetry map the GCS feeds its
 // controller (NavigationFrameManager output): UAVs as sysId 1..numUavs,

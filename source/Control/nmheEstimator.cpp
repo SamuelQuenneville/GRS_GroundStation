@@ -17,27 +17,19 @@
 NmheEstimator::NmheEstimator(const estimatorConfig& config, std::unique_ptr<EstimatorBackend> backend)
     : m_config(config)
     , m_backend(std::move(backend))
-    , m_iw(m_backend->workIntSize())
-    , m_w(m_backend->workRealSize())
+    , m_io(*m_backend)
 {
     m_windEst.assign(m_config.np, 0.0);
     m_dEst.assign(m_config.nd, 0.0);
 
-    m_initializeSolverIO();
-
     // Bounds are the same every solve (tiled from config, no state
     // dependency) -- packed once here, same as MpcController::m_packBounds()
     // does for the NMPC side.
-    m_backend->packBounds(m_config, m_lbx, m_ubx);
+    m_backend->packBounds(m_config, m_io.lbx, m_io.ubx);
 
-    // g is purely the M stage-linking dynamics equalities (ng=0 per stage
-    // beyond that -- see nmhe-fatrop-stage-structure.md), so lbg=ubg=0 for
-    // every row, for the whole run. Left at m_initializeSolverIO()'s
-    // zero-init, never repacked -- unlike NMPC's alpha inequality rows,
-    // there is no non-zero g bound anywhere in this NLP.
-    m_arg.resize(8);
-    m_res.resize(6);
-    m_bindSolverIO();
+    // g is purely the M stage-linking dynamics equalities (no path
+    // constraints), so lbg = ubg = 0 for every row: NlpsolIo's zero-fill is
+    // final, unlike the NMPC's alpha inequality rows.
 }
 
 NmheEstimator::~NmheEstimator() = default;
@@ -85,18 +77,19 @@ bool NmheEstimator::estimate() {
     // m_windEst/m_dEst still hold the PREVIOUS solve's estimate here --
     // that's deliberately what's fed in as this solve's arrival-cost
     // prior, before being overwritten below with this solve's own result.
-    m_backend->packParameters(m_config, measurementWindow, controlWindow, m_windEst, m_dEst, m_p);
+    m_backend->packParameters(m_config, measurementWindow, controlWindow, m_windEst, m_dEst, m_io.p);
     m_packInitialGuess();
-    m_bindSolverIO();
 
     int flag = 0;
     {
         PROFILE_SCOPE_OUT("nmhe_solve", &m_lastSolveMs, false);
-        flag = m_backend->solve(m_arg.data(), m_res.data(), m_iw.data(), m_w.data());
+        flag = m_io.solve(*m_backend);
         m_lastFlag = flag;
     }
 
-    const bool valid = m_solutionIsValid(flag);
+    const auto check = m_io.check(flag);
+    m_lastMaxConstraintViolation = check.maxConstraintViolation;
+    const bool valid = check.valid;
 
     if (valid) {
         // Wind/d are identical across every stage by construction (identity
@@ -110,11 +103,11 @@ bool NmheEstimator::estimate() {
 
         for (int i = 0; i < m_config.np; ++i) {
             const double scale = m_config.windScale.empty() ? 1.0 : m_config.windScale[i % m_config.windScale.size()];
-            m_windEst[i] = m_x[windOffset + i] * scale;
+            m_windEst[i] = m_io.x[windOffset + i] * scale;
         }
         for (int i = 0; i < m_config.nd; ++i) {
             const double scale = m_config.dScale.empty() ? 1.0 : m_config.dScale[i % m_config.dScale.size()];
-            m_dEst[i] = m_x[dOffset + i] * scale;
+            m_dEst[i] = m_io.x[dOffset + i] * scale;
         }
     }
     // On a violation, m_windEst/m_dEst are deliberately left unchanged --
@@ -149,42 +142,6 @@ Estimator::DebugInfo NmheEstimator::getDebugInfo() const {
     return info;
 }
 
-void NmheEstimator::m_initializeSolverIO() {
-    m_x0.assign(m_backend->inputSize(0), 0.0);
-    m_p.assign(m_backend->inputSize(1), 0.0);
-    m_lbx.assign(m_backend->inputSize(2), 0.0);
-    m_ubx.assign(m_backend->inputSize(3), 0.0);
-    m_lbg.assign(m_backend->inputSize(4), 0.0);
-    m_ubg.assign(m_backend->inputSize(5), 0.0);
-    m_lam_x0.assign(m_backend->inputSize(6), 0.0);
-    m_lam_g0.assign(m_backend->inputSize(7), 0.0);
-
-    m_x.assign(m_backend->outputSize(0), 0.0);
-    m_f.assign(m_backend->outputSize(1), 0.0);
-    m_g.assign(m_backend->outputSize(2), 0.0);
-    m_lam_x.assign(m_backend->outputSize(3), 0.0);
-    m_lam_g.assign(m_backend->outputSize(4), 0.0);
-    m_lam_p.assign(m_backend->outputSize(5), 0.0);
-}
-
-void NmheEstimator::m_bindSolverIO() {
-    m_arg[0] = m_x0.data();
-    m_arg[1] = m_p.data();
-    m_arg[2] = m_lbx.data();
-    m_arg[3] = m_ubx.data();
-    m_arg[4] = m_lbg.data();
-    m_arg[5] = m_ubg.data();
-    m_arg[6] = m_lam_x0.data();
-    m_arg[7] = m_lam_g0.data();
-
-    m_res[0] = m_x.data();
-    m_res[1] = m_f.data();
-    m_res[2] = m_g.data();
-    m_res[3] = m_lam_x.data();
-    m_res[4] = m_lam_g.data();
-    m_res[5] = m_lam_p.data();
-}
-
 void NmheEstimator::m_packInitialGuess() {
     // Cold-started every solve (no warm start carried between solves,
     // matching run_nmhe.m's own convention -- see gcs-sitl-integration-
@@ -198,49 +155,19 @@ void NmheEstimator::m_packInitialGuess() {
         const size_t offset = stage * nxi;
         for (int i = 0; i < m_config.nx; ++i) {
             const double scale = m_config.invXScale.empty() ? 1.0 : m_config.invXScale[i % m_config.invXScale.size()];
-            m_x0[offset + i] = s[i] * scale;
+            m_io.x0[offset + i] = s[i] * scale;
         }
         for (int i = 0; i < m_config.np; ++i) {
             const double scale = m_config.windScale.empty() ? 1.0 : 1.0 / m_config.windScale[i % m_config.windScale.size()];
-            m_x0[offset + m_config.nx + i] = m_windEst[i] * scale;
+            m_io.x0[offset + m_config.nx + i] = m_windEst[i] * scale;
         }
         for (int i = 0; i < m_config.nd; ++i) {
             const double scale = m_config.dScale.empty() ? 1.0 : 1.0 / m_config.dScale[i % m_config.dScale.size()];
-            m_x0[offset + m_config.nx + m_config.np + i] = m_dEst[i] * scale;
+            m_io.x0[offset + m_config.nx + m_config.np + i] = m_dEst[i] * scale;
         }
         ++stage;
     }
 
     assert(stage == static_cast<size_t>(m_config.M) + 1);
-    assert(m_x0.size() == static_cast<size_t>(m_backend->inputSize(0)));
-}
-
-bool NmheEstimator::m_solutionIsValid(const int flag) {
-    if (flag != 0) {
-        m_lastMaxConstraintViolation = -1.0; // not evaluated -- solver itself failed
-        return false;
-    }
-
-    constexpr double feas_tol = 5e-4;
-
-    double max_violation = 0.0;
-    for (size_t i = 0; i < m_g.size(); ++i) {
-        const double v_low  = m_lbg[i] - m_g[i];
-        const double v_high = m_g[i] - m_ubg[i];
-        const double violation = std::max({0.0, v_low, v_high});
-        max_violation = std::max(max_violation, violation);
-    }
-    m_lastMaxConstraintViolation = max_violation;
-
-    if (max_violation > feas_tol) {
-        return false;
-    }
-
-    for (double xi : m_x) {
-        if (!std::isfinite(xi)) {
-            return false;
-        }
-    }
-
-    return std::isfinite(m_f[0]);
+    assert(m_io.x0.size() == static_cast<size_t>(m_backend->inputSize(0)));
 }

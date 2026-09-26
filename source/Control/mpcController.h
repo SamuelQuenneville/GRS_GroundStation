@@ -32,6 +32,8 @@
 // parameter-vector layout either (see solverBackend.h -- packParameters()/
 // packBounds() live there now, not in this class).
 #include "SolverBackend/solverBackend.h"
+#include "SolverBackend/nlpsolIo.h"
+#include "stateVector.h"
 
 class MpcController final : public Controller {
 public:
@@ -81,18 +83,15 @@ public:
     // payload if hasPayload() is true. Empty vector for an out-of-range index.
     [[nodiscard]] std::vector<TrajectoryPointView> getTrajectoryForVehicle(int vehicleIndex) const override;
     [[nodiscard]] int numUavs() const override { return m_config.numUavs; }
-    // See m_unpackLatestStates(): state layout is numUavs() blocks of 8
-    // (UAV: north,east,down,vN,vE,vD,roll,pitch), then -- only if this
-    // trajectory's nx accounts for it -- one block of 6 for the payload
-    // (no roll/pitch; it's towed, not independently attituded here).
-    [[nodiscard]] bool hasPayload() const override { return m_config.nx > kUavBlockSize * m_config.numUavs; }
+    // State layout: see stateVector.h. The payload block exists only if nx
+    // accounts for it.
+    [[nodiscard]] bool hasPayload() const override { return m_config.nx > grs::control::kUavBlockSize * m_config.numUavs; }
 
 private:
     solverConfig m_config;
     std::unique_ptr<SolverBackend> m_backend;
 
-    static constexpr int kUavBlockSize = 8;
-    static constexpr int kPayloadBlockSize = 6;
+    grs::control::StateLayout m_layout;
 
     std::vector<double> m_referenceTrajectory;
     size_t m_refStride; // nx+nu
@@ -110,6 +109,10 @@ private:
     bool m_prevInFlight = false;
     bool m_prevEndedTraj = false;
     bool m_prevViolation = false;
+    // False while some vehicle of the layout sent no telemetry this tick
+    // (its block then keeps its previous value, see m_unpackLatestStates()).
+    bool m_telemetryComplete = true;
+    bool m_prevTelemetryComplete = true;
     std::chrono::steady_clock::time_point m_timeAtLaunched;
 
     size_t m_lastIdxTraj = 0;
@@ -143,33 +146,9 @@ private:
     std::vector<double> m_dEst;
     mutable std::mutex m_disturbanceMutex;
 
-    // Solver C API pointers
-    std::vector<const double*> m_arg;  // Input pointers
-    std::vector<double*>       m_res;  // Output pointers
-
-    // Solver Inputs
-    std::vector<double> m_x0;
-    std::vector<double> m_p;
-    std::vector<double> m_lbx;
-    std::vector<double> m_ubx;
-    std::vector<double> m_lbg;
-    std::vector<double> m_ubg;
-    std::vector<double> m_lam_x0;
-    std::vector<double> m_lam_g0;
-
-    // Solver Outputs
-    std::vector<double> m_x;
-    std::vector<double> m_f;
-    std::vector<double> m_g;
-    std::vector<double> m_lam_x;
-    std::vector<double> m_lam_g;
-    std::vector<double> m_lam_p;
-
-    // Solver workspace arrays, sized from m_backend->workIntSize()/
-    // workRealSize() at construction (backend-specific, so no compile-time
-    // SZ_IW/SZ_W constant is available here anymore).
-    std::vector<long long> m_iw;
-    std::vector<double>    m_w;
+    // Solver inputs/outputs/workspaces (see nlpsolIo.h). Declared after
+    // m_backend, which sizes it.
+    NlpsolIo m_io;
 
     // Synchronization
     mutable std::mutex m_solveMutex;
@@ -177,16 +156,12 @@ private:
     // Timing
     double m_lastSolveMs = -1.0;
 
-    void m_initializeSolverIO();
-    void m_bindSolverIO();
-
     double m_computeReferenceCost(size_t idx) const;
 
     void m_shiftSolution();
     void m_packBounds();
-    // Fills m_lbg/m_ubg with the per-stage alpha (angle-of-attack) path-
-    // constraint bounds. m_initializeSolverIO() only zero-sizes m_lbg/m_ubg
-    // -- left at all-zero, every g row (including the alpha inequality
+    // Fills m_io.lbg/ubg with the per-stage alpha (angle-of-attack) path-
+    // constraint bounds. NlpsolIo zero-fills them -- left at all-zero, every g row (including the alpha inequality
     // rows) is enforced as an equality (alpha == 0), which is wrong: only
     // g's dynamics rows are equalities, the alpha rows are the NLP's one
     // genuine inequality, [-alpha_max, alpha_max] (see
@@ -196,21 +171,25 @@ private:
     // [nx dynamics equality rows, numUavs alpha inequality rows] --
     // interleaved per stage on purpose, for Fatrop's structure detection.
     // Called once at construction, right after m_packBounds() -- these
-    // bounds never change solve-to-solve, unlike m_lbx/m_ubx.
+    // bounds never change solve-to-solve.
     void m_packInequalityBounds();
     void m_packInitialGuess();
     void m_packParameters();
     std::map<uint8_t, uavCommandsFlags> m_extractControls() const;
 
+    // Sets m_violation / m_lastMaxConstraintViolation from m_io.check().
     bool m_solutionIsValid(int flag);
 
     double m_unwrapYaw(uint8_t sysId, double yawRadWrapped);
 
-    void m_unpackLatestStates(const std::map<uint8_t, uavStates>& latestStates, std::vector<double>& unpackStates);
+    // Fills m_initialStates from telemetry (stateVector.h), then applies the
+    // pre-flight substitution: until launched and in flight, UAV position and
+    // velocity come from the reference's first sample.
+    void m_unpackLatestStates(const std::map<uint8_t, uavStates>& latestStates);
 
-    // Emits a LogType::NMPC_EVENT line for any of m_inFlight/m_endedTraj/
-    // m_violation that changed since the last call. Called once per
-    // solve(), after all three have their final value for this tick.
+    // Emits a LogType::NMPC_EVENT line for any of m_telemetryComplete/
+    // m_inFlight/m_endedTraj/m_violation that changed since the last call.
+    // Called once per solve(), after all of them have their final value.
     void m_logTransitions();
 
     // Shared tail of loadTrajectory()/setReferenceTrajectory(): recomputes

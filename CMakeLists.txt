@@ -87,11 +87,15 @@ set(GRS_CONTROL_CORE
         source/Control/controlStep.h
         source/Control/estimatorRunner.cpp
         source/Control/estimatorRunner.h
+        source/Control/stateVector.cpp
+        source/Control/stateVector.h
         source/Control/mpcController.cpp
         source/Control/mpcController.h
         source/Control/estimator.h
         source/Control/nmheEstimator.cpp
         source/Control/nmheEstimator.h
+        source/Control/SolverBackend/nlpsolIo.cpp
+        source/Control/SolverBackend/nlpsolIo.h
         source/Control/SolverBackend/solverBackend.h
         source/Control/SolverBackend/solverBackendFactory.cpp
         source/Control/SolverBackend/solverBackendFactory.h
