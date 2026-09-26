@@ -18,7 +18,6 @@ bool NavigationFrameManager::isInitialized() const {
     return m_initialized;
 }
 
-// navigationFrameManager.cpp
 bool NavigationFrameManager::hasOrigin() const {
     std::lock_guard lock(m_mutex);
     return m_geodeticConverter.isInitialized();
@@ -42,14 +41,8 @@ void NavigationFrameManager::initializeOffset(std::map<uint8_t, uavStates>& stat
         return;
     }
 
-    // Incremental, not a one-shot snapshot: MAVSDK connects each system
-    // (UAV, payload) on its own async timeline, so latestStates grows one
-    // sysId at a time across control-loop ticks. A uavId already holding an
-    // offset is left untouched -- a system connecting late must not reset
-    // everyone else's offset -- and a uavId not seen before gets one
-    // computed now. Called every tick (see m_controlLoop) so a system that
-    // connects well after the first one still gets an offset instead of
-    // never getting one.
+    // Systems connect one at a time, so this runs every tick and computes the
+    // offset of new sysIds only; existing offsets are never reset.
     for (const auto& [uavId, state] : states) {
         if (m_uavFrameOffsets.contains(uavId)) continue;
 
@@ -101,12 +94,7 @@ std::map<uint8_t, uavStates> NavigationFrameManager::toNavigationFrame(std::map<
 
         const auto offsetIt = m_uavFrameOffsets.find(uavId);
         if (offsetIt == m_uavFrameOffsets.end()) {
-            // This system's offset hasn't been computed yet (it connected
-            // too recently -- initializeOffset() runs earlier this same
-            // tick, but a system whose first telemetry sample arrives in
-            // between could still be missed by one tick). Skip it now
-            // rather than .at()-throwing and taking down the control loop
-            // thread; it'll be included starting next tick.
+            // Connected after this tick's initializeOffset(): included next tick.
             continue;
         }
 

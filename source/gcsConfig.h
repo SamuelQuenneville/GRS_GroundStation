@@ -85,21 +85,12 @@ struct catapultEndpointConfig {
 
 struct gcsConfig {
     bool verbose = false;
-    // Gates the heavy per-tick CSV dumps (solver args/output, raw states,
-    // raw controls -- see Logger::start()). Default true to keep existing
-    // behavior. The NMPC controller's sparse event log (launch, in-flight,
-    // trajectory ended/loaded, solver violation entered/cleared) is
-    // unaffected by this -- it's always on, see LogType::NMPC_EVENT.
+    // Enables the per-tick CSV logs (solver inputs/outputs, states,controls). NMPC_EVENT is always logged.
     bool verboseLogging = false;
     int numUavs = 1;
     double telemetry_publish_hz = -1.0;
     double hlcFrequency = 20.0;
-    // NMHE update rate [Hz], decoupled from hlcFrequency above -- starting
-    // point 5 Hz per gcs-sitl-integration-plan.md's Decisions, a tunable
-    // not yet validated against a real SITL benchmark. Only consulted when
-    // an "EstimatorConfiguration" section exists in the YAML (see
-    // ConfigurationParser::parseEstimatorConfig()) -- otherwise no
-    // Estimator is constructed at all and this is unused.
+    // NMHE rate [Hz], independent of hlcFrequency. Used only when the YAML has an EstimatorConfiguration section.
     double nmheFrequency = 5.0;
     pixhawkConfig pixhawk;
     std::vector<pixhawkEndpointConfig> pixhawkEndpoints; // used when pixhawk.sitl == false

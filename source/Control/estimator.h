@@ -14,47 +14,28 @@
 #include <cstddef>
 #include <vector>
 
-// Top-level abstraction over "the thing estimating wind/disturbance this
-// tick" -- the estimator-side counterpart to Controller (see controller.h
-// and gcs-sitl-integration-plan.md §3a). NmheEstimator is the only
-// implementation.
-//
-// Deliberately runs on its own cadence, decoupled from the 20 Hz control
-// loop (see ControlInterface -- the NMHE update rate is its own config
-// value, starting point 5 Hz per gcs-sitl-integration-plan.md's
-// Decisions): Estimator itself has no notion of a timer or a target rate,
-// it only knows what's been pushed into its sliding window so far via
-// addSample() and what estimate() does with that window when called. The
-// caller decides when both happen.
+// Estimates wind and disturbances over a sliding window of past samples.
+// Has no timing of its own: the caller decides when to add samples and
+// when to estimate (see EstimatorRunner).
 class Estimator {
 public:
     virtual ~Estimator() = default;
 
-    // Pushes one new (measured state, applied control) sample into the
-    // sliding window, in PHYSICAL units, joint-across-vehicles layout
-    // (same convention as solverConfig::nx/nu -- see MpcController's
-    // m_unpackLatestStates() for how that layout is built from telemetry).
-    // appliedControl is the control that was applied going from the
-    // PREVIOUS sample to this one -- ignored on the very first call (there
-    // is no previous sample yet to pair it with).
+    // One sample, physical units, joint layout (stateVector.h).
+    // appliedControl is the control applied since the previous sample;
+    // ignored on the first call.
     virtual void addSample(const std::vector<double>& measuredState, const std::vector<double>& appliedControl) = 0;
 
-    // Runs one NMHE solve against the current window. Returns false (no
-    // solve attempted) until the window has filled (M+1 samples) -- until
-    // then windEstimate()/dEstimate() hold their last value (zero before
-    // the first successful solve). On a solver failure/violation, the
-    // previous successful estimate is kept rather than overwritten with a
-    // bad one -- same fallback philosophy as MpcController's
-    // m_solutionIsValid()/m_violation.
+    // Solves on the current window. Returns false without solving until the
+    // window is full (M+1 samples), and when the solution is rejected; the
+    // previous estimate is kept in both cases.
     virtual bool estimate() = 0;
 
-    // Current best estimate, physical units -- zero-order held between
-    // estimate() calls, per gcs-sitl-integration-plan.md's Decisions.
+    // Last valid estimate, physical units; zero before the first one.
     [[nodiscard]] virtual const std::vector<double>& windEstimate() const = 0;
     [[nodiscard]] virtual const std::vector<double>& dEstimate() const = 0;
 
-    // Debug/health snapshot, same reasoning as Controller::DebugInfo
-    // (plain struct, independent of Dashboard/).
+
     struct DebugInfo {
         bool windowFull = false;
         size_t sampleCount = 0;

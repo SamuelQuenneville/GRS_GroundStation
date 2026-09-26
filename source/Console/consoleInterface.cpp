@@ -44,7 +44,7 @@ void ConsoleInterface::printCommands() {
                       << "  launch                --> Init launch sequence\n"
                       << "  fetchParams [ID]      --> Retrieve all parameter and create a .param file\n"
                       << "  loadTraj [FILE]       --> Load a reference trajectory via a .csv file\n"
-                      << "  genTraj               --> Generate a reference trajectory in-process (default config, no field calibration -- ADR-001 Phase 1)\n"
+                      << "  genTraj               --> Generate a reference trajectory in-process (default config, no field calibration)\n"
                       << "  saveTraj [FILE]       --> Save the currently-loaded reference trajectory to a .csv file (FILE optional, auto-named under ./trajectories/ otherwise)\n"
                       << "  setOrigin [WP]        --> Set the origin for the controller frame\n"
                       << "  setOriginFromPayload  --> Set the origin from the payload's current live GPS fix\n"

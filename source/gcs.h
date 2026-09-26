@@ -42,18 +42,11 @@ public:
         const grs::trajgen::SubsetSelection& selection = {},
         const std::vector<std::optional<grs::Vec3d>>& liveLaunchPositionsNed = {}) const;
 
-    // Writes whatever trajectory is currently applied in the NMPC
-    // controller to disk, in the same CSV format loadTrajectory() reads --
-    // the "Save current trajectory" button on the dashboard, and also
-    // called automatically right after a successful Apply (see
-    // setDashboard()) so a GCS restart doesn't silently lose the applied
-    // trajectory (MpcController::m_referenceTrajectory is otherwise
-    // pure in-memory state -- see ADR-001 status doc). `file`: explicit
-    // path, or empty to auto-name into ./trajectories/ with a timestamp.
-    // Returns the path actually written to. Throws (control mode != MPC,
-    // nothing applied yet, file can't be written) -- callers that must not
-    // fail on a save error (e.g. the auto-export after Apply) should
-    // catch around the call themselves.
+    // Writes the reference applied in the controller, in loadTrajectory()'s
+    // CSV format. Also called after each Apply, so a restart does not lose it.
+    // `file`: path, or empty for ./trajectories/ with a timestamp. Returns
+    // the path written. Throws if not in MPC mode, nothing is applied, or
+    // the file can't be written.
     std::string saveTrajectory(const std::string& file = "") const;
     void setOrigin(double latitudeDegrees, double longitudeDegrees, double altitude) const;
 
@@ -108,66 +101,32 @@ private:
     static std::string m_gpsFixToString(mavsdk::Telemetry::FixType fix);
     static std::string m_catapultStateToString(CatapultState state);
 
-    // ADR-001 Phase 2: shared conversion helpers between the trajectory
-    // generator/controller and the dashboard's JSON snapshot types.
-    // m_buildTrajectorySnapshotFromController() reads back whatever's
-    // currently loaded in the NMPC controller (used by both the existing
-    // setTrajectoryLoadedCallback and the /api/trajectory/apply response, so
-    // "Apply" always reflects what's actually loaded rather than the preview
-    // that was requested). m_missionToTrajectorySnapshot() instead converts a
-    // freshly-generated, not-yet-applied GeneratedMission -- used for
-    // /api/trajectory/generate's pure preview. m_paramsToTrajectoryConfig()
-    // maps the dashboard's flat TrajectoryGenerationParams onto a full
-    // grs::trajgen::TrajectoryConfig (starting from its defaults, so any
-    // field the sidebar doesn't expose keeps its config.m-mirrored value).
-    // ADR-001 Phase 4: `sourceUavIndices` labels each output vehicle by its
-    // ORIGINAL index in the full mission (e.g. a subset keeping only UAV 2
-    // still shows as "UAV 2", not relabeled "UAV 1") -- pass the same
-    // indices used to build the (possibly narrowed) mission, or leave empty
-    // to label 0..N-1 as UAV 1..N (the full-mission case). `includePayload`
-    // controls whether the payload vehicle is included in the snapshot at
-    // all, independent of whether `mission.payload` happens to have data --
-    // for preview fidelity with whatever will actually reach the controller.
-    TrajectorySnapshot m_buildTrajectorySnapshotFromController() const;
+    // Dashboard snapshots of a reference trajectory:
+    // - from the controller: what is actually applied;
+    // - from a generated, not yet applied mission (preview). sourceUavIndices
+    //   labels each vehicle by its index in the full mission (empty: 0..N-1).
+    // m_paramsToTrajectoryConfig() starts from TrajectoryConfig's defaults
+    // for the fields the dashboard does not expose.
+    [[nodiscard]] TrajectorySnapshot m_buildTrajectorySnapshotFromController() const;
     static TrajectorySnapshot m_missionToTrajectorySnapshot(const grs::trajgen::GeneratedMission& mission,
         const std::vector<size_t>& sourceUavIndices, bool includePayload);
     static grs::trajgen::TrajectoryConfig m_paramsToTrajectoryConfig(const TrajectoryGenerationParams& params);
 
-    // ADR-001 Phase 4: maps the sidebar's reduced-order-testing fields onto a
-    // SubsetSelection. Returns a default (no-op) selection whenever
-    // params.testEnabled is false. `simDt` (from the already-built
-    // TrajectoryConfig) converts testMaxDurationSeconds into a sample count.
+    // Reduced-order test fields to a SubsetSelection (no-op if
+    // params.testEnabled is false). simDt converts the max duration to samples.
     static grs::trajgen::SubsetSelection m_paramsToSubsetSelection(const TrajectoryGenerationParams& params, double simDt);
 
-    // Builds "./trajectories/trajectory_<YYYY-MM-DD_HH-MM-SS>.csv" for
-    // saveTrajectory()'s no-argument case, creating the directory if it
-    // doesn't exist yet (mirrors Logger::start()'s create_directories
-    // convention).
+    // "./trajectories/trajectory_<YYYY-MM-DD_HH-MM-SS>.csv", directory created if needed.
     static std::string m_defaultTrajectorySavePath();
 
-    // ADR-001 Phase 3: answers GET /api/trajectory/live-positions. Reads
-    // ControlInterface::getLiveNavigationStates() (already NED-corrected) and
-    // splits it into UAVs (sysId <= numUavs()) vs. payload (the highest
-    // remaining sysId, if any) -- same convention MpcController's own
-    // state-unpacking already relies on.
-    LivePositionsSnapshot m_buildLivePositionsSnapshot() const;
+    // GET /api/trajectory/live-positions: live NED positions of the UAVs and
+    // the payload (highest sysId above numUavs).
+    [[nodiscard]] LivePositionsSnapshot m_buildLivePositionsSnapshot() const;
 
-    // ADR-001 follow-up: builds the `liveLaunchPositionsNed` vector
-    // TrajectoryGenerator::snapToLiveLaunchPositions() expects, indexed to
-    // line up with `config.aircraftPath.phaseRad` (i.e. mission.aircraft[]
-    // before any subset selection) -- always sized for the codebase's fixed
-    // 2-UAV scope (uav1PhaseDeg/uav2PhaseDeg), matching every other
-    // TrajectoryGenerationParams field.
-    //
-    // Deliberately does NOT read live telemetry -- it only maps whatever the
-    // operator already captured (params.uavNSnapCaptured/uavNSnap*Meters, set
-    // by "Capture live positions" in setup3d.html) onto the vector shape the
-    // generator expects, so repeated Generate/Apply clicks keep reusing the
-    // same captured fix instead of silently re-sampling it. A pure function
-    // of `params`, so it's static rather than a `this`-bound member. Entries
-    // with no captured fix stay nullopt (no correction for that UAV). Empty
-    // (well, all-nullopt) when params.snapToLiveLaunchPosition is false, same
-    // no-op convention as m_paramsToSubsetSelection().
+    // Launch positions captured by the operator, indexed like
+    // config.aircraftPath.phaseRad (2 UAVs). Does not read live telemetry,
+    // so repeated Generate/Apply reuse the same capture. nullopt where
+    // nothing was captured, and everywhere if snapToLiveLaunchPosition is off.
     static std::vector<std::optional<grs::Vec3d>> m_paramsToLiveLaunchPositions(const TrajectoryGenerationParams& params);
 
     std::unique_ptr<CommunicationManager> m_communicationManager;

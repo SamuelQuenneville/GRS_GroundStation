@@ -27,24 +27,13 @@
 #include "stateVector.h"
 #include "Configuration/configurationParser.h"
 
-// One control-loop tick of the MPC control mode: hand the controller the
-// newest finished NMHE estimate, push this tick's sample to the estimator,
-// solve the NMPC. Pulled out of ControlInterface::m_controlLoop() so the live
-// GCS and grs_batchsim run the exact same per-tick logic -- only what
-// surrounds a tick differs (wall-clock pacing, MAVLink, thrust->rpm wire
-// conversion on the GCS side; a truth plant and a simulated clock on the
-// batch-sim side).
+// One tick of the MPC control mode, shared by the GCS and grs_batchsim:
+// hand the controller the newest NMHE estimate, push this tick's sample to
+// the estimator, solve the NMPC. The NMHE solves elsewhere, through the
+// EstimatorRunner; a tick never waits for it.
 //
-// The NMHE is never solved here: it runs through an EstimatorRunner (see
-// estimatorRunner.h), on its own thread in the GCS
-// (ThreadedEstimatorRunner) or as a deterministic emulation of that thread
-// in grs_batchsim (DeferredEstimatorRunner). A tick never waits for an NMHE
-// solve.
-//
-// Does not own the controller/estimator -- ControlInterface keeps owning
-// them (its accessors use them directly), grs_batchsim owns them through a
-// ControlStack. It owns the runner, which must be destroyed before the
-// estimator (a ThreadedEstimatorRunner joins its thread on destruction).
+// The controller and estimator are owned by the caller. The runner is owned
+// here and must be destroyed before the estimator.
 class ControlStep {
 public:
     // runner may be null (no EstimatorConfiguration in the YAML).
@@ -52,11 +41,8 @@ public:
     // without a runner).
     ControlStep(Controller& controller, std::unique_ptr<EstimatorRunner> runner, int estimatorNu);
 
-    // navStates: telemetry already in the navigation (NED) frame, same map
-    // m_controlLoop() hands the controller (UAVs as sysId 1..numUavs, the
-    // payload, if any, above that).
-    // Returns the controller's commands in physical units (thrust in N,
-    // attitude in degrees) -- no thrust->rpm conversion here.
+    // navStates: telemetry in the NED frame, by sysId (stateVector.h).
+    // Returns commands in physical units: thrust in N, attitude in degrees.
     std::map<uint8_t, uavCommandsFlags> tick(const std::map<uint8_t, uavStates>& navStates);
 
     // True if this tick handed the controller a new estimate.
@@ -69,8 +55,7 @@ private:
     Controller& m_controller;
     std::unique_ptr<EstimatorRunner> m_runner;
 
-    // Control applied over the interval that ENDS at the current sample,
-    // i.e. the previous tick's command -- see tick().
+    // Previous tick's command: the control applied up to this tick's sample.
     std::vector<double> m_appliedControl;
     bool m_estimateAppliedThisTick = false;
     EstimatorRunner::Estimate m_appliedEstimate;
@@ -81,8 +66,7 @@ private:
     std::vector<double> m_measuredState;
 };
 
-// Controller + optional estimator built from one YAML profile, the same way
-// ControlInterface::initialize() builds them (backend picked from NUM_UAVS).
+// Controller and optional estimator built from one YAML profile.
 struct ControlStack {
     solverConfig solver;
     std::optional<estimatorConfig> estimator;
@@ -90,8 +74,7 @@ struct ControlStack {
     std::unique_ptr<Estimator> estimatorInstance;  // null if estimator is nullopt
 };
 
-// withEstimator=false skips building the estimator even if the YAML has an
-// EstimatorConfiguration section (grs_batchsim's "naive" controller variant).
+// withEstimator=false skips the estimator even if the YAML configures one.
 ControlStack buildControlStack(YAML::Node& node, bool withEstimator = true);
 
 #endif //CONTROLSTEP_H

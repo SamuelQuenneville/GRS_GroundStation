@@ -36,16 +36,11 @@ private:
     estimatorConfig m_config;
     Nlpsol m_solver;
 
-    // Sliding window, oldest at front -- stateWindow holds M+1 samples once
-    // full, controlWindow holds M (controlWindow[k] applied going from
-    // stateWindow[k] to stateWindow[k+1]). Capped in addSample().
+    // Oldest first: M+1 states and M controls once full; controlWindow[k] goes from stateWindow[k] to stateWindow[k+1].
     std::deque<std::vector<double>> m_stateWindow;
     std::deque<std::vector<double>> m_controlWindow;
 
-    // Current best estimate AND the arrival-cost prior fed into the next
-    // solve -- see estimate()'s own comment on why these double as both.
-    // Zero until the first successful solve (a reasonable cold-start prior,
-    // matching run_nmhe.m's own cold-start convention).
+    // Last valid estimate, also the arrival-cost prior of the next solve.
     std::vector<double> m_windEst;
     std::vector<double> m_dEst;
 
@@ -60,8 +55,7 @@ private:
     // Per stage [x; wind; d], scaled: x unbounded, wind by windMax, d by
     // dFMax (force) and bAttMax (attitude bias), per UAV.
     void m_packBounds();
-    // P_optim (build_nmhe_*.m): [Xmeas_1 Uapp_1 ... Xmeas_M Uapp_M Xmeas_M+1;
-    // Wind_prior; D_prior; W_meas; W_windp; W_dp; L0].
+    // P_optim (build_nmhe_*.m): [Xmeas_1 Uapp_1 ... Xmeas_M Uapp_M Xmeas_M+1; Wind_prior; D_prior; W_meas; W_windp; W_dp; L0].
     void m_packParameters();
 };
 

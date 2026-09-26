@@ -8,8 +8,6 @@
 
 #include "controlInterface.h"
 
-// The concrete Controller/Estimator implementation -- only this file ever needs to
-// know it's MpcController (see controlInterface.h's include comment).
 #include "mpcController.h"
 #include "nmheEstimator.h"
 
@@ -201,15 +199,13 @@ void ControlInterface::m_controlLoop() {
     while (m_running) {
         next += period;
 
-        // --- timing control ---
         auto now = std::chrono::steady_clock::now();
 
         if (now < next) {
             std::this_thread::sleep_until(next);
         } else {
-            // deadline miss
             LOG_WARNING("Control loop running slow");
-            next = now; // prevent drift accumulation
+            next = now;
         }
 
         std::map<uint8_t, uavStates> latestStates;
@@ -218,8 +214,7 @@ void ControlInterface::m_controlLoop() {
             latestStates = m_latestStates;
         }
 
-        // Always called (not gated behind isInitialized()) --> see NavigationFrameManager::initializeOffset(),
-        // it's incremental and a no-op for sysIds it's already computed.
+        // Every tick: adds the offset of systems that connected since (see initializeOffset()).
         m_navFrameManager.initializeOffset(latestStates, m_config.pixhawk.sitl);
 
         if (m_navFrameManager.isInitialized()) {
@@ -236,9 +231,7 @@ void ControlInterface::m_controlLoop() {
                 }
 
             } else if (m_config.controlMode == ControlMode::MPC) {
-                // Latest NMHE estimate + NMPC solve, shared with grs_batchsim
-                // (see controlStep.h); the NMHE itself runs on its own thread.
-                // Commands come back in physical units.
+                // Commands in physical units.
                 cmds = m_controlStep->tick(navStates);
 
                 for (auto& [sysId, states] : cmds) {
@@ -267,7 +260,7 @@ void ControlInterface::m_controlLoop() {
             }
 
             if (m_sendCommand) {
-                m_sendCommand(cmds); // push to dispatcher queue
+                m_sendCommand(cmds);
             }
 
         }

@@ -36,7 +36,6 @@ public:
     // From CommunicationManager (telemetry → controller)
     void updateTelemetry(const std::map<uint8_t, uavStates>& states);
 
-    // Setters for integration
     void attachCommunicationManager(std::function<void(const std::map<uint8_t, uavCommandsFlags>&)> sendFn);
     void attachControllerInput(std::function<void(const std::map<uint8_t, uavStates>&)> recvFn);
 

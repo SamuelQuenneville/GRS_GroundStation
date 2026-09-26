@@ -46,25 +46,17 @@ public:
 
     void loadTrajectory(const std::string& file) override;
 
-    // Inverse of loadTrajectory(file): writes the current in-memory
-    // m_referenceTrajectory back out to `file`, one line per trajectory
-    // point, m_refStride comma-separated raw solver values per line (same
-    // radians/units TrajectoryGenerator::toSolverReference() produces --
-    // NOT the degree-converted values getTrajectoryForVehicle() returns
-    // for display) so the file round-trips through loadTrajectory()
-    // unchanged. Throws if no trajectory has been loaded/generated yet, or
-    // if `file` can't be opened for writing.
+    // Inverse of loadTrajectory(): one line per point, m_refStride raw solver
+    // values (radians, not the degrees getTrajectoryForVehicle() returns).
+    // Throws if no trajectory is loaded or the file can't be written.
     void saveTrajectory(const std::string& file) const override;
 
-    // In-process equivalent of loadTrajectory(file), for a trajectory built
-    // by TrajectoryGenerator (see source/Trajectory) rather than read from a
-    // CSV -- ADR-001 Phase 1. `referenceTrajectory` must already be in the
-    // solver's [x0 u0 x1 u1 ... xN uN] stride (TrajectoryGenerator::
-    // toSolverReference() produces exactly this layout) and sampled at the
-    // solver's dt; this does no resampling or validation of either.
+    // Same as loadTrajectory() for an in-memory reference, already in the
+    // solver's [x0 u0 x1 u1 ...] stride and sampled at its dt (as
+    // TrajectoryGenerator::toSolverReference() produces). Not resampled or
+    // validated.
     void setReferenceTrajectory(std::vector<double> referenceTrajectory) override;
 
-    // Main entry point: convert states → run solver → return commands
     std::map<uint8_t, uavCommandsFlags> solve(const std::map<uint8_t, uavStates>& latestStates) override;
     [[nodiscard]] double lastSolveMs() const override;
 
@@ -94,9 +86,7 @@ private:
     bool m_inFlight = false;
     bool m_endedTraj = false;
 
-    // Previous tick's value of the flags above/m_violation below, so
-    // solve() can emit a sparse NMPC_EVENT log line only on a transition
-    // (see m_logTransitions() in the .cpp) instead of every tick.
+    // Previous values, to log transitions only (m_logTransitions()).
     bool m_prevInFlight = false;
     bool m_prevEndedTraj = false;
     bool m_prevViolation = false;
@@ -119,28 +109,18 @@ private:
     int m_lastFlag = 0;
     double m_lastMaxConstraintViolation = 0.0;
 
-    // Previously-applied control [T, roll, pitch] per UAV, physical units
-    // -- packed into the solver's U_prev parameter every solve so the
-    // dU0 (first-stage control-rate) cost term has something to compare
-    // against. Rdu0 is 0 by default in the shipped config (see
-    // configuration.yaml), so this is inert until Rdu0 is tuned, but it's
-    // packed correctly from day one rather than left as a TODO.
+    // Last applied control [T, roll, pitch] per UAV, physical units: the
+    // U_prev parameter of the first-stage rate cost (weight Rdu0).
     std::vector<double> m_uPrev;
 
-    // Latest wind/disturbance estimate, physical units, length
-    // config.np/config.nd -- zero until an Estimator is configured and
-    // calls setDisturbanceEstimate() (Phase 4). Zero-order held between
-    // calls, same convention Estimator::windEstimate()/dEstimate() use
-    // (see estimator.h) -- set on the estimator's own cadence, not once
-    // per solve() here.
+    // Latest estimate from setDisturbanceEstimate(), physical units, held
+    // between updates; zero without an estimator.
     std::vector<double> m_windEst;
     std::vector<double> m_dEst;
     mutable std::mutex m_disturbanceMutex;
 
-    // Synchronization
     mutable std::mutex m_solveMutex;
 
-    // Timing
     double m_lastSolveMs = -1.0;
 
     double m_computeReferenceCost(size_t idx) const;
@@ -173,8 +153,7 @@ private:
     // Called once per solve(), after all of them have their final value.
     void m_logTransitions();
 
-    // Shared tail of loadTrajectory()/setReferenceTrajectory(): recomputes
-    // m_numTrajectoryPoints/m_endIdxTraj from m_referenceTrajectory's size.
+    // Recomputes m_numTrajectoryPoints/m_endIdxTraj after a new reference.
     void m_onReferenceTrajectoryChanged();
 };
 

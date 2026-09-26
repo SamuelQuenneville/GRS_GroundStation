@@ -79,10 +79,8 @@ bool NmheEstimator::estimate() {
     const bool valid = check.valid;
 
     if (valid) {
-        // Wind/d are identical across every stage by construction (identity
-        // "dynamics" tie them together, see nmhe-fatrop-stage-structure.md),
-        // so any stage's block is the estimate -- the last one (index M) is
-        // read here for no reason beyond simple indexing.
+        // Wind and d are constant over the window (identity dynamics), so
+        // any stage holds the estimate; read the last one.
         const size_t nxi = static_cast<size_t>(m_config.nxi);
         const size_t lastStageOffset = static_cast<size_t>(m_config.M) * nxi;
         const size_t windOffset = lastStageOffset + m_config.nx;
@@ -95,11 +93,6 @@ bool NmheEstimator::estimate() {
             m_dEst[i] = m_solver.x[dOffset + i] * scaleAt(m_config.dScale, i);
         }
     }
-    // On a violation, m_windEst/m_dEst are deliberately left unchanged --
-    // same zero-order-hold-the-last-good-estimate fallback philosophy as
-    // MpcController's m_extractControls() falling back to the planned
-    // open-loop control on m_violation, just applied to the estimate
-    // instead of the command.
 
     return valid;
 }
@@ -128,11 +121,7 @@ Estimator::DebugInfo NmheEstimator::getDebugInfo() const {
 }
 
 void NmheEstimator::m_packInitialGuess() {
-    // Cold-started every solve (no warm start carried between solves,
-    // matching run_nmhe.m's own convention -- see gcs-sitl-integration-
-    // plan.md's Phase 4 status): x-part gets the ACTUAL measurement for
-    // that stage (a real value we already have, better than zero), wind/d
-    // parts get the current prior tiled across all M+1 stages.
+    // Cold start: each stage's measurement, and the prior for wind and d.
     const size_t nxi = static_cast<size_t>(m_config.nxi);
 
     size_t stage = 0;
@@ -154,7 +143,7 @@ void NmheEstimator::m_packInitialGuess() {
 }
 
 void NmheEstimator::m_packBounds() {
-    const double inf = std::numeric_limits<double>::infinity();
+    constexpr double inf = std::numeric_limits<double>::infinity();
     const double dBound[] = {m_config.dFMax, m_config.dFMax, m_config.dFMax, m_config.bAttMax, m_config.bAttMax};
 
     std::vector<double> ub(m_config.nxi, inf);

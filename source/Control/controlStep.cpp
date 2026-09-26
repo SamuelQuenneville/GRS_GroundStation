@@ -26,21 +26,15 @@ std::map<uint8_t, uavCommandsFlags> ControlStep::tick(const std::map<uint8_t, ua
     m_estimateAppliedThisTick = false;
 
     if (m_runner) {
-        // 1. Newest NMHE result finished since the last tick, if any; the
-        //    controller zero-order holds the previous one otherwise.
+        // 1. Newest NMHE estimate, if one finished since the last tick.
         if (auto est = m_runner->takeEstimate()) {
             m_controller.setDisturbanceEstimate(est->wind, est->d);
             m_appliedEstimate = std::move(*est);
             m_estimateAppliedThisTick = true;
         }
 
-        // 2. This tick's sample. Estimator::addSample() pairs each sample with
-        //    the control applied going from the PREVIOUS sample to this one:
-        //    the previous tick's command, not the one computed below (which
-        //    only starts acting after this sample). Always raw telemetry: no
-        //    pre-launch reference substitution (an MpcController-specific
-        //    safeguard; static pre-launch telemetry is a fine cold-start
-        //    window for the estimator).
+        // 2. This tick's measured state with the control applied up to it
+        //    (the previous tick's command). Raw telemetry, even before launch.
         grs::control::fillStateVector(navStates, m_layout, m_measuredState);
         m_runner->pushSample(m_measuredState, m_appliedControl);
     }
@@ -49,8 +43,7 @@ std::map<uint8_t, uavCommandsFlags> ControlStep::tick(const std::map<uint8_t, ua
     auto cmds = m_controller.solve(navStates);
 
     if (m_runner) {
-        // Physical units for the applied control: thrust in Newtons, roll/pitch in radians.
-        // The GCS's thrust->rpm conversion happens after tick()
+        // Estimator control: thrust in N, roll/pitch in radians.
         const size_t perUavNu = m_appliedControl.size() / static_cast<size_t>(m_controller.numUavs());
         for (const auto& [sysId, cmd] : cmds) {
             const size_t offset = static_cast<size_t>(sysId - 1) * perUavNu;

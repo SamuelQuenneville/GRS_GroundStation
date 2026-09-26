@@ -62,7 +62,6 @@ void MpcController::loadTrajectory(const std::string& file) {
         std::stringstream ss(line);
         std::string field;
 
-        // first nx fields : states
         for (int i = 0; i < m_refStride; i++) {
             std::getline(ss, field, ',');
             m_referenceTrajectory.push_back(std::stod(field));
@@ -74,7 +73,7 @@ void MpcController::loadTrajectory(const std::string& file) {
 }
 
 void MpcController::saveTrajectory(const std::string& file) const {
-    std::lock_guard lock(m_solveMutex); // same guard getTrajectoryForVehicle()/getDebugInfo() use -- may run while solve() is active
+    std::lock_guard lock(m_solveMutex);
 
     if (m_referenceTrajectory.empty())
         throw std::runtime_error("saveTrajectory: no trajectory loaded/generated yet");
@@ -83,8 +82,7 @@ void MpcController::saveTrajectory(const std::string& file) const {
     if (!fileStream.is_open())
         throw std::runtime_error("saveTrajectory: cannot open file for writing: " + file);
 
-    // Full double round-trip precision, so the file std::stod's back in
-    // loadTrajectory() to bit-for-bit (or near enough) the same values.
+    // Full double precision, so loadTrajectory() reads back the same values.
     fileStream << std::setprecision(17);
 
     for (size_t row = 0; row < m_numTrajectoryPoints; ++row) {
@@ -103,7 +101,7 @@ void MpcController::saveTrajectory(const std::string& file) const {
 }
 
 void MpcController::setReferenceTrajectory(std::vector<double> referenceTrajectory) {
-    std::lock_guard lock(m_solveMutex); // same guard getTrajectoryForVehicle()/getDebugInfo() use
+    std::lock_guard lock(m_solveMutex);
 
     if (referenceTrajectory.size() % m_refStride != 0) {
         throw std::runtime_error("setReferenceTrajectory: size (" + std::to_string(referenceTrajectory.size()) +
@@ -134,7 +132,7 @@ std::map<uint8_t, uavCommandsFlags> MpcController::solve(const std::map<uint8_t,
 
     m_unpackLatestStates(latestStates);
 
-    // Shift solution or pack initial guess
+    // Warm start from the shifted previous solution, cold start the first time.
     if (m_lastSolveMs <= 0.0) {
         m_packInitialGuess();
     } else {
@@ -145,8 +143,7 @@ std::map<uint8_t, uavCommandsFlags> MpcController::solve(const std::map<uint8_t,
         size_t idx = m_lastIdxTraj;
 
         if (m_config.referenceIndexing == solverConfig::ReferenceIndexing::Time) {
-            // Time-indexed: first solve after launch uses sample 0, every
-            // following solve advances exactly one sample (see solverConfig).
+            // One sample per solve, starting at sample 0 at launch.
             if (m_solvesSinceLaunch > 0 && idx + 1 < m_endIdxTraj) {
                 ++idx;
             }
@@ -176,7 +173,6 @@ std::map<uint8_t, uavCommandsFlags> MpcController::solve(const std::map<uint8_t,
 
     m_packParameters();
 
-    // Solve
     {
         PROFILE_SCOPE_OUT("casadi_solve", &m_lastSolveMs, false);
         const int flag = m_solver.solve();
@@ -186,15 +182,9 @@ std::map<uint8_t, uavCommandsFlags> MpcController::solve(const std::map<uint8_t,
         (void)converged;
     }
 
-    // Extract and return u0 for each UAV
     auto controls = m_extractControls();
 
-    // Remember the just-applied first-stage control (physical units, UAV
-    // 1's block -- U_prev in the one-UAV NLP has no per-UAV structure to
-    // worry about) for next solve's dU0 rate-penalty parameter. Skipped on
-    // a violation: m_solver.x may not hold a meaningful solution then, and
-    // m_extractControls() already fell back to the reference trajectory's
-    // planned control for the returned command in that case.
+    // U_prev for the next solve: the first-stage control, all UAVs. Kept unchanged when the solution was rejected.
     if (!m_violation) {
         const int offset = m_config.nx;
         for (int i = 0; i < m_config.nu; ++i) {
@@ -233,10 +223,6 @@ void MpcController::m_logTransitions() {
         m_prevEndedTraj = m_endedTraj;
     }
 
-    // m_violation is recomputed fresh every solve (see m_solutionIsValid),
-    // so both directions are meaningful here: entering flags a real solver
-    // problem to look into after the test, and clearing tells you exactly
-    // how many ticks (trackingNumber delta) it stayed degraded for.
     if (m_violation != m_prevViolation) {
         Logger::instance().log(LogType::NMPC_EVENT,
             std::to_string(m_trackingNumber) + "," + std::to_string(Logger::instance().nowMilliseconds()) + ","
@@ -269,7 +255,7 @@ MpcController::DebugInfo MpcController::getDebugInfo() const {
 }
 
 std::vector<MpcController::TrajectoryPointView> MpcController::getTrajectoryForVehicle(const int vehicleIndex) const {
-    std::lock_guard lock(m_solveMutex);  // same guard getDebugInfo() uses
+    std::lock_guard lock(m_solveMutex);
 
     int offset, blockSize;
     if (vehicleIndex >= 0 && vehicleIndex < m_config.numUavs) {
@@ -327,9 +313,7 @@ void MpcController::m_shiftSolution() {
 
     const size_t shift = m_pendingSteps;
 
-    // -------------------------------------------------
-    // 1. Shift all complete stages
-    // -------------------------------------------------
+    // Shift the stages by the reference progress.
     for (size_t k = 0; k < N - shift; ++k) {
         const size_t dst = k * stride;
         const size_t src = (k + shift) * stride;
@@ -337,9 +321,7 @@ void MpcController::m_shiftSolution() {
         std::copy_n(m_solver.x.begin() + src, stride, m_solver.x0.begin() + dst);
     }
 
-    // -------------------------------------------------
-    // 2. Repeat last available stage
-    // -------------------------------------------------
+    // Fill the tail with the last shifted stage.
     const size_t lastValidStage = N - shift;
 
     for (size_t k = N - shift; k < N; ++k) {
@@ -349,17 +331,13 @@ void MpcController::m_shiftSolution() {
         std::copy_n(m_solver.x.begin() + src, stride, m_solver.x0.begin() + dst);
     }
 
-    // -------------------------------------------------
-    // 3. Copy terminal state x_N
-    // -------------------------------------------------
+    // Keep the terminal state.
     const size_t xN_src = N * stride;
     const size_t xN_dst = N * stride;
 
     std::copy_n(m_solver.x.begin() + xN_src, nx, m_solver.x0.begin() + xN_dst);
 
-    // -------------------------------------------------
-    // 4. Re-anchor initial state with measurement
-    // -------------------------------------------------
+    // Initial state from the measurement.
     for (size_t i = 0; i < nx; ++i) {
         m_solver.x0[i] = m_initialStates[i] * m_config.invScalesStates[i];
     }
@@ -406,9 +384,7 @@ void MpcController::m_packInequalityBounds() {
 }
 
 void MpcController::m_packInitialGuess() {
-
-    // N * (nx+nu) + xN
-    // ref: [x0 u0 x1 u1 ... xN uN]
+    // Reference window [x0 u0 ... x(N-1) u(N-1) xN], then the measured x0.
     const size_t count = m_config.N * m_refStride + m_config.nx;
     const size_t offsetRef = m_lastIdxTraj * m_refStride;
 
@@ -416,10 +392,7 @@ void MpcController::m_packInitialGuess() {
 
     std::ranges::copy(m_initialStates, m_solver.x0.begin());
 
-    // Decision vector is [x0 u0 ... x(N-1) u(N-1) xN]: N+1 state blocks but
-    // only N control blocks. Scaling a control block at k = N used to write
-    // nu doubles past the end of m_solver.x0 (heap overflow on the first solve,
-    // found by running grs_batchsim under AddressSanitizer).
+    // Scale: N+1 state blocks, N control blocks.
     for (size_t k = 0; k < m_config.N + 1; ++k)
     {
         const size_t xOffset = k * m_refStride;
@@ -454,30 +427,19 @@ std::map<uint8_t, uavCommandsFlags> MpcController::m_extractControls() const {
 
     std::map<uint8_t, uavCommandsFlags> out;
 
-    // Extract u0 for each UAV in order
     for (int sysId = 1; sysId <= m_config.numUavs; ++sysId) {
         uavCommandsFlags cmd;
 
         const int perUavNu = m_config.nu / m_config.numUavs;
         const int offset = m_config.nx + perUavNu * (sysId - 1);
-        // Index into scalesControls/scalesStates for THIS UAV's own control
-        // block -- scalesControls is the full joint vector (all UAVs'
-        // scales concatenated, see solverConfig), not just the first UAV's.
-        // Using [0]/[1]/[2] unconditionally here was fine with exactly one
-        // UAV (nothing else to offset into), but silently applied UAV 1's
-        // scale to every other UAV's raw value once numUavs > 1 -- it only
-        // happened to read the right numbers because every configured
-        // aircraft currently shares identical scales (see scaling_twoUav.m
-        // -- both UAV blocks are literally the same triplet). Fixed here so
-        // a future mixed-aircraft two-UAV config (different scales per UAV)
-        // doesn't silently mis-scale one aircraft's commands.
+        // This UAV's block in the joint scalesControls.
         const int scaleOffset = perUavNu * (sysId - 1);
 
         // Controls per UAV are [T, roll, pitch], yaw is always 0
         cmd.commands.sysId = static_cast<uint8_t>(sysId);
 
         if (m_violation) {
-            // Fall back to the planned open-loop control
+            // Rejected solution: reference feedforward control.
             const size_t ctrlOffset = m_lastIdxTraj * m_refStride + offset;
             cmd.commands.thrust      = static_cast<float>(m_referenceTrajectory.at(ctrlOffset + 0));
             cmd.commands.rollDegree  = grs::radToDeg(static_cast<float>(m_referenceTrajectory.at(ctrlOffset + 1)));

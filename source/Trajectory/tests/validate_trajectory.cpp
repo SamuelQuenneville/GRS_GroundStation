@@ -6,12 +6,9 @@
  * Createk Innovation Lab
  */
 
-// Standalone regression harness for the Phase 0 trajectory-generator port
-// (ADR-001). Compares TrajectoryGenerator::generate() against Octave-run
-// output of the original MATLAB trajectory_generation project, saved as CSVs
-// under tests/golden/ (see trajectory_generation/run_gen.m for how those
-// were produced). Not wired into the main GCS CMake build -- this exercises
-// only source/Trajectory + source/Mathematics, no MAVSDK/CasADi required.
+// Regression test of TrajectoryGenerator::generate() against the MATLAB
+// trajectory_generation output (Octave, run_gen.m) saved in tests/golden/.
+// Not part of the GCS build; needs only Trajectory and Mathematics.
 //
 // Usage: validate_trajectory <path-to-golden-dir>
 
