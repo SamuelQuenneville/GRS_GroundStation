@@ -1,0 +1,1132 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Batchsim Replay</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap">
+<style>
+html, body { margin: 0; }
+:root {
+  --bg: #eef1f5;
+  --panel: #ffffff;
+  --ink: #17202b;
+  --muted: #5b6776;
+  --line: #d3dae3;
+  --scene: #f7f9fb;
+  --grid: #dde3ea;
+  --ref: #8e9aa8;
+  --c-naive: #c47418;
+  --c-of: #10877a;
+  --c-3: #6a4fc9;
+  --c-4: #b8418a;
+  --bad: #c8372d;
+  --good: #2c7a3f;
+  --accent: #2f5fd0;
+  --focus: #2f5fd0;
+  --sans: "IBM Plex Sans", "Segoe UI", system-ui, sans-serif;
+  --mono: "JetBrains Mono", ui-monospace, "Cascadia Mono", Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --bg: #0e1319;
+    --panel: #151c24;
+    --ink: #e4eaf1;
+    --muted: #93a0ae;
+    --line: #25303c;
+    --scene: #0b1015;
+    --grid: #1c2631;
+    --ref: #5f6c7a;
+    --c-naive: #e5a04a;
+    --c-of: #33c2ab;
+    --c-3: #9d86ff;
+    --c-4: #e77bbd;
+    --bad: #ef6559;
+    --good: #5cc07a;
+    --accent: #7ea2ff;
+    --focus: #7ea2ff;
+  }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #0e1319;
+  --panel: #151c24;
+  --ink: #e4eaf1;
+  --muted: #93a0ae;
+  --line: #25303c;
+  --scene: #0b1015;
+  --grid: #1c2631;
+  --ref: #5f6c7a;
+  --c-naive: #e5a04a;
+  --c-of: #33c2ab;
+  --c-3: #9d86ff;
+  --c-4: #e77bbd;
+  --bad: #ef6559;
+  --good: #5cc07a;
+  --accent: #7ea2ff;
+  --focus: #7ea2ff;
+}
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+body {
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--sans);
+  font-size: 14px;
+  line-height: 1.45;
+  padding-inline: 16px;
+  padding-block: 0 24px;
+}
+#gl {
+  position: fixed;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  z-index: 0;
+  display: block;
+}
+header.top {
+  position: sticky;
+  top: env(safe-area-inset-top, 0px);
+  z-index: 5;
+  background: var(--bg);
+  border-bottom: 1px solid var(--line);
+  padding-block: 12px 10px;
+  display: grid;
+  gap: 10px;
+}
+.titlerow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 6px 16px;
+}
+h1 {
+  font-size: 18px;
+  font-weight: 600;
+  margin: 0;
+  letter-spacing: 0.01em;
+}
+.dataset {
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+.dataset b { color: var(--ink); font-weight: 500; }
+.loadrow { margin-left: auto; display: flex; gap: 8px; flex-wrap: wrap; }
+.toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 14px;
+}
+.group { display: flex; align-items: center; gap: 6px; }
+.lbl {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--muted);
+}
+button, select, input[type="number"] {
+  font: inherit;
+  font-size: 13px;
+  color: var(--ink);
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 4px 10px;
+  min-height: 30px;
+}
+button { cursor: pointer; }
+button:hover { border-color: var(--muted); }
+button:focus-visible, select:focus-visible, input:focus-visible, .cell:focus-visible, .chip:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+button.primary { background: var(--accent); border-color: var(--accent); color: var(--panel); font-weight: 500; }
+#play { min-width: 76px; }
+.time {
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+  font-size: 13px;
+  min-width: 13ch;
+}
+#scrub { width: min(420px, 100%); accent-color: var(--accent); }
+.scrubgroup { flex: 1 1 260px; }
+.scrubgroup input { flex: 1; min-width: 120px; }
+.legend { display: flex; flex-wrap: wrap; gap: 6px; }
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--mono);
+  font-size: 12px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 2px 10px 2px 8px;
+  background: var(--panel);
+  cursor: pointer;
+  min-height: 26px;
+}
+.chip[aria-pressed="false"] { opacity: 0.45; }
+.dot { width: 10px; height: 10px; border-radius: 50%; flex: none; }
+.dot.ref { background: transparent; border: 2px dashed var(--ref); }
+.hint { font-size: 12px; color: var(--muted); }
+
+main { position: relative; z-index: 1; padding-block: 14px 0; }
+#grid {
+  display: grid;
+  grid-template-columns: repeat(var(--cols, 5), minmax(0, 1fr));
+  gap: 10px;
+}
+.cell {
+  position: relative;
+  aspect-ratio: 4 / 3;
+  max-width: 100%;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  overflow: hidden;
+  cursor: grab;
+  touch-action: none;
+}
+.cell:active { cursor: grabbing; }
+.cell.aborted { border-color: color-mix(in srgb, var(--bad) 55%, var(--line)); }
+.cell .hdr, .cell .ftr {
+  position: absolute;
+  left: 0;
+  right: 0;
+  padding: 6px 8px;
+  pointer-events: none;
+  font-size: 12px;
+}
+.cell .hdr { top: 0; }
+.cell .ftr { bottom: 0; display: grid; gap: 1px; }
+.sid { font-weight: 600; font-size: 13px; }
+.params {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+.runline {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--mono);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.runline .dot { width: 8px; height: 8px; }
+.runline .st { font-weight: 500; }
+.runline .st.bad { color: var(--bad); }
+.runline .now { color: var(--muted); }
+.cell .expand {
+  position: absolute;
+  top: 5px;
+  right: 5px;
+  pointer-events: auto;
+  font-size: 11px;
+  min-height: 24px;
+  padding: 1px 8px;
+  opacity: 0.85;
+}
+.pager { display: flex; align-items: center; gap: 8px; justify-content: center; padding-block: 14px 0; }
+.pager span { font-family: var(--mono); font-size: 12px; color: var(--muted); }
+
+#drop {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  display: grid;
+  place-items: center;
+  background: color-mix(in srgb, var(--bg) 82%, transparent);
+  border: 3px dashed var(--accent);
+  font-size: 18px;
+  font-weight: 500;
+}
+#msg {
+  font-size: 12px;
+  color: var(--muted);
+  min-height: 1em;
+}
+#msg.err { color: var(--bad); }
+details.help { font-size: 13px; color: var(--muted); max-width: 72ch; }
+details.help summary { cursor: pointer; color: var(--ink); }
+details.help code { font-family: var(--mono); font-size: 12px; color: var(--ink); }
+@media (max-width: 640px) {
+  .loadrow { margin-left: 0; }
+  #grid { grid-template-columns: repeat(min(var(--cols, 5), 2), minmax(0, 1fr)); }
+}
+@media (max-width: 420px) {
+  #grid { grid-template-columns: minmax(0, 1fr); }
+}
+</style>
+</head>
+<body>
+
+
+<canvas id="gl" aria-hidden="true"></canvas>
+
+<header class="top">
+  <div class="titlerow">
+    <h1>Batch Simulation Player</h1>
+    <div class="dataset" id="dataset"></div>
+    <div class="loadrow">
+      <input type="file" id="folderInput" webkitdirectory directory multiple hidden>
+      <input type="file" id="filesInput" accept=".csv" multiple hidden>
+      <button id="openFolder" class="primary">Open results folder</button>
+      <button id="openFiles">Add CSV files</button>
+    </div>
+  </div>
+  <div class="toolbar">
+    <div class="group">
+      <button id="play" aria-label="Play or pause (Space)">Play</button>
+      <button id="restart" aria-label="Back to start (Home)">⏮</button>
+    </div>
+    <div class="group scrubgroup">
+      <input type="range" id="scrub" min="0" max="100" step="0.05" value="0" aria-label="Mission time">
+      <span class="time" id="time">0.0 / 0.0 s</span>
+    </div>
+    <div class="group">
+      <label class="lbl" for="speed">Speed</label>
+      <select id="speed">
+        <option value="0.5">0.5×</option>
+        <option value="1">1×</option>
+        <option value="2" selected>2×</option>
+        <option value="5">5×</option>
+        <option value="10">10×</option>
+      </select>
+    </div>
+    <div class="group">
+      <label class="lbl" for="trail">Trail</label>
+      <select id="trail">
+        <option value="past" selected>Flown</option>
+        <option value="full">Full run</option>
+        <option value="off">Off</option>
+      </select>
+    </div>
+    <div class="group">
+      <label class="lbl" for="view">Camera</label>
+      <select id="view">
+        <option value="follow">Follow payload</option>
+        <option value="mission" selected>Whole mission</option>
+      </select>
+    </div>
+    <div class="group">
+      <label class="lbl" for="cols">Columns</label>
+      <select id="cols">
+        <option value="2">2</option>
+        <option value="3">3</option>
+        <option value="4">4</option>
+        <option value="5" selected>5</option>
+        <option value="6">6</option>
+        <option value="8">8</option>
+      </select>
+    </div>
+    <div class="group">
+      <label class="lbl" for="perPage">Per page</label>
+      <select id="perPage">
+        <option value="10" selected>10</option>
+        <option value="20">20</option>
+        <option value="40">40</option>
+        <option value="100">100</option>
+      </select>
+    </div>
+    <div class="group">
+      <label class="lbl" for="sort">Sort</label>
+      <select id="sort">
+        <option value="id" selected>Sample id</option>
+        <option value="worst">Worst error first</option>
+        <option value="aborted">Aborted first</option>
+      </select>
+    </div>
+  </div>
+  <div class="toolbar">
+    <div class="legend" id="legend"></div>
+    <span class="hint">Drag a cell to orbit · wheel to zoom · shift-drag to pan · Space play · ←/→ ±1 s</span>
+  </div>
+  <div id="msg" role="status"></div>
+</header>
+
+<main>
+  <div id="grid"></div>
+  <div class="pager" id="pager" hidden>
+    <button id="prevPage">Previous</button>
+    <span id="pageInfo"></span>
+    <button id="nextPage">Next</button>
+  </div>
+</main>
+
+<div id="drop" hidden>Drop the grs_batchsim output folder</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+
+</script>
+<script>
+(() => {
+"use strict";
+
+// ---------------------------------------------------------------------------
+// Frame convention: NED from the sim -> three.js (x = East, y = Up, z = South)
+// ---------------------------------------------------------------------------
+const toV = (n, e, d, out) => out.set(e, -d, -n);
+
+const REL_PARAM = /^(a\d_(mass|CL0|CL_alpha|CD0|e|T_roll|T_pitch)|pay_mass|tether_k|tether_b)$/;
+const PARAM_UNITS = { wind_speed: "m/s", wind_heading: "deg", wind_down: "m/s", tether_L0_err: "m" };
+
+// ---------------------------------------------------------------------------
+// State
+// ---------------------------------------------------------------------------
+const S = {
+  label: "",
+  runs: [],              // {controller, sampleId, t, pos(9/row), vel(6/row), n, nUav, metrics}
+  samples: new Map(),    // id -> {name: value}
+  ref: null,             // {pos: Float32Array 9/row, n, nUav, dt}
+  refDt: 0.05,
+  controllers: [],       // ordered names
+  hidden: new Set(),
+  cellsAll: [],          // [{sampleId, runs:[...]}] sorted
+  page: 0,
+  focusId: null,
+  t: 0,
+  tMax: 1,
+  playing: false,
+  lastFrame: 0,
+  cam: { theta: -0.9, phi: 0.55, dist: 85, pan: new THREE.Vector3() },
+  missionCenter: new THREE.Vector3(),
+};
+
+const $ = (id) => document.getElementById(id);
+const canvas = $("gl");
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
+renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+renderer.setScissorTest(true);
+const camera = new THREE.PerspectiveCamera(42, 4 / 3, 0.5, 5000);
+
+// ---------------------------------------------------------------------------
+// Theme colors, re-read when the viewer's theme changes
+// ---------------------------------------------------------------------------
+const COL = {};
+function readColors() {
+  const cs = getComputedStyle(document.documentElement);
+  for (const k of ["scene", "grid", "ref", "c-naive", "c-of", "c-3", "c-4", "bad", "ink", "muted"]) {
+    COL[k] = new THREE.Color(cs.getPropertyValue("--" + k).trim() || "#888");
+  }
+}
+readColors();
+function controllerColorVar(name) {
+  if (/naive/.test(name)) return "c-naive";
+  if (/_of$|offset/.test(name)) return "c-of";
+  const i = S.controllers.indexOf(name);
+  return i % 2 === 0 ? "c-3" : "c-4";
+}
+new MutationObserver(() => { readColors(); rebuildCells(); }).observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
+matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => { readColors(); rebuildCells(); });
+
+// ---------------------------------------------------------------------------
+// Parsing
+// ---------------------------------------------------------------------------
+function parseCsv(text) {
+  const lines = text.split(/\r?\n/).filter((l) => l.trim().length);
+  return lines.map((l) => l.split(","));
+}
+function num(s) {
+  if (s === undefined) return NaN;
+  const v = parseFloat(s);
+  return Number.isFinite(v) ? v : NaN;
+}
+
+// traj.csv: t, x1..xNX, u..., alpha..., ...  -> positions/velocities we draw
+function parseTraj(text) {
+  const rows = parseCsv(text);
+  const head = rows[0].map((h) => h.trim());
+  const col = (name) => head.indexOf(name);
+  const nx = head.filter((h) => /^x\d+$/.test(h)).length;
+  const nUav = nx >= 22 ? 2 : 1;
+  const it = col("t");
+  const ix = col("x1");
+  if (it < 0 || ix < 0) throw new Error("not a grs_batchsim traj.csv (no t/x1 columns)");
+  const n = rows.length - 1;
+  const t = new Float32Array(n), pos = new Float32Array(n * 9), vel = new Float32Array(n * 6);
+  for (let k = 0; k < n; k++) {
+    const r = rows[k + 1];
+    const x = (i) => num(r[ix + i]);
+    t[k] = num(r[it]);
+    for (let u = 0; u < nUav; u++) {
+      for (let j = 0; j < 3; j++) {
+        pos[k * 9 + u * 3 + j] = x(u * 8 + j);
+        vel[k * 6 + u * 3 + j] = x(u * 8 + 3 + j);
+      }
+    }
+    if (nUav === 2) for (let j = 0; j < 3; j++) pos[k * 9 + 6 + j] = x(16 + j);
+  }
+  return { t, pos, vel, n, nUav };
+}
+
+function parseMetrics(text) {
+  const rows = parseCsv(text);
+  const m = {};
+  rows[0].forEach((h, i) => {
+    const key = h.trim();
+    const raw = (rows[1] || [])[i];
+    const v = num(raw);
+    m[key] = Number.isNaN(v) && raw && !/^nan$/i.test(raw.trim()) ? raw.trim() : v;
+  });
+  return m;
+}
+
+function parseSamples(text) {
+  const rows = parseCsv(text);
+  const head = rows[0].map((h) => h.trim());
+  const out = new Map();
+  for (const r of rows.slice(1)) {
+    const o = {};
+    head.forEach((h, i) => { if (i > 0) o[h] = num(r[i]); });
+    out.set(Math.round(num(r[0])), o);
+  }
+  return out;
+}
+
+// Reference CSV: no header, nx+nu columns per row
+function parseReference(text) {
+  const rows = parseCsv(text);
+  const w = rows[0].length;
+  const nUav = w >= 28 ? 2 : 1;
+  const n = rows.length;
+  const pos = new Float32Array(n * 9);
+  for (let k = 0; k < n; k++) {
+    const r = rows[k];
+    for (let u = 0; u < nUav; u++) for (let j = 0; j < 3; j++) pos[k * 9 + u * 3 + j] = num(r[u * 8 + j]);
+    if (nUav === 2) for (let j = 0; j < 3; j++) pos[k * 9 + 6 + j] = num(r[16 + j]);
+  }
+  return { pos, n, nUav, dt: S.refDt };
+}
+
+// ---------------------------------------------------------------------------
+// Loading from a folder / files / drop
+// ---------------------------------------------------------------------------
+async function loadFileList(entries, label) {
+  // entries: [{path, file}]
+  const traj = new Map(), metrics = new Map();
+  let samplesText = null, refText = null;
+  for (const { path, file } of entries) {
+    const parts = path.split("/");
+    const name = parts[parts.length - 1];
+    const dir = parts.length > 1 ? parts[parts.length - 2] : "run";
+    let m;
+    if ((m = name.match(/^sample_(\d+)\.traj\.csv$/))) traj.set(dir + "|" + +m[1], { dir, id: +m[1], file });
+    else if ((m = name.match(/^sample_(\d+)\.metrics\.csv$/))) metrics.set(dir + "|" + +m[1], file);
+    else if (name === "samples.csv") samplesText = file;
+    else if (/reference.*\.csv$/i.test(name)) refText = file;
+  }
+  if (!traj.size) {
+    setMsg("No sample_XXXX.traj.csv found. Run grs_batchsim with --store-traj=5 and open its output folder.", true);
+    return;
+  }
+  setMsg(`Reading ${traj.size} trajectories…`);
+  const runs = [];
+  for (const [key, { dir, id, file }] of traj) {
+    try {
+      const tr = parseTraj(await file.text());
+      const mf = metrics.get(key);
+      tr.metrics = mf ? parseMetrics(await mf.text()) : {};
+      tr.controller = dir;
+      tr.sampleId = id;
+      runs.push(tr);
+    } catch (e) {
+      setMsg(`${dir}/sample_${id}: ${e.message}`, true);
+      return;
+    }
+  }
+  const samples = samplesText ? parseSamples(await samplesText.text()) : new Map();
+  const ref = refText ? parseReference(await refText.text()) : null;
+  setData({ label, runs, samples, ref });
+  setMsg(`${runs.length} runs, ${new Set(runs.map((r) => r.sampleId)).size} samples${ref ? ", reference loaded" : ", no reference CSV (add one for the ghost paths)"}.`);
+}
+
+$("openFolder").onclick = () => $("folderInput").click();
+$("openFiles").onclick = () => $("filesInput").click();
+$("folderInput").onchange = (ev) => {
+  const files = [...ev.target.files];
+  if (!files.length) return;
+  const root = (files[0].webkitRelativePath || "").split("/")[0];
+  loadFileList(files.map((f) => ({ path: f.webkitRelativePath || f.name, file: f })), root || "folder");
+  ev.target.value = "";
+};
+$("filesInput").onchange = async (ev) => {
+  const files = [...ev.target.files];
+  if (!files.length) return;
+  // Loose files: a reference CSV alone updates the ghost paths of the current data.
+  if (files.every((f) => /reference.*\.csv$/i.test(f.name) || !/sample_/.test(f.name) && f.name !== "samples.csv")) {
+    S.ref = parseReference(await files[0].text());
+    finishRef();
+    rebuildCells();
+    setMsg(`Reference loaded: ${S.ref.n} samples.`);
+  } else {
+    loadFileList(files.map((f) => ({ path: f.name, file: f })), "files");
+  }
+  ev.target.value = "";
+};
+
+// Drag and drop of a whole folder
+let dragDepth = 0;
+window.addEventListener("dragenter", (e) => { e.preventDefault(); dragDepth++; $("drop").hidden = false; });
+window.addEventListener("dragleave", () => { if (--dragDepth <= 0) { dragDepth = 0; $("drop").hidden = true; } });
+window.addEventListener("dragover", (e) => e.preventDefault());
+window.addEventListener("drop", async (e) => {
+  e.preventDefault();
+  dragDepth = 0;
+  $("drop").hidden = true;
+  const items = [...(e.dataTransfer.items || [])].map((it) => it.webkitGetAsEntry && it.webkitGetAsEntry()).filter(Boolean);
+  const out = [];
+  const walk = (entry, prefix) => new Promise((resolve) => {
+    if (entry.isFile) entry.file((f) => { out.push({ path: prefix + f.name, file: f }); resolve(); }, resolve);
+    else if (entry.isDirectory) {
+      const reader = entry.createReader();
+      const all = [];
+      const readBatch = () => reader.readEntries(async (batch) => {
+        if (!batch.length) { for (const c of all) await walk(c, prefix + entry.name + "/"); resolve(); }
+        else { all.push(...batch); readBatch(); }
+      }, resolve);
+      readBatch();
+    } else resolve();
+  });
+  for (const it of items) await walk(it, "");
+  if (out.length) loadFileList(out, items.length === 1 ? items[0].name : "dropped files");
+});
+
+function setMsg(text, err) {
+  $("msg").textContent = text;
+  $("msg").className = err ? "err" : "";
+}
+
+// ---------------------------------------------------------------------------
+// Data -> cells
+// ---------------------------------------------------------------------------
+function setData({ label, runs, samples, ref }) {
+  S.label = label;
+  S.runs = runs;
+  S.samples = samples;
+  S.ref = ref;
+  S.controllers = [...new Set(runs.map((r) => r.controller))].sort();
+  S.hidden.clear();
+  S.page = 0;
+  S.focusId = null;
+  S.tMax = Math.max(1, ...runs.map((r) => r.t[r.n - 1] || 0));
+  $("scrub").max = S.tMax.toFixed(2);
+  finishRef();
+  S.t = Math.min(S.t, S.tMax);
+  renderDataset();
+  renderLegend();
+  sortCells();
+  rebuildCells();
+}
+
+function finishRef() {
+  // Mission center: mean of everything drawn, for the "whole mission" camera.
+  const c = new THREE.Vector3(), v = new THREE.Vector3();
+  let cnt = 0;
+  const src = S.ref ? [S.ref] : S.runs.slice(0, 1);
+  for (const s of src) {
+    const nb = s.nUav === 2 ? 3 : 1;
+    for (let k = 0; k < s.n; k += 5) for (let b = 0; b < nb; b++) {
+      const o = k * 9 + b * 3;
+      if (!Number.isFinite(s.pos[o])) continue;
+      c.add(toV(s.pos[o], s.pos[o + 1], s.pos[o + 2], v));
+      cnt++;
+    }
+  }
+  if (cnt) S.missionCenter.copy(c.divideScalar(cnt));
+}
+
+function primaryError(m) {
+  const v = m.pay_rms_3d;
+  return Number.isFinite(v) ? v : m.uav1_rms_3d;
+}
+
+function sortCells() {
+  const by = new Map();
+  for (const r of S.runs) {
+    if (!by.has(r.sampleId)) by.set(r.sampleId, []);
+    by.get(r.sampleId).push(r);
+  }
+  const cells = [...by].map(([sampleId, runs]) => ({
+    sampleId,
+    runs: runs.sort((a, b) => S.controllers.indexOf(a.controller) - S.controllers.indexOf(b.controller)),
+  }));
+  const worst = (c) => Math.max(...c.runs.map((r) => primaryError(r.metrics) || 0));
+  const aborted = (c) => c.runs.some((r) => r.metrics.completed === 0);
+  const mode = $("sort").value;
+  cells.sort((a, b) => {
+    if (mode === "worst") return worst(b) - worst(a);
+    if (mode === "aborted") return (aborted(b) - aborted(a)) || worst(b) - worst(a);
+    return a.sampleId - b.sampleId;
+  });
+  S.cellsAll = cells;
+}
+
+function renderDataset() {
+  const nS = new Set(S.runs.map((r) => r.sampleId)).size;
+  $("dataset").innerHTML = "";
+  const b = document.createElement("b");
+  b.textContent = S.label;
+  $("dataset").append(b, ` · ${nS} samples · ${S.controllers.length} controller${S.controllers.length > 1 ? "s" : ""} · ${S.tMax.toFixed(1)} s`);
+}
+
+function renderLegend() {
+  const L = $("legend");
+  L.innerHTML = "";
+  for (const c of S.controllers) {
+    const chip = document.createElement("button");
+    chip.className = "chip";
+    chip.setAttribute("aria-pressed", String(!S.hidden.has(c)));
+    chip.title = "Show or hide this controller";
+    const d = document.createElement("span");
+    d.className = "dot";
+    d.style.background = `var(--${controllerColorVar(c)})`;
+    const n = document.createElement("span");
+    n.textContent = c.replace(/^cpp_/, "C++ ").replace(/^matlab_/, "MATLAB ");
+    chip.append(d, n);
+    chip.onclick = () => {
+      S.hidden.has(c) ? S.hidden.delete(c) : S.hidden.add(c);
+      chip.setAttribute("aria-pressed", String(!S.hidden.has(c)));
+    };
+    L.append(chip);
+  }
+  const ref = document.createElement("span");
+  ref.className = "chip";
+  ref.style.cursor = "default";
+  const d = document.createElement("span");
+  d.className = "dot ref";
+  const n = document.createElement("span");
+  n.textContent = "reference";
+  ref.append(d, n);
+  L.append(ref);
+}
+
+// ---------------------------------------------------------------------------
+// Three.js cell scenes
+// ---------------------------------------------------------------------------
+let cells = [];   // live cells on the current page
+const coneGeo = new THREE.ConeGeometry(0.55, 1.8, 12).rotateX(Math.PI / 2); // tip along +z
+const sphereGeo = new THREE.SphereGeometry(0.75, 16, 12);
+const ringGeo = new THREE.TorusGeometry(0.95, 0.12, 6, 24);
+
+function lineFrom(src, n, body, color, opacity) {
+  const arr = new Float32Array(n * 3);
+  const v = new THREE.Vector3();
+  let last = null;
+  for (let k = 0; k < n; k++) {
+    const o = k * 9 + body * 3;
+    if (Number.isFinite(src[o])) { toV(src[o], src[o + 1], src[o + 2], v); last = v.clone(); }
+    else if (last) v.copy(last);
+    arr[k * 3] = v.x; arr[k * 3 + 1] = v.y; arr[k * 3 + 2] = v.z;
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute("position", new THREE.BufferAttribute(arr, 3));
+  return new THREE.Line(g, new THREE.LineBasicMaterial({ color, transparent: opacity < 1, opacity }));
+}
+
+function makeCellScene(cellData) {
+  const scene = new THREE.Scene();
+  scene.add(new THREE.AmbientLight(0xffffff, 0.75));
+  const sun = new THREE.DirectionalLight(0xffffff, 0.6);
+  sun.position.set(40, 120, 60);
+  scene.add(sun);
+
+  const grid = new THREE.GridHelper(400, 40, COL.grid, COL.grid);
+  grid.position.y = 0;
+  scene.add(grid);
+
+  const nb = (S.ref ? S.ref.nUav : cellData.runs[0].nUav) === 2 ? 3 : 1;
+  const refObj = {};
+  if (S.ref) {
+    refObj.paths = [];
+    for (let b = 0; b < nb; b++) {
+      const l = lineFrom(S.ref.pos, S.ref.n, b, COL.ref, b === 2 ? 0.6 : 0.22);
+      scene.add(l);
+      refObj.paths.push(l);
+    }
+    const m = new THREE.MeshBasicMaterial({ color: COL.ref });
+    refObj.pay = new THREE.Mesh(ringGeo, m);
+    refObj.uavs = [];
+    for (let u = 0; u < (nb === 3 ? 2 : 1); u++) {
+      const r = new THREE.Mesh(ringGeo, m);
+      scene.add(r);
+      refObj.uavs.push(r);
+    }
+    if (nb === 3) scene.add(refObj.pay);
+  }
+
+  const runObjs = cellData.runs.map((run) => {
+    const color = COL[controllerColorVar(run.controller)];
+    const trails = [];
+    const bodies = run.nUav === 2 ? 3 : 1;
+    for (let b = 0; b < bodies; b++) {
+      const l = lineFrom(run.pos, run.n, b, color, b === 2 ? 0.95 : 0.7);
+      scene.add(l);
+      trails.push(l);
+    }
+    const mat = new THREE.MeshLambertMaterial({ color });
+    const badMat = new THREE.MeshLambertMaterial({ color: COL.bad });
+    const uavs = [];
+    for (let u = 0; u < run.nUav; u++) {
+      const c = new THREE.Mesh(coneGeo, mat);
+      scene.add(c);
+      uavs.push(c);
+    }
+    const pay = run.nUav === 2 ? new THREE.Mesh(sphereGeo, mat) : null;
+    if (pay) scene.add(pay);
+    const tg = new THREE.BufferGeometry();
+    tg.setAttribute("position", new THREE.BufferAttribute(new Float32Array(run.nUav * 6), 3));
+    const tethers = new THREE.LineSegments(tg, new THREE.LineBasicMaterial({ color, transparent: true, opacity: 0.85 }));
+    scene.add(tethers);
+    return { run, trails, uavs, pay, tethers, mat, badMat, group: [...trails, ...uavs, tethers, ...(pay ? [pay] : [])] };
+  });
+
+  return { scene, refObj, runObjs };
+}
+
+function disposeCell(c) {
+  c.three.scene.traverse((o) => {
+    if (o.geometry && o.geometry !== coneGeo && o.geometry !== sphereGeo && o.geometry !== ringGeo) o.geometry.dispose();
+    if (o.material) o.material.dispose();
+  });
+}
+
+function fmtParam(name, v) {
+  if (!Number.isFinite(v)) return null;
+  if (REL_PARAM.test(name)) {
+    if (Math.abs(v - 1) < 1e-9) return null;
+    return `${name} ×${v.toFixed(3)}`;
+  }
+  if (Math.abs(v) < 1e-12) return null;
+  const u = PARAM_UNITS[name] || "";
+  return `${name} ${v >= 0 ? "+" : ""}${v.toFixed(2)}${u ? " " + u : ""}`;
+}
+
+function rebuildCells() {
+  for (const c of cells) disposeCell(c);
+  cells = [];
+  const grid = $("grid");
+  grid.innerHTML = "";
+
+  let list = S.cellsAll;
+  const per = +$("perPage").value;
+  const pages = Math.max(1, Math.ceil(list.length / per));
+  S.page = Math.min(S.page, pages - 1);
+  if (S.focusId !== null) list = list.filter((c) => c.sampleId === S.focusId);
+  else list = list.slice(S.page * per, S.page * per + per);
+
+  grid.style.setProperty("--cols", S.focusId !== null ? 1 : $("cols").value);
+  $("pager").hidden = S.focusId !== null || pages <= 1;
+  $("pageInfo").textContent = `Page ${S.page + 1} of ${pages}`;
+
+  for (const cd of list) {
+    const el = document.createElement("div");
+    el.className = "cell";
+    el.tabIndex = 0;
+    if (cd.runs.some((r) => r.metrics.completed === 0)) el.classList.add("aborted");
+    if (S.focusId !== null) el.style.aspectRatio = "16 / 8";
+
+    const hdr = document.createElement("div");
+    hdr.className = "hdr";
+    const sid = document.createElement("div");
+    sid.className = "sid";
+    sid.textContent = `Sample ${cd.sampleId}`;
+    const params = document.createElement("div");
+    params.className = "params";
+    const p = S.samples.get(cd.sampleId);
+    const txt = p ? Object.entries(p).map(([k, v]) => fmtParam(k, v)).filter(Boolean) : [];
+    params.textContent = txt.length ? txt.join(" · ") : (p ? "nominal plant" : "");
+    hdr.append(sid, params);
+
+    const expand = document.createElement("button");
+    expand.className = "expand";
+    expand.textContent = S.focusId !== null ? "Back to grid" : "Expand";
+    expand.onclick = (e) => {
+      e.stopPropagation();
+      S.focusId = S.focusId !== null ? null : cd.sampleId;
+      rebuildCells();
+    };
+
+    const ftr = document.createElement("div");
+    ftr.className = "ftr";
+    const lines = cd.runs.map((run) => {
+      const row = document.createElement("div");
+      row.className = "runline";
+      const d = document.createElement("span");
+      d.className = "dot";
+      d.style.background = `var(--${controllerColorVar(run.controller)})`;
+      const name = document.createElement("span");
+      name.textContent = run.controller.replace(/^cpp_nmpc_/, "").replace(/^cpp_/, "");
+      const st = document.createElement("span");
+      st.className = "st";
+      const m = run.metrics;
+      const err = primaryError(m);
+      if (m.completed === 0) {
+        st.classList.add("bad");
+        const tEnd = run.t[run.n - 1];
+        st.textContent = `ABORT ${String(m.abort_reason || "").replace(/_/g, " ")} @ ${tEnd.toFixed(1)} s`;
+      } else {
+        st.textContent = Number.isFinite(err) ? `rms ${err.toFixed(2)} m` : "done";
+      }
+      const now = document.createElement("span");
+      now.className = "now";
+      row.append(d, name, st, now);
+      ftr.append(row);
+      return now;
+    });
+
+    el.append(hdr, ftr, expand);
+    grid.append(el);
+    attachOrbit(el);
+    el.addEventListener("dblclick", () => { S.focusId = S.focusId !== null ? null : cd.sampleId; rebuildCells(); });
+
+    cells.push({ el, data: cd, nowEls: lines, three: makeCellScene(cd) });
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Shared camera (orbit around the payload or the mission center)
+// ---------------------------------------------------------------------------
+function attachOrbit(el) {
+  let drag = null;
+  el.addEventListener("pointerdown", (e) => {
+    if (e.target.closest("button")) return;
+    drag = { x: e.clientX, y: e.clientY, pan: e.shiftKey || e.button === 2 };
+    el.setPointerCapture(e.pointerId);
+  });
+  el.addEventListener("pointermove", (e) => {
+    if (!drag) return;
+    const dx = e.clientX - drag.x, dy = e.clientY - drag.y;
+    drag.x = e.clientX; drag.y = e.clientY;
+    const C = S.cam;
+    if (drag.pan) {
+      const k = C.dist * 0.0025;
+      const right = new THREE.Vector3(Math.cos(C.theta), 0, -Math.sin(C.theta));
+      C.pan.addScaledVector(right, -dx * k);
+      C.pan.y += dy * k;
+    } else {
+      C.theta -= dx * 0.008;
+      C.phi = Math.min(1.5, Math.max(0.05, C.phi + dy * 0.006));
+    }
+  });
+  const end = () => { drag = null; };
+  el.addEventListener("pointerup", end);
+  el.addEventListener("pointercancel", end);
+  el.addEventListener("contextmenu", (e) => e.preventDefault());
+  el.addEventListener("wheel", (e) => {
+    e.preventDefault();
+    S.cam.dist = Math.min(1500, Math.max(8, S.cam.dist * Math.exp(e.deltaY * 0.0012)));
+  }, { passive: false });
+}
+
+const _v = new THREE.Vector3(), _w = new THREE.Vector3(), _target = new THREE.Vector3();
+
+function refIndex(t) {
+  if (!S.ref) return 0;
+  return Math.max(0, Math.min(S.ref.n - 1, Math.round(t / S.ref.dt)));
+}
+function runIndex(run, t) {
+  // rows are uniformly spaced (every --store-traj steps)
+  if (run.n < 2) return 0;
+  const dt = run.t[1] - run.t[0];
+  return Math.max(0, Math.min(run.n - 1, Math.round((t - run.t[0]) / dt)));
+}
+
+function cameraTarget(out) {
+  if ($("view").value === "mission") return out.copy(S.missionCenter).add(S.cam.pan);
+  let src = null, k = 0;
+  if (S.ref) { src = S.ref.pos; k = refIndex(S.t); }
+  else if (S.runs.length) { src = S.runs[0].pos; k = runIndex(S.runs[0], S.t); }
+  if (!src) return out.set(0, 0, 0);
+  const body = (S.ref ? S.ref.nUav : S.runs[0].nUav) === 2 ? 2 : 0;
+  const o = k * 9 + body * 3;
+  toV(src[o], src[o + 1], src[o + 2], out);
+  if (body === 2) out.y += 12; // look between the payload and the aircraft
+  return out.add(S.cam.pan);
+}
+
+// ---------------------------------------------------------------------------
+// Per-frame update
+// ---------------------------------------------------------------------------
+const UP = new THREE.Vector3(0, 1, 0);
+function updateCell(c, t, markerScale, textTick) {
+  const { refObj, runObjs } = c.three;
+  if (S.ref && refObj.pay) {
+    const k = refIndex(t);
+    const nb = S.ref.nUav;
+    for (let u = 0; u < nb; u++) {
+      const o = k * 9 + u * 3;
+      toV(S.ref.pos[o], S.ref.pos[o + 1], S.ref.pos[o + 2], refObj.uavs[u].position);
+      refObj.uavs[u].scale.setScalar(markerScale);
+      refObj.uavs[u].lookAt(camera.position);
+    }
+    if (nb === 2) {
+      toV(S.ref.pos[k * 9 + 6], S.ref.pos[k * 9 + 7], S.ref.pos[k * 9 + 8], refObj.pay.position);
+      refObj.pay.scale.setScalar(markerScale * 1.2);
+      refObj.pay.lookAt(camera.position);
+    }
+  }
+  const trailMode = $("trail").value;
+  runObjs.forEach((ro, i) => {
+    const run = ro.run;
+    const vis = !S.hidden.has(run.controller);
+    for (const o of ro.group) o.visible = vis;
+    if (!vis) { if (textTick) c.nowEls[i].textContent = ""; return; }
+    const k = runIndex(run, t);
+    const ended = t > run.t[run.n - 1] + 1e-6;
+    const aborted = run.metrics.completed === 0;
+    for (const tr of ro.trails) {
+      tr.visible = trailMode !== "off";
+      tr.geometry.setDrawRange(0, trailMode === "full" ? run.n : k + 1);
+    }
+    const tp = ro.tethers.geometry.attributes.position;
+    const payPos = _w;
+    if (run.nUav === 2) toV(run.pos[k * 9 + 6], run.pos[k * 9 + 7], run.pos[k * 9 + 8], payPos);
+    else payPos.set(0, 0, 0); // one UAV: tether anchored at the NED origin
+    for (let u = 0; u < run.nUav; u++) {
+      const o = k * 9 + u * 3;
+      const m = ro.uavs[u];
+      toV(run.pos[o], run.pos[o + 1], run.pos[o + 2], m.position);
+      toV(run.vel[k * 6 + u * 3], run.vel[k * 6 + u * 3 + 1], run.vel[k * 6 + u * 3 + 2], _v);
+      if (_v.lengthSq() > 1e-6) m.lookAt(_v.add(m.position));
+      m.scale.setScalar(markerScale);
+      m.material = aborted && ended ? ro.badMat : ro.mat;
+      tp.setXYZ(u * 2, m.position.x, m.position.y, m.position.z);
+      tp.setXYZ(u * 2 + 1, payPos.x, payPos.y, payPos.z);
+    }
+    tp.needsUpdate = true;
+    if (ro.pay) {
+      ro.pay.position.copy(payPos);
+      ro.pay.scale.setScalar(markerScale * 1.15);
+      ro.pay.material = aborted && ended ? ro.badMat : ro.mat;
+    }
+    if (textTick) {
+      let s = "";
+      if (S.ref && run.nUav === 2) {
+        const r = refIndex(Math.min(t, run.t[run.n - 1]));
+        const e = Math.hypot(run.pos[k * 9 + 6] - S.ref.pos[r * 9 + 6], run.pos[k * 9 + 7] - S.ref.pos[r * 9 + 7], run.pos[k * 9 + 8] - S.ref.pos[r * 9 + 8]);
+        if (Number.isFinite(e)) s = `now ${e.toFixed(1)} m`;
+      }
+      c.nowEls[i].textContent = ended && aborted ? "" : s;
+    }
+  });
+}
+
+let textClock = 0;
+function frame(ts) {
+  const dtReal = S.lastFrame ? Math.min(0.1, (ts - S.lastFrame) / 1000) : 0;
+  S.lastFrame = ts;
+  if (S.playing) {
+    S.t += dtReal * +$("speed").value;
+    if (S.t >= S.tMax) { S.t = S.tMax; setPlaying(false); }
+    $("scrub").value = S.t.toFixed(2);
+  }
+  $("time").textContent = `${S.t.toFixed(1)} / ${S.tMax.toFixed(1)} s`;
+
+  const w = canvas.clientWidth, h = canvas.clientHeight;
+  const pr = renderer.getPixelRatio();
+  if (canvas.width !== Math.round(w * pr) || canvas.height !== Math.round(h * pr)) renderer.setSize(w, h, false);
+
+  renderer.setScissorTest(false);
+  renderer.setClearColor(0x000000, 0);
+  renderer.clear();
+  renderer.setScissorTest(true);
+
+  // Shared camera pose
+  cameraTarget(_target);
+  const C = S.cam;
+  camera.position.set(
+    _target.x + C.dist * Math.cos(C.phi) * Math.sin(C.theta),
+    _target.y + C.dist * Math.sin(C.phi),
+    _target.z + C.dist * Math.cos(C.phi) * Math.cos(C.theta));
+  camera.lookAt(_target);
+  const markerScale = C.dist / 55;
+
+  textClock += dtReal;
+  const textTick = textClock > 0.1 || !S.playing;
+  if (textTick) textClock = 0;
+
+  for (const c of cells) {
+    const r = c.el.getBoundingClientRect();
+    if (r.bottom < 0 || r.top > h || r.right < 0 || r.left > w) continue;
+    updateCell(c, S.t, markerScale, textTick);
+    camera.aspect = r.width / r.height;
+    camera.updateProjectionMatrix();
+    const x = r.left, y = h - r.bottom;
+    renderer.setViewport(x, y, r.width, r.height);
+    renderer.setScissor(x, y, r.width, r.height);
+    renderer.setClearColor(COL.scene, 1);
+    renderer.clear();
+    renderer.render(c.three.scene, camera);
+  }
+  requestAnimationFrame(frame);
+}
+
+// ---------------------------------------------------------------------------
+// Controls
+// ---------------------------------------------------------------------------
+function setPlaying(p) {
+  S.playing = p;
+  if (p && S.t >= S.tMax) S.t = 0;
+  $("play").textContent = p ? "Pause" : "Play";
+}
+$("play").onclick = () => setPlaying(!S.playing);
+$("restart").onclick = () => { S.t = 0; $("scrub").value = 0; };
+$("scrub").oninput = (e) => { S.t = +e.target.value; };
+$("cols").onchange = rebuildCells;
+$("perPage").onchange = () => { S.page = 0; rebuildCells(); };
+$("sort").onchange = () => { sortCells(); S.page = 0; rebuildCells(); };
+$("view").onchange = () => { S.cam.pan.set(0, 0, 0); S.cam.dist = $("view").value === "mission" ? 200 : 85; };
+$("prevPage").onclick = () => { S.page = Math.max(0, S.page - 1); rebuildCells(); };
+$("nextPage").onclick = () => { S.page++; rebuildCells(); };
+window.addEventListener("keydown", (e) => {
+  if (e.target.closest("input, select, textarea")) return;
+  if (e.code === "Space") { e.preventDefault(); setPlaying(!S.playing); }
+  else if (e.code === "ArrowRight") S.t = Math.min(S.tMax, S.t + 1);
+  else if (e.code === "ArrowLeft") S.t = Math.max(0, S.t - 1);
+  else if (e.code === "Home") S.t = 0;
+  else if (e.code === "Escape" && S.focusId !== null) { S.focusId = null; rebuildCells(); }
+  $("scrub").value = S.t.toFixed(2);
+});
+
+// ---------------------------------------------------------------------------
+// Start on the embedded example (a real round rerun in the sandbox), if any
+// ---------------------------------------------------------------------------
+function loadDemo(D) {
+  const runs = D.runs.map((r) => {
+    const n = r.n;
+    const t = new Float32Array(n), pos = new Float32Array(n * 9), vel = new Float32Array(n * 6);
+    for (let k = 0; k < n; k++) {
+      t[k] = r.t0 + k * r.dt;
+      for (let j = 0; j < 9; j++) pos[k * 9 + j] = r.d[k * 15 + j];
+      for (let j = 0; j < 6; j++) vel[k * 6 + j] = r.d[k * 15 + 9 + j];
+    }
+    return { t, pos, vel, n, nUav: 2, controller: r.controller, sampleId: r.sampleId, metrics: r.metrics };
+  });
+  const ref = { pos: new Float32Array(D.ref.d), n: D.ref.n, nUav: 2, dt: D.ref.dt };
+  const samples = new Map(Object.entries(D.samples).map(([k, v]) => [+k, v]));
+  setData({ label: D.label, runs, samples, ref });
+  setMsg(D.note);
+}
+
+if (window.BATCHSIM_DEMO) loadDemo(window.BATCHSIM_DEMO);
+else { renderLegend(); setMsg("Open a grs_batchsim output folder (run with --store-traj=5) to start."); }
+if (!matchMedia("(prefers-reduced-motion: reduce)").matches && S.runs.length) setPlaying(true);
+requestAnimationFrame(frame);
+})();
+</script>
+
+</body>
+</html>

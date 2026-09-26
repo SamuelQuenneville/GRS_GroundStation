@@ -13,6 +13,7 @@
 #include "Dashboard/browserLauncher.h"
 #include "Util/parseUtils.h"
 #include "gcsConfig.h"
+#include "Configuration/configurationParser.h"
 
 // Global synchronization for clean shutdown
 std::mutex g_exitMutex;

@@ -16,6 +16,11 @@
 #include <chrono>
 #include <cstdint>
 
+// uavStates/uavCommands/uavCommandsFlags live in vehicleStructures.h (no
+// MAVSDK dependency) so the controller core and grs_batchsim can use them
+// without linking MAVSDK. Re-exported here so existing includes keep working.
+#include "Definitions/vehicleStructures.h"
+
 struct subscriptionHandles {
     mavsdk::Telemetry::HealthHandle                      healthHandle;
     mavsdk::Telemetry::HealthAllOkHandle                 healthAllOkHandle;
@@ -61,38 +66,6 @@ struct uavHealth {
 
     bool rcAvailable = false;
     float rcSignalPercent = 0.0f;
-};
-
-struct uavStates {
-    float airspeedMeterSecond;
-    float northMeter;
-    float eastMeter;
-    float downMeter;
-    float northMeterSecond;
-    float eastMeterSecond;
-    float downMeterSecond;
-    float rollDegree;
-    float pitchDegree;
-    float yawDegree;
-    double altitudeAmslMeter;
-    double latitudeDegree;
-    double longitudeDegree;
-}__attribute__((packed));
-
-struct uavCommands {
-    float sysId;            // float mean easier encoding/decoding with matlab
-    float rollDegree;
-    float pitchDegree;
-    float yawDegree;
-    float thrust;           // [0 1]
-}__attribute__((packed));
-
-struct uavCommandsFlags {
-    uavCommands commands{};
-    std::optional<double> timestamp;
-    std::optional<bool> F1Command;
-    std::optional<bool> F2Command;
-    std::optional<bool> F3Command;
 };
 
 struct aggregatorRates {

@@ -14,9 +14,11 @@ Hz) and, in MPC mode, a `Controller` instance (`MpcController` today). Each tick
    (`initializeOffset()` + `toNavigationFrame()` — always called, even
    before the frame is initialized; both are no-ops until then).
 3. Once the nav frame is initialized, dispatches based on `controlMode`:
-   - **MPC** — `MpcController::solve()`, then converts each UAV's raw
-     thrust command through `thrust2rpm()` (see `docs/Powertrain.md`), then
-     fires `nmpcDebugCallback` with the controller's `DebugInfo`.
+   - **MPC**: `ControlStep::tick()` (controller solve, then the NMHE
+     sample push and, on its own cadence, the NMHE solve; see below), then
+     converts each UAV's raw thrust command through `thrust2rpm()` (see
+     `docs/Powertrain.md`), then fires `nmpcDebugCallback` with the
+     controller's `DebugInfo`.
    - **MATLAB** — sends states over UDP (`m_sendDataToMatlab`) and blocks
      for a command packet back (`m_receiveDataFromMatlab`) — see the
      top-level `README.md` for the wire struct layout.
@@ -33,6 +35,33 @@ trajectory-generator sidebar (see `docs/Dashboard.md`). Control-layer code
 never includes Dashboard headers — results flow out through the
 `std::function` callbacks set in `GroundControlStation`'s constructor (see
 "Event propagation" in `docs/ARCHITECTURE.md`).
+
+## `ControlStep` (`controlStep.h`/`.cpp`)
+
+One MPC-mode tick, shared by `ControlInterface` and `grs_batchsim` (see
+`docs/Simulation.md`) so both run identical per-tick logic: hand the
+controller the newest finished NMHE estimate (if any), push this tick's
+sample to the estimator, solve the NMPC. It never solves the NMHE itself.
+Each estimator sample is paired with the control applied over the interval
+that ends at that sample, i.e. the previous tick's command.
+`buildControlStack()` builds the controller and optional estimator from a
+YAML profile, the way `ControlInterface::initialize()` does.
+
+## `EstimatorRunner` (`estimatorRunner.h`/`.cpp`)
+
+How the NMHE runs relative to the control loop:
+
+- **`ThreadedEstimatorRunner`** (GCS, SITL, flight): the NMHE has its own
+  thread at `nmheFrequency` (wall clock) and owns the `Estimator`. The
+  control thread only appends samples to a small queue and picks up the
+  latest published estimate, both under short-held mutexes; it never waits
+  for an NMHE solve, so a slow NMHE cannot delay a command. An NMHE solve
+  longer than its period is counted as an overrun and logged, and the
+  schedule restarts from now instead of bursting catch-up solves.
+- **`DeferredEstimatorRunner`** (`grs_batchsim`): deterministic emulation of
+  the thread. Same cadence, counted in ticks; the solve runs inline so runs
+  are reproducible, but its result reaches the controller only after a
+  latency (default: the next tick; `--nmhe-latency=<ms>|measured`).
 
 ## `Controller` (`controller.h`)
 
@@ -52,8 +81,12 @@ current states into the solver's input arrays (delegating the actual
 parameter-vector/bounds layout to `m_backend->packParameters()`/
 `packBounds()` — that knowledge lives with the backend, not here, since a
 different NLP isn't guaranteed to share it), calls `m_backend->solve()`,
-unpacks the result into per-UAV commands, and shifts the reference-
-trajectory index forward by one step. Also owns:
+unpacks the result into per-UAV commands, and moves the reference-
+trajectory index forward. How it moves is `SolverConfiguration.
+REFERENCE_INDEXING`: `nearest` (default) searches forward for the reference
+point closest in north/east to UAV 1; `time` advances exactly one sample per
+solve, like the MATLAB sims (used by `grs_batchsim`, see
+`docs/Simulation.md`). Also owns:
 
 - **Reference trajectory** — `loadTrajectory()`/`saveTrajectory()` (CSV) and
   `setReferenceTrajectory()` (in-process, from `TrajectoryGenerator`), all

@@ -11,12 +11,15 @@
 
 #pragma once
 
-#include <map>
+#include <chrono>
 #include <memory>
+#include <mutex>
+#include <sstream>
+#include <unordered_map>
 #include <cstring>
 #include <cassert>
 
-#include "Definitions/communicationStructures.h"
+#include "Definitions/vehicleStructures.h"
 #include "Definitions/controllerStructures.h"
 #include "Util/profilingTimer.h"
 #include "Mathematics/math.h"
@@ -114,6 +117,7 @@ private:
     size_t m_numTrajectoryPoints = 0;
 
     size_t m_pendingSteps = 0;
+    size_t m_solvesSinceLaunch = 0; // ReferenceIndexing::Time only
 
     size_t m_trackingNumber = 0;
 

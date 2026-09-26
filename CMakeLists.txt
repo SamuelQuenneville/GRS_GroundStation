@@ -43,40 +43,21 @@ add_compile_definitions(_GLIBCXX_USE_CXX11_ABI=1)
 set(CASADI_DIR "${CMAKE_CURRENT_SOURCE_DIR}/casadi")
 set(CMAKE_PREFIX_PATH "${CASADI_DIR}" ${CMAKE_PREFIX_PATH})
 
-find_package(MAVSDK REQUIRED)
+# GRS_BUILD_GCS=OFF builds only the MAVSDK-free parts (grs_core,
+# grs_batchsim, tests), e.g. on a machine without MAVSDK or on a compute
+# server running Monte Carlo campaigns.
+option(GRS_BUILD_GCS "Build the GRS_GroundStation executable (needs MAVSDK)" ON)
+option(GRS_BUILD_BATCHSIM "Build grs_batchsim, the closed-loop batch simulator" ON)
+
 find_package(casadi CONFIG REQUIRED)
-
-# RTK support (u-blox F9P base station) via PX4-GPSDrivers.
-# Populated the same way as yaml-cpp below, but its own CMakeLists.txt only
-# builds a standalone test executable we don't want, so we pull in the
-# specific source files we need (gps_helper, ubx, rtcm) directly instead of
-# add_subdirectory().
-FetchContent_Declare(
-        px4_gpsdrivers
-        GIT_REPOSITORY https://github.com/PX4/PX4-GPSDrivers.git
-        GIT_TAG 1b279865192dd61af62095744366466a0d39ffce            # Full SHA of commit on main on 2026-08-24 (no tag available)
-)
-FetchContent_GetProperties(px4_gpsdrivers)
-
-if(NOT px4_gpsdrivers_POPULATED)
-    message(STATUS "Fetching PX4-GPSDrivers...")
-    FetchContent_MakeAvailable(px4_gpsdrivers)
+if(GRS_BUILD_GCS)
+    find_package(MAVSDK REQUIRED)
 endif()
-
-set(GRS_GPSDRIVERS
-        ${px4_gpsdrivers_SOURCE_DIR}/src/gps_helper.cpp
-        ${px4_gpsdrivers_SOURCE_DIR}/src/gps_helper.h
-        ${px4_gpsdrivers_SOURCE_DIR}/src/ubx.cpp
-        ${px4_gpsdrivers_SOURCE_DIR}/src/ubx.h
-        ${px4_gpsdrivers_SOURCE_DIR}/src/rtcm.cpp
-        ${px4_gpsdrivers_SOURCE_DIR}/src/rtcm.h
-)
 
 set(GRS_SOURCE
         source/main.cpp
         source/gcs.cpp
         source/gcs.h
-        source/gcsConfig.h
 )
 
 set(GRS_COMMUNICATION
@@ -98,12 +79,14 @@ set(GRS_CONFIGURATION
 
 )
 
-set(GRS_CONTROL
-        source/Control/controlInterface.cpp
-        source/Control/controlInterface.h
-        source/Control/controlDispatcher.cpp
-        source/Control/controlDispatcher.h
+# Controller core: everything a control tick needs, no MAVSDK. Shared by
+# the GCS and grs_batchsim through the grs_core library below.
+set(GRS_CONTROL_CORE
         source/Control/controller.h
+        source/Control/controlStep.cpp
+        source/Control/controlStep.h
+        source/Control/estimatorRunner.cpp
+        source/Control/estimatorRunner.h
         source/Control/mpcController.cpp
         source/Control/mpcController.h
         source/Control/estimator.h
@@ -123,6 +106,13 @@ set(GRS_CONTROL
         source/Control/SolverBackend/oneUavNmheBackend.h
         source/Control/SolverBackend/twoUavPayloadNmheBackend.cpp
         source/Control/SolverBackend/twoUavPayloadNmheBackend.h
+)
+
+set(GRS_CONTROL
+        source/Control/controlInterface.cpp
+        source/Control/controlInterface.h
+        source/Control/controlDispatcher.cpp
+        source/Control/controlDispatcher.h
         source/Control/navigationFrameManager.cpp
         source/Control/navigationFrameManager.h
 )
@@ -138,13 +128,18 @@ set(GRS_DASHBOARD
 
 )
 
-set(GRS_DEFINITION
-        source/Definitions/communicationStructures.h
+set(GRS_DEFINITION_CORE
+        source/Definitions/vehicleStructures.h
         source/Definitions/logDefinitions.h
         source/Definitions/yamlCustomStructure.h
         source/Definitions/controllerStructures.h
-        source/Definitions/gpsDefinitions.h
         source/Definitions/catapultProtocol.h
+        source/gcsConfig.h
+)
+
+set(GRS_DEFINITION
+        source/Definitions/communicationStructures.h
+        source/Definitions/gpsDefinitions.h
 )
 
 set(GRS_GEO
@@ -189,6 +184,17 @@ set(GRS_UTIL
         source/Util/parseUtils.h
 )
 
+# grs_batchsim: truth plant (C++ port of the MATLAB models), Monte Carlo
+# sample mapping, closed-loop runner. See source/Simulation/batchSimMain.cpp.
+set(GRS_SIMULATION
+        source/Simulation/plantModel.cpp
+        source/Simulation/plantModel.h
+        source/Simulation/truthSample.cpp
+        source/Simulation/truthSample.h
+        source/Simulation/closedLoopRunner.cpp
+        source/Simulation/closedLoopRunner.h
+)
+
 set(GRS_USERINPUTS
         source/Console/consoleInterface.cpp
         source/Console/consoleInterface.h
@@ -201,23 +207,6 @@ file(COPY "inputFilesExamples/" DESTINATION "${CMAKE_CURRENT_BINARY_DIR}/inputFi
 # Copy dashboard web files
 file(COPY "dashboard/" DESTINATION "${CMAKE_CURRENT_BINARY_DIR}/dashboard/")
 
-
-add_executable(GRS_GroundStation
-        ${GRS_SOURCE}
-        ${GRS_COMMUNICATION}
-        ${GRS_CONFIGURATION}
-        ${GRS_CONTROL}
-        ${GRS_DASHBOARD}
-        ${GRS_DEFINITION}
-        ${GRS_GEO}
-        ${GRS_LOG}
-        ${GRS_MATHEMATICS}
-        ${GRS_POWERTRAIN}
-        ${GRS_TRAJECTORY}
-        ${GRS_UTIL}
-        ${GRS_USERINPUTS}
-        ${GRS_GPSDRIVERS}
-)
 
 # Standalone regression harness comparing TrajectoryGenerator's output
 # against Octave-run MATLAB golden CSVs (source/Trajectory/tests/golden/).
@@ -318,17 +307,103 @@ if(NOT yaml-cpp_POPULATED)
     FetchContent_MakeAvailable(yaml-cpp)
 endif()
 
-target_include_directories(GRS_GroundStation PUBLIC source)
-target_include_directories(GRS_GroundStation PRIVATE ${px4_gpsdrivers_SOURCE_DIR}/src)
-
-# PX4-GPSDrivers requires the consuming project to supply its own definitions.h
-# (sensor_gps_s, satellite_info_s, sensor_gnss_relative_s, and
-# the GPS_INFO/GPS_WARN/GPS_ERR logging macros). Resolved relative to the "source" include dir added above,
-# so this points at source/Definitions/gpsDefinitions.h.
-target_compile_definitions(GRS_GroundStation PRIVATE GPS_DEFINITIONS_HEADER="Definitions/gpsDefinitions.h")
-
-target_link_libraries(GRS_GroundStation
+# ---------------------------------------------------------------------------
+# grs_core: controller core + configuration + logging + trajectory generator,
+# no MAVSDK. Linked by the GCS and by grs_batchsim, so both run the exact
+# same controller/estimator code.
+# ---------------------------------------------------------------------------
+add_library(grs_core STATIC
+        ${GRS_CONFIGURATION}
+        ${GRS_CONTROL_CORE}
+        ${GRS_DEFINITION_CORE}
+        ${GRS_LOG}
+        ${GRS_MATHEMATICS}
+        ${GRS_TRAJECTORY}
+        ${GRS_UTIL}
+)
+target_include_directories(grs_core PUBLIC source)
+# The global -ffast-math implies -ffinite-math-only, which lets GCC fold
+# std::isnan()/std::isfinite() to constants: MpcController/NmheEstimator's
+# m_solutionIsValid() NaN checks and grs_batchsim's NaN-aware metrics were
+# silently compiled out. Keep the rest of fast-math, restore NaN/Inf
+# semantics for the controller core and the batch sim (PUBLIC so it
+# propagates to both executables). The generated solvers keep full
+# fast-math (their own target_compile_options).
+target_compile_options(grs_core PUBLIC -fno-finite-math-only)
+find_package(Threads REQUIRED)  # ThreadedEstimatorRunner (NMHE thread)
+target_link_libraries(grs_core PUBLIC
         nmpc_solver
         yaml-cpp::yaml-cpp
-        MAVSDK::mavsdk
+        Threads::Threads
 )
+
+if(GRS_BUILD_GCS)
+    # RTK support (u-blox F9P base station) via PX4-GPSDrivers.
+    # Populated the same way as yaml-cpp below, but its own CMakeLists.txt only
+    # builds a standalone test executable we don't want, so we pull in the
+    # specific source files we need (gps_helper, ubx, rtcm) directly instead of
+    # add_subdirectory().
+    FetchContent_Declare(
+            px4_gpsdrivers
+            GIT_REPOSITORY https://github.com/PX4/PX4-GPSDrivers.git
+            GIT_TAG 1b279865192dd61af62095744366466a0d39ffce            # Full SHA of commit on main on 2026-08-24 (no tag available)
+    )
+    FetchContent_GetProperties(px4_gpsdrivers)
+    
+    if(NOT px4_gpsdrivers_POPULATED)
+        message(STATUS "Fetching PX4-GPSDrivers...")
+        FetchContent_MakeAvailable(px4_gpsdrivers)
+    endif()
+    
+    set(GRS_GPSDRIVERS
+            ${px4_gpsdrivers_SOURCE_DIR}/src/gps_helper.cpp
+            ${px4_gpsdrivers_SOURCE_DIR}/src/gps_helper.h
+            ${px4_gpsdrivers_SOURCE_DIR}/src/ubx.cpp
+            ${px4_gpsdrivers_SOURCE_DIR}/src/ubx.h
+            ${px4_gpsdrivers_SOURCE_DIR}/src/rtcm.cpp
+            ${px4_gpsdrivers_SOURCE_DIR}/src/rtcm.h
+    )
+
+    add_executable(GRS_GroundStation
+            ${GRS_SOURCE}
+            ${GRS_COMMUNICATION}
+            ${GRS_CONTROL}
+            ${GRS_DASHBOARD}
+            ${GRS_DEFINITION}
+            ${GRS_GEO}
+            ${GRS_POWERTRAIN}
+            ${GRS_USERINPUTS}
+            ${GRS_GPSDRIVERS}
+    )
+
+    target_include_directories(GRS_GroundStation PUBLIC source)
+    target_include_directories(GRS_GroundStation PRIVATE ${px4_gpsdrivers_SOURCE_DIR}/src)
+
+    # PX4-GPSDrivers requires the consuming project to supply its own definitions.h
+    # (sensor_gps_s, satellite_info_s, sensor_gnss_relative_s, and
+    # the GPS_INFO/GPS_WARN/GPS_ERR logging macros). Resolved relative to the "source" include dir added above,
+    # so this points at source/Definitions/gpsDefinitions.h.
+    target_compile_definitions(GRS_GroundStation PRIVATE GPS_DEFINITIONS_HEADER="Definitions/gpsDefinitions.h")
+
+    target_link_libraries(GRS_GroundStation
+            grs_core
+            MAVSDK::mavsdk
+    )
+endif()
+
+if(GRS_BUILD_BATCHSIM)
+    add_executable(grs_batchsim
+            source/Simulation/batchSimMain.cpp
+            ${GRS_SIMULATION}
+    )
+    target_link_libraries(grs_batchsim grs_core)
+endif()
+
+# Truth-plant port vs golden data evaluated by the MATLAB models
+# (GRS_Controller: 06_comparison/cpp_batchsim/export_plant_golden.m).
+# Usage: plant_model_tests <folder with plant_golden_*.csv>
+add_executable(plant_model_tests EXCLUDE_FROM_ALL
+        source/Simulation/plantModel.cpp
+        source/Simulation/plantModel.h
+)
+target_include_directories(plant_model_tests PRIVATE source)

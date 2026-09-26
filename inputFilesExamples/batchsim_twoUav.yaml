@@ -1,0 +1,136 @@
+---
+#--------------------------------------------------
+#          grs_batchsim profile, two-UAV + payload       #
+#--------------------------------------------------
+#
+# Same solver/estimator profile as configuration_twoUav.yaml, with two
+# differences so a grs_batchsim run is directly comparable to the MATLAB
+# Monte Carlo campaign (mc_run_one_twoUav.m):
+#   - REFERENCE_INDEXING: time (the MATLAB sims advance the reference one
+#     sample per step; the GCS default searches for the nearest point)
+#   - NMHE weights W_MEAS/W_WINDP/W_DP copied from
+#     mc_build_controllers_twoUav.m (the MATLAB-validated tuning), instead
+#     of configuration_twoUav.yaml's flat first-pass guess.
+# Keep SolverConfiguration in sync with configuration_twoUav.yaml.
+#
+# Usage:
+#   grs_batchsim --config=inputFilesExamples/batchsim_twoUav.yaml \
+#                --reference=twoAircraftMission.csv --samples=<round>/samples.csv --out=<round>
+#
+GcsConfiguration:
+  numUavs: 2
+  hlcFrequency: 20.0      # must equal 1/DT, the batch sim steps the controller every DT
+  nmheFrequency: 5.0      # NMHE every 4 control steps; --nmhe-every overrides
+  controlMode: MPC
+
+SolverConfiguration:
+  # NX/NU/NP/ND/NL0/N/DT below must match solver_twoUavPayload_nmpc_meta.h
+  # (auto-generated alongside the solver by
+  # export_solver_twoUavPayload_nmpc.m -- TUP_NX/TUP_NU/TUP_NP/TUP_ND/
+  # TUP_NL0/TUP_N/TUP_DT) exactly -- re-verify against it any time the
+  # MATLAB side re-exports. Confirmed directly against that meta header
+  # (not assumed to mirror configuration.yaml's one-UAV values) per
+  # gcs-sitl-integration-plan.md Phase 3.
+  NX: 22   # [UAV1(8); UAV2(8); payload(6)] -- JOINT across all vehicles
+  NU: 6    # [UAV1(3); UAV2(3)] -- JOINT across both UAVs
+  NP: 3    # wind (shared, not per-UAV)
+  ND: 10   # disturbance bias, [d_uav1(5); d_uav2(5)] -- zero vector until NMHE is wired in
+  NL0: 1   # tether rest length, shared by both tethers
+  N: 30
+  DT: 0.05
+  NUM_UAVS: 2
+
+  # grs_batchsim only: time-indexed reference, like the MATLAB sims. The
+  # live GCS profile leaves this out (default: nearest).
+  REFERENCE_INDEXING: time
+
+  # Tether rest length [m], packed into every solve's L0 parameter (shared
+  # by both tethers). Fixed here for now, same as configuration.yaml -- see
+  # tether-length-parameterization.md for the GCS-settable version this
+  # will become.
+  L0: 30.0
+
+  # Angle-of-attack path-constraint bound [rad], symmetric, SAME bound for
+  # both UAVs -- must match build_nlp_twoUavPayload_nmpc.m's own
+  # 'alpha_max' option (deg2rad(25) by MATLAB default, NOT the one-UAV
+  # profile's deg2rad(14) -- re-verify against
+  # solver_twoUavPayload_nmpc_meta.h/the MATLAB build call any time it
+  # re-exports). See configuration.yaml's own ALPHA_MAX comment for why
+  # this is packed at all.
+  ALPHA_MAX: 0.436332  # deg2rad(25)
+
+  # Q(22) | R(6) | Qf(22) | Rdu(6) | Rdu0(6) -- 62 entries, per
+  # build_nlp_twoUavPayload_nmpc.m's Weight layout. Unlike configuration.yaml
+  # (whose WEIGHT was reverse-engineered from an incompatible older scheme,
+  # see its own comment), these values are carried over VERBATIM from
+  # GRS_Controller's sim_twoUavPayload_nmpc.m (its Q_val/R_val/Qf_val/
+  # Rdu_uav/Rdu0_val) -- the MATLAB-side closed-loop validation weights, not
+  # a guess -- so this is on firmer footing than the one-UAV file's WEIGHT
+  # was, but still only MATLAB-sim-validated, not flight-validated. Retune
+  # as SITL/flight results warrant.
+  # Q block: [UAV1: x,y,z,vx,vy,vz,roll,pitch | UAV2: (same) | payload: x,y,z,vx,vy,vz]
+  # R block:  [UAV1: T,roll,pitch | UAV2: (same)]
+  # Qf block: 10 * Q, same per-block layout as Q
+  # Rdu block:  [UAV1: dT,droll,dpitch | UAV2: (same)]
+  # Rdu0 block: 2 * Rdu, same layout
+  # (kept all on one flow sequence, no comments between elements, to avoid
+  # any risk of yaml-cpp parsing a multi-line flow sequence with embedded
+  # comments differently than intended)
+  WEIGHT: [0.1, 0.1, 1, 1, 1, 1, 1, 1,   0.1, 0.1, 1, 1, 1, 1, 1, 1,   1, 1, 1, 1, 1, 1,
+           5, 1, 1,   5, 1, 1,
+           1, 1, 10, 10, 10, 10, 10, 10,   1, 1, 10, 10, 10, 10, 10, 10,   10, 10, 10, 10, 10, 10,
+           0.5, 2.0, 2.0,   0.5, 2.0, 2.0,
+           1.0, 4.0, 4.0,   1.0, 4.0, 4.0]
+  LBX_STATES: [-.inf, -.inf, -.inf, -40.0, -40.0, -10.0, -0.5236, -0.6981,
+               -.inf, -.inf, -.inf, -40.0, -40.0, -10.0, -0.5236, -0.6981,
+               -.inf, -.inf, -.inf, -40.0, -40.0, -10.0]
+  # Payload's pD upper bound is 0.15 (not 0) -- the smooth ground-contact
+  # force model produces a small nominal resting penetration; see the
+  # ubs_pay comment in build_nlp_twoUavPayload_nmpc.m for why a hard 0
+  # bound would make that physically-expected resting state infeasible.
+  UBX_STATES: [ .inf,  .inf,   0.0,  40.0,  40.0,  10.0,  0.5236,  0.6981,
+                .inf,  .inf,   0.0,  40.0,  40.0,  10.0,  0.5236,  0.6981,
+                .inf,  .inf,  0.15,  40.0,  40.0,  10.0]
+  LBX_CONTROLS: [ 0.0, -0.5236, -0.6981,   0.0, -0.5236, -0.6981]
+  UBX_CONTROLS: [60.0,  0.5236,  0.6981,  60.0,  0.5236,  0.6981]
+  SCALES_STATES: [100.0, 100.0, 50.0, 30.0, 30.0, 15.0, 0.4, 0.4,
+                  100.0, 100.0, 50.0, 30.0, 30.0, 15.0, 0.4, 0.4,
+                  100.0, 100.0, 50.0,  5.0,  5.0,  5.0]
+  SCALES_CONTROLS: [30.0, 0.4, 0.4,   30.0, 0.4, 0.4]
+
+# Same enable-by-presence convention as configuration.yaml's own
+# EstimatorConfiguration -- see that file's comment. NX/NU/NP/ND/NL0/M/DT
+# must match nmhe_twoUavPayload_meta.h (NMHE_TUP_* macros) exactly.
+# X_SCALE/WIND_SCALE/D_SCALE from scaling_twoUav.m (same single-source-of-
+# truth reasoning as configuration.yaml).
+EstimatorConfiguration:
+  NX: 22
+  NU: 6
+  NP: 3
+  ND: 10
+  NL0: 1
+  M: 40
+  DT: 0.05
+  NUM_UAVS: 2
+
+  # Tether rest length [m] -- same as SolverConfiguration's own L0 above
+  # (shared by both tethers), packed into NMHE's L0_param block every
+  # estimate() solve. See configuration.yaml's own L0 comment in its
+  # EstimatorConfiguration section for why this was missing.
+  L0: 30.0
+
+  # MATLAB-validated NMHE weights (mc_build_controllers_twoUav.m), NOT the
+  # flat guess in configuration_twoUav.yaml.
+  W_MEAS: [5, 5, 5, 2, 2, 2, 1, 1,   5, 5, 5, 2, 2, 2, 1, 1,   5, 5, 5, 2, 2, 2]
+  W_WINDP: [0.05, 0.05, 0.05]
+  W_DP: [0.02, 0.02, 0.02, 0.2, 0.2,   0.02, 0.02, 0.02, 0.2, 0.2]
+
+  WIND_MAX: 25.0
+  DF_MAX: 30.0
+  B_ATT_MAX: 0.261799  # deg2rad(15)
+
+  X_SCALE: [100.0, 100.0, 50.0, 30.0, 30.0, 15.0, 0.4, 0.4,
+            100.0, 100.0, 50.0, 30.0, 30.0, 15.0, 0.4, 0.4,
+            100.0, 100.0, 50.0,  5.0,  5.0,  5.0]
+  WIND_SCALE: [10.0, 10.0, 10.0]
+  D_SCALE: [20.0, 20.0, 20.0, 0.15, 0.15,   20.0, 20.0, 20.0, 0.15, 0.15]

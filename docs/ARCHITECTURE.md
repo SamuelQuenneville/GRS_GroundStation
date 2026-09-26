@@ -40,6 +40,12 @@ Nothing outside `gcs.cpp` reaches into more than one of these directly.
 | `Geo` | WGS84 ↔ NED coordinate conversion | [`docs/Geo.md`](Geo.md) |
 | `Powertrain` | Thrust ↔ RPM conversion for the propulsion model | [`docs/Powertrain.md`](Powertrain.md) |
 | `Util` | Small parsing/timing helpers used by `main.cpp` and elsewhere | [`docs/Util.md`](Util.md) |
+| `Simulation` | `grs_batchsim`: closed-loop batch simulator (truth plant + Monte Carlo runner) on the same controller core | [`docs/Simulation.md`](Simulation.md) |
+
+The controller core (`Control/` minus `ControlInterface`,
+`ControlDispatcher` and `NavigationFrameManager`, plus `Configuration`,
+`Log`, `Mathematics`, `Trajectory`, `Util`) builds as the MAVSDK-free
+`grs_core` library, linked by both `GRS_GroundStation` and `grs_batchsim`.
 
 `casadi/` is a vendored third-party SDK (CasADi's C++ headers and prebuilt
 libraries), not project code — see "Vendored code" below.

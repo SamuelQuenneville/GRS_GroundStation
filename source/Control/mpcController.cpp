@@ -149,18 +149,28 @@ std::map<uint8_t, uavCommandsFlags> MpcController::solve(const std::map<uint8_t,
 
     if (m_launched) {
         size_t idx = m_lastIdxTraj;
-        double bestCost = m_computeReferenceCost(idx);
 
-        // only move forward
-        while (idx + 1 < m_endIdxTraj) {
-            const double nextCost = m_computeReferenceCost(idx + 1);
+        if (m_config.referenceIndexing == solverConfig::ReferenceIndexing::Time) {
+            // Time-indexed: first solve after launch uses sample 0, every
+            // following solve advances exactly one sample (see solverConfig).
+            if (m_solvesSinceLaunch > 0 && idx + 1 < m_endIdxTraj) {
+                ++idx;
+            }
+            ++m_solvesSinceLaunch;
+        } else {
+            double bestCost = m_computeReferenceCost(idx);
 
-            // stop once cost increases
-            if (nextCost > bestCost)
-                break;
+            // only move forward
+            while (idx + 1 < m_endIdxTraj) {
+                const double nextCost = m_computeReferenceCost(idx + 1);
 
-            bestCost = nextCost;
-            ++idx;
+                // stop once cost increases
+                if (nextCost > bestCost)
+                    break;
+
+                bestCost = nextCost;
+                ++idx;
+            }
         }
         m_pendingSteps = idx - m_lastIdxTraj;
         m_lastIdxTraj = idx;
@@ -447,12 +457,18 @@ void MpcController::m_packInitialGuess() {
 
     std::ranges::copy(m_initialStates, m_x0.begin());
 
+    // Decision vector is [x0 u0 ... x(N-1) u(N-1) xN]: N+1 state blocks but
+    // only N control blocks. Scaling a control block at k = N used to write
+    // nu doubles past the end of m_x0 (heap overflow on the first solve,
+    // found by running grs_batchsim under AddressSanitizer).
     for (size_t k = 0; k < m_config.N + 1; ++k)
     {
         const size_t xOffset = k * m_refStride;
         for (size_t i = 0; i < m_config.nx; ++i) {
             m_x0[xOffset + i] *= m_config.invScalesStates[i];
         }
+
+        if (k == static_cast<size_t>(m_config.N)) break;
 
         const size_t uOffset = k * m_refStride + m_config.nx;
         for (size_t i = 0; i < m_config.nu; ++i) {

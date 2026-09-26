@@ -45,6 +45,20 @@ struct solverConfig {
                      // Used to repack g's per-stage alpha inequality rows
                      // in MpcController::m_packInequalityBounds() -- see
                      // that method's comment for why this exists at all.
+    // How MpcController picks the reference window start each solve once
+    // launched:
+    //   Nearest -- (default, the GCS's original behavior) search forward
+    //              from the last index for the reference point closest in
+    //              north/east to UAV 1, so the reference waits for a vehicle
+    //              that falls behind.
+    //   Time    -- advance exactly one reference sample per solve, i.e. a
+    //              time-indexed reference, as every MATLAB closed-loop sim
+    //              does (sim_*_nmpc.m, mc_run_one_twoUav.m). Used by
+    //              grs_batchsim to reproduce MATLAB runs; optional YAML key
+    //              REFERENCE_INDEXING: nearest | time.
+    enum class ReferenceIndexing { Nearest, Time };
+    ReferenceIndexing referenceIndexing = ReferenceIndexing::Nearest;
+
     std::vector<double> weight;
     std::vector<double> lbxStates;
     std::vector<double> ubxStates;

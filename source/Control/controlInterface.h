@@ -15,25 +15,22 @@
 #include <map>
 #include <optional>
 #include <arpa/inet.h>
+#include <ranges>
 
 #include "gcsConfig.h"
 #include "Definitions/communicationStructures.h"
-#include "Configuration/configurationParser.h"
-#include "Log/programLogger.h"
 #include "Powertrain/powertrain.h"
 #include "navigationFrameManager.h"
-// Controller-agnostic on purpose -- ControlInterface never needs to know
-// whether the active controller is MpcController or something else, only
-// that it implements Controller (see controller.h and
-// gcs-sitl-integration-plan.md §3a). mpcController.h is only ever included
-// by the .cpp, which is the one place that actually constructs one.
-#include "controller.h"
+#include "Mathematics/math.h"
 #include "SolverBackend/solverBackendFactory.h"
-// Same agnosticism as controller.h above, for the estimator side -- see
-// estimator.h and gcs-sitl-integration-plan.md §3a/Phase 4.
-#include "estimator.h"
-#include "SolverBackend/estimatorBackendFactory.h"
+#include "controlStep.h"
 #include "Trajectory/trajectoryGenerator.h"
+
+// Controller/Estimator-agnostic on purpose -- ControlInterface never needs to know whether the active controller is
+// MpcController or something else, only that it implements Controller. mpcController.h is only ever included by the
+// .cpp, which is the one place that actually constructs one.
+#include "controller.h"
+#include "estimator.h"
 
 class ControlInterface {
 
@@ -48,16 +45,12 @@ public:
     void setCommandCallback(std::function<void(const std::map<uint8_t, uavCommandsFlags>&)> cb);
     void updateStates(const std::map<uint8_t, uavStates>& states);
 
-    // Fired once per control-loop iteration while running in MPC mode, right
-    // after the active controller's solve() returns. No-op in MATLAB/ATTITUDE_FILE
-    // mode since there's no controller to report on.
     void setNmpcDebugCallback(std::function<void(const Controller::DebugInfo&)> cb);
 
     void setOriginCallback(std::function<void(double latitudeDegrees, double longitudeDegrees, double altitude)> cb);
     void setTrajectoryLoadedCallback(std::function<void()> cb);
 
-    // Passthrough accessors for setup/orientation tooling -- null-safe, since
-    // m_controller only exists in MPC control mode (see initialize()).
+    // Passthrough accessors for setup/orientation tooling
     std::vector<Controller::TrajectoryPointView> getTrajectoryForVehicle(int vehicleIndex) const;
     int numUavs() const;
     bool trajectoryHasPayload() const;
@@ -66,82 +59,38 @@ public:
     void initMatlabConnection(const char* ip, uint16_t port);
     void setCommandsList(const std::map<uint8_t, std::vector<uavCommandsFlags>>& commandsList);
 
-    // Raw WGS84 GPS fix -- lat/lon/AMSL altitude straight from the latest
-    // telemetry, deliberately NOT run through NavigationFrameManager (there's
-    // no origin yet; this is what *establishes* one -- see
-    // GroundControlStation::setOriginFromPayload()).
+    // Raw WGS84 GPS fix -- lat/lon/AMSL altitude straight from the latest telemetry, deliberately NOT run through
+    // NavigationFrameManager (there's no origin yet; this is what set one --> see GroundControlStation::setOriginFromPayload()).
     struct GpsFix {
         double latitudeDegrees = 0.0;
         double longitudeDegrees = 0.0;
         double altitudeMeters = 0.0;
     };
 
-    // The payload's current raw GPS fix, for setting the navigation origin
-    // directly from where the payload actually is instead of typing lat/lon
-    // by hand. Same "payload = highest sysId" convention as
-    // MpcController::m_unpackLatestStates / getLiveNavigationStates() below
-    // -- any sysId beyond m_config.numUavs is the payload (highest wins if
-    // more than one, matching that convention's tie-break). Returns nullopt
-    // if no such telemetry has arrived yet.
+    // The payload's current raw GPS fix, for setting the navigation origin directly from where the payload actually is
+    // instead of typing lat/lon by hand. Same "payload = highest sysId" convention as MpcController::m_unpackLatestStates
+    // / getLiveNavigationStates() below.
     [[nodiscard]] std::optional<GpsFix> getPayloadGpsFix() const;
 
     void initLaunch() const;
 
     void loadTrajectory(const std::string& file) const;
-
-    // Inverse of loadTrajectory(): writes whatever's currently loaded in
-    // the NMPC controller back out to `file`, same CSV format
-    // loadTrajectory() reads -- so a save now / load later round-trips.
-    // Throws if there's no NMPC controller (control mode != MPC) or if
-    // MpcController::saveTrajectory() itself throws (nothing loaded yet,
-    // file can't be written).
     void saveTrajectory(const std::string& file) const;
 
-    // ADR-001 Phase 1/2: builds a trajectory in-process with
-    // TrajectoryGenerator (no MATLAB, no CSV round-trip), applies field
-    // calibration (config.fieldHeadingDeg / originOffsetNed -- no-ops at
-    // their defaults), and loads it directly into the NMPC controller.
-    // Fires the same setTrajectoryLoadedCallback() as loadTrajectory(file),
-    // so the existing setup3d.html / GET /api/trajectory path picks it up
-    // with no dashboard changes.
-    //
-    // ADR-001 Phase 4: `selection` narrows the generated mission before it's
-    // sent to the controller -- e.g. one UAV, no payload, only through the
-    // first loiter, for exercising a reduced-order NMPC build. The default
-    // (no selection) is a strict no-op: full mission, and `hasPayload`
-    // deferred to the loaded MpcController's own hasPayload(), exactly like
-    // before this existed.
-    //
-    // ADR-001 follow-up: `liveLaunchPositionsNed[k]` (indexed the same as
-    // `config.aircraftPath.phaseRad`, i.e. mission.aircraft[k] before
-    // `selection` narrows it), when set, rigidly translates that UAV's whole
-    // trajectory so its first sample lands exactly on the given real NED
-    // position -- see TrajectoryGenerator::snapToLiveLaunchPositions(). The
-    // default (empty vector) is a strict no-op, same convention as `selection`.
-    void generateTrajectory(const grs::trajgen::TrajectoryConfig& config,
-        const grs::trajgen::SubsetSelection& selection = {},
-        const std::vector<std::optional<grs::Vec3d>>& liveLaunchPositionsNed = {}) const;
+    void generateTrajectory(const grs::trajgen::TrajectoryConfig& config, const grs::trajgen::SubsetSelection& selection = {}, const std::vector<std::optional<grs::Vec3d>>& liveLaunchPositionsNed = {}) const;
 
-    // Pure computation, does not touch the NMPC controller -- for the
-    // dashboard's generate/preview step (POST /api/trajectory/generate)
-    // before the operator commits with generateTrajectory()/"Apply". Safe to
-    // call even before initialize() (unlike generateTrajectory(), it doesn't
-    // need m_controller). See generateTrajectory() above for what `selection` and
-    // `liveLaunchPositionsNed` do.
-    [[nodiscard]] grs::trajgen::GeneratedMission previewTrajectory(const grs::trajgen::TrajectoryConfig& config,
-        const grs::trajgen::SubsetSelection& selection = {},
-        const std::vector<std::optional<grs::Vec3d>>& liveLaunchPositionsNed = {}) const;
+    // Pure computation, does not touch the NMPC controller. For the dashboard's generate/preview step
+    // (POST /api/trajectory/generate) before the operator commits with generateTrajectory()/"Apply". Safe to
+    // call even before initialize() (unlike generateTrajectory(), it doesn't need m_controller). See generateTrajectory()
+    // above for what `selection` and`liveLaunchPositionsNed` do.
+    [[nodiscard]] static grs::trajgen::GeneratedMission previewTrajectory(const grs::trajgen::TrajectoryConfig& config, const grs::trajgen::SubsetSelection& selection = {}, const std::vector<std::optional<grs::Vec3d>>& liveLaunchPositionsNed = {});
     void setOrigin(double latitudeDegrees, double longitudeDegrees, double altitude);
     void debugConvert(double latitudeDegrees, double longitudeDegrees, double altitude) const;
 
-    // ADR-001 Phase 3: real launch-position capture for the trajectory
-    // generator sidebar. Mirrors exactly what m_controlLoop() feeds
-    // MpcController every tick -- the latest telemetry, corrected into the
-    // NavigationFrameManager's NED frame -- so a captured "live" position is
-    // the same NED the rest of the system already trusts. Returns an empty
-    // map if the nav frame hasn't been initialized yet (no origin / no GPS
-    // lock), so callers can tell "no fix yet" from "fix at the origin".
-    // Payload convention, matching MpcController::m_unpackLatestStates:
+    // Real launch-position capture for the trajectory generator sidebar. The latest telemetry, corrected into the
+    // NavigationFrameManager's NED frame, so a captured "live" position is the same NED the rest of the system already
+    // trusts. Returns an empty map if the nav frame hasn't been initialized yet (no origin / no GPS lock), so callers
+    // can tell "no fix yet" from "fix at the origin". Payload convention, matching MpcController::m_unpackLatestStates
     // when present, the payload is whichever entry has the highest sysId.
     [[nodiscard]] std::map<uint8_t, uavStates> getLiveNavigationStates() const;
 
@@ -149,20 +98,6 @@ private:
     NavigationFrameManager m_navFrameManager;
 
     void m_controlLoop();
-
-    // Builds the same joint-across-vehicles state layout MpcController::
-    // m_unpackLatestStates() uses (numUavs blocks of 8, then -- only if
-    // m_estimator's config.nx accounts for it -- one block of 6 for the
-    // payload), but from RAW telemetry always, no pre-launch reference-
-    // trajectory substitution (that's an MpcController-specific safeguard
-    // against feeding the controller garbage before flight; the estimator
-    // has no reference trajectory to fall back to, and running on real,
-    // if-static, pre-launch telemetry is a perfectly fine cold-start
-    // window for it). Duplicated here rather than shared with
-    // MpcController's private method -- the two have diverged in exactly
-    // this one respect (fallback vs. always-raw), so sharing would mean
-    // threading a flag through a private controller method instead.
-    void m_buildEstimatorStateVector(const std::map<uint8_t, uavStates>& states, std::vector<double>& out) const;
 
     void m_initMatlabConnection(const char* ip, uint16_t port);
     void m_sendDataToMatlab(const std::map<uint8_t, uavStates>& states);
@@ -175,16 +110,12 @@ private:
     gcsConfig m_config;
 
     std::unique_ptr<Controller> m_controller;
-
-    // Only constructed when the YAML has an "EstimatorConfiguration"
-    // section (see ConfigurationParser::parseEstimatorConfig()) -- null
-    // otherwise, same optional-component convention m_controller itself
-    // follows for non-MPC control modes. Runs on its own cadence inside
-    // m_controlLoop() (m_config.nmheFrequency, decoupled from
-    // m_config.hlcFrequency) -- see m_controlLoop()'s own comment.
     std::unique_ptr<Estimator> m_estimator;
-    std::vector<double> m_estimatorAppliedControl; // last tick's commanded control, physical units, fed to m_estimator->addSample() as its "applied control" -- see m_controlLoop()
-    double m_nmheAccumulatorMs = 0.0;
+
+    // Per-tick controller logic (MPC mode only), shared with grs_batchsim --> see controlStep.h.
+    // References m_controller/m_estimator and owns the NMHE thread (ThreadedEstimatorRunner). Declared after both
+    // so it is destroyed first: the NMHE thread is joined before m_estimator goes away.
+    std::unique_ptr<ControlStep> m_controlStep;
 
     std::function<void(const std::map<uint8_t, uavCommandsFlags>&)> m_sendCommand;
     std::function<void(const Controller::DebugInfo&)> m_nmpcDebugCallback;

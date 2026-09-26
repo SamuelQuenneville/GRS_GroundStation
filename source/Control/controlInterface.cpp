@@ -7,17 +7,11 @@
  */
 
 #include "controlInterface.h"
-#include "gcs.h"
 
-// The concrete Controller implementation -- only this file ever needs to
+// The concrete Controller/Estimator implementation -- only this file ever needs to
 // know it's MpcController (see controlInterface.h's include comment).
 #include "mpcController.h"
-// Same for the concrete Estimator implementation.
 #include "nmheEstimator.h"
-
-#include "Mathematics/math.h"
-
-#include <stdexcept>
 
 ControlInterface::ControlInterface()
     : m_running(false)
@@ -35,25 +29,17 @@ void ControlInterface::initialize(const gcsConfig& config) {
 
     if (m_config.controlMode == ControlMode::MPC) {
         YAML::Node node = YAML::LoadFile(config.configPath);
-        solverConfig solverConfig = ConfigurationParser::parseSolverConfig(node);
 
-        // Backend selection is a startup-only choice -- see
-        // gcs-sitl-integration-plan.md's Decisions. numUavs picks the
-        // concrete SolverBackend once, here; nothing downstream needs to
-        // know which one it got.
-        auto backend = createSolverBackend(solverConfig.numUavs);
-        m_controller = std::make_unique<MpcController>(solverConfig, std::move(backend));
+        auto stack = buildControlStack(node);
+        m_controller = std::move(stack.controller);
+        m_estimator = std::move(stack.estimatorInstance);
 
-        // Presence of "EstimatorConfiguration" in the YAML is the enable --
-        // see parseEstimatorConfig()'s own comment. No estimator section ->
-        // m_estimator stays null, m_controlLoop() skips it entirely, and
-        // MpcController keeps packing the zero wind/d it's initialized
-        // with (see gcs-sitl-integration-plan.md §2).
-        if (auto estimatorConfigOpt = ConfigurationParser::parseEstimatorConfig(node)) {
-            auto estimatorBackend = createEstimatorBackend(estimatorConfigOpt->numUavs);
-            m_estimator = std::make_unique<NmheEstimator>(*estimatorConfigOpt, std::move(estimatorBackend));
-            m_estimatorAppliedControl.assign(estimatorConfigOpt->nu, 0.0);
+        // The NMHE gets its own thread at nmheFrequency, fully decoupled from the control loop.
+        std::unique_ptr<EstimatorRunner> runner;
+        if (m_estimator) {
+            runner = std::make_unique<ThreadedEstimatorRunner>(*m_estimator, m_config.nmheFrequency, static_cast<size_t>(stack.estimator->M) + 8);
         }
+        m_controlStep = std::make_unique<ControlStep>(*m_controller, std::move(runner), stack.estimator ? stack.estimator->nu : 0);
     }
 }
 
@@ -106,11 +92,11 @@ std::optional<ControlInterface::GpsFix> ControlInterface::getPayloadGpsFix() con
 
     std::optional<GpsFix> fix;
     for (const auto& [sysId, state] : m_latestStates) {
-        if (sysId <= m_config.numUavs) continue; // a UAV, not the payload
+        if (sysId <= m_config.numUavs) {
+            continue; // a UAV, not the payload
+        }
 
-        // Highest sysId wins if more than one somehow lands above numUavs --
-        // std::map is ordered ascending, so the last iteration here is the
-        // highest, same tie-break as elsewhere.
+        // Highest sysId wins if more than one somehow lands above numUavs
         fix = GpsFix{state.latitudeDegree, state.longitudeDegree, state.altitudeAmslMeter};
     }
     return fix;
@@ -146,22 +132,19 @@ void ControlInterface::saveTrajectory(const std::string& file) const {
     m_controller->saveTrajectory(file);
 }
 
-grs::trajgen::GeneratedMission ControlInterface::previewTrajectory(const grs::trajgen::TrajectoryConfig& config,
-    const grs::trajgen::SubsetSelection& selection,
-    const std::vector<std::optional<grs::Vec3d>>& liveLaunchPositionsNed) const {
-    grs::trajgen::TrajectoryGenerator generator(config);
+grs::trajgen::GeneratedMission ControlInterface::previewTrajectory(const grs::trajgen::TrajectoryConfig& config, const grs::trajgen::SubsetSelection& selection, const std::vector<std::optional<grs::Vec3d>>& liveLaunchPositionsNed) {
+    const grs::trajgen::TrajectoryGenerator generator(config);
     auto mission = generator.generate();
     grs::trajgen::TrajectoryGenerator::applyFieldCalibration(mission, config.fieldHeadingDeg, config.originOffsetNed);
-    // Must run before extractSubset(): liveLaunchPositionsNed is indexed by
-    // the full mission's original mission.aircraft[] order, which extractSubset
-    // may reorder/drop.
+
+    // Must run before extractSubset(): liveLaunchPositionsNed is indexed by the full mission's original mission.aircraft[]
+    // order, which extractSubset may reorder/drop.
     grs::trajgen::TrajectoryGenerator::snapToLiveLaunchPositions(mission, liveLaunchPositionsNed);
     return grs::trajgen::TrajectoryGenerator::extractSubset(mission, selection);
 }
 
-void ControlInterface::generateTrajectory(const grs::trajgen::TrajectoryConfig& config,
-    const grs::trajgen::SubsetSelection& selection,
-    const std::vector<std::optional<grs::Vec3d>>& liveLaunchPositionsNed) const {
+void ControlInterface::generateTrajectory(const grs::trajgen::TrajectoryConfig& config, const grs::trajgen::SubsetSelection& selection, const std::vector<std::optional<grs::Vec3d>>& liveLaunchPositionsNed) const {
+
     if (!m_controller) {
         LOG_ERROR("generateTrajectory: control mode [MPC] is required (no NMPC controller instantiated)");
         return;
@@ -179,11 +162,15 @@ void ControlInterface::generateTrajectory(const grs::trajgen::TrajectoryConfig& 
     auto reference = grs::trajgen::TrajectoryGenerator::toSolverReference(mission, hasPayload);
     m_controller->setReferenceTrajectory(std::move(reference));
 
-    if (m_trajectoryLoadedCallback) m_trajectoryLoadedCallback();
+    if (m_trajectoryLoadedCallback) {
+        m_trajectoryLoadedCallback();
+    }
 }
 
 std::map<uint8_t, uavStates> ControlInterface::getLiveNavigationStates() const {
-    if (!m_navFrameManager.isInitialized()) return {};
+    if (!m_navFrameManager.isInitialized()) {
+        return {};
+    }
 
     std::map<uint8_t, uavStates> states;
     {
@@ -195,7 +182,10 @@ std::map<uint8_t, uavStates> ControlInterface::getLiveNavigationStates() const {
 
 void ControlInterface::setOrigin(const double latitudeDegrees, const double longitudeDegrees, const double altitude) {
     m_navFrameManager.setOrigin(latitudeDegrees, longitudeDegrees, altitude);
-    if (m_originCallback) m_originCallback(latitudeDegrees, longitudeDegrees, altitude);
+
+    if (m_originCallback) {
+        m_originCallback(latitudeDegrees, longitudeDegrees, altitude);
+    }
 }
 
 void ControlInterface::debugConvert(const double latitudeDegrees, const double longitudeDegrees, const double altitude) const {
@@ -228,9 +218,8 @@ void ControlInterface::m_controlLoop() {
             latestStates = m_latestStates;
         }
 
-        // Always called (not gated behind isInitialized()) -- see
-        // NavigationFrameManager::initializeOffset(), it's incremental and
-        // a no-op for sysIds it's already computed.
+        // Always called (not gated behind isInitialized()) --> see NavigationFrameManager::initializeOffset(),
+        // it's incremental and a no-op for sysIds it's already computed.
         m_navFrameManager.initializeOffset(latestStates, m_config.pixhawk.sitl);
 
         if (m_navFrameManager.isInitialized()) {
@@ -247,45 +236,10 @@ void ControlInterface::m_controlLoop() {
                 }
 
             } else if (m_config.controlMode == ControlMode::MPC) {
-                cmds = m_controller->solve(navStates);
-
-                // NMHE tick, if an estimator is configured -- see
-                // ControlInterface::initialize(). Runs at its own cadence
-                // (m_config.nmheFrequency), decoupled from hlcFrequency:
-                // every control-loop tick pushes one sample into the
-                // sliding window (addSample() is cheap -- just a
-                // ring-buffer push), but estimate() (the actual NLP solve)
-                // only fires once the accumulator crosses one NMHE period.
-                // Physical units for the applied control -- thrust in
-                // Newtons, roll/pitch back in radians -- captured BEFORE
-                // the thrust2rpm conversion below, which is a GCS->Pixhawk
-                // wire-format concern the estimator's process model
-                // (grsOneGroundDynamicAugmented.m / grsTwoUavPayloadDynamic
-                // Augmented.m, same as the NMPC's) has no notion of.
-                if (m_estimator) {
-                    for (const auto& [sysId, cmd] : cmds) {
-                        const size_t perUavNu = m_estimatorAppliedControl.size() / static_cast<size_t>(m_controller->numUavs());
-                        const size_t offset = static_cast<size_t>(sysId - 1) * perUavNu;
-                        if (offset + 2 < m_estimatorAppliedControl.size()) {
-                            m_estimatorAppliedControl[offset + 0] = cmd.commands.thrust;
-                            m_estimatorAppliedControl[offset + 1] = grs::degToRad(cmd.commands.rollDegree);
-                            m_estimatorAppliedControl[offset + 2] = grs::degToRad(cmd.commands.pitchDegree);
-                        }
-                    }
-
-                    std::vector<double> measuredState;
-                    m_buildEstimatorStateVector(navStates, measuredState);
-                    m_estimator->addSample(measuredState, m_estimatorAppliedControl);
-
-                    m_nmheAccumulatorMs += 1000.0 / m_config.hlcFrequency;
-                    const double nmhePeriodMs = 1000.0 / m_config.nmheFrequency;
-                    if (m_nmheAccumulatorMs >= nmhePeriodMs) {
-                        m_nmheAccumulatorMs = 0.0;
-                        if (m_estimator->estimate()) {
-                            m_controller->setDisturbanceEstimate(m_estimator->windEstimate(), m_estimator->dEstimate());
-                        }
-                    }
-                }
+                // Latest NMHE estimate + NMPC solve, shared with grs_batchsim
+                // (see controlStep.h); the NMHE itself runs on its own thread.
+                // Commands come back in physical units.
+                cmds = m_controlStep->tick(navStates);
 
                 for (auto& [sysId, states] : cmds) {
                     states.commands.thrust = static_cast<float>(thrust2rpm(navStates[sysId].airspeedMeterSecond, states.commands.thrust));
@@ -369,43 +323,4 @@ std::map<uint8_t, uavCommands> ControlInterface::m_receiveDataFromMatlab() {
     }
 
     return receivedData;
-}
-
-void ControlInterface::m_buildEstimatorStateVector(const std::map<uint8_t, uavStates>& states, std::vector<double>& out) const {
-    static constexpr int kUavBlockSize = 8;
-    static constexpr int kPayloadBlockSize = 6;
-
-    const int numUavs = m_controller->numUavs();
-    const bool hasPayload = m_controller->hasPayload();
-
-    // Fixed size matching the estimator's own nx (numUavs blocks of 8, plus
-    // one block of 6 iff hasPayload()) -- same fixed-size contract
-    // MpcController::m_unpackLatestStates() relies on (its m_initialStates
-    // is sized once from config.nx at construction, never resized per
-    // tick), so this only fills correctly once payload telemetry is
-    // actually arriving whenever hasPayload() is true -- same latent
-    // assumption that code already makes, not a new one introduced here.
-    out.assign(static_cast<size_t>(kUavBlockSize) * numUavs + (hasPayload ? kPayloadBlockSize : 0), 0.0);
-
-    for (const auto& [sysId, s] : states) {
-        if (sysId <= numUavs) {
-            const size_t blockOffset = static_cast<size_t>(sysId - 1) * kUavBlockSize;
-            out.at(blockOffset + 0) = s.northMeter;
-            out.at(blockOffset + 1) = s.eastMeter;
-            out.at(blockOffset + 2) = s.downMeter;
-            out.at(blockOffset + 3) = s.northMeterSecond;
-            out.at(blockOffset + 4) = s.eastMeterSecond;
-            out.at(blockOffset + 5) = s.downMeterSecond;
-            out.at(blockOffset + 6) = grs::degToRad(s.rollDegree);
-            out.at(blockOffset + 7) = grs::degToRad(s.pitchDegree);
-        } else if (hasPayload) {
-            const size_t blockOffset = static_cast<size_t>(kUavBlockSize) * numUavs;
-            out.at(blockOffset + 0) = s.northMeter;
-            out.at(blockOffset + 1) = s.eastMeter;
-            out.at(blockOffset + 2) = s.downMeter;
-            out.at(blockOffset + 3) = s.northMeterSecond;
-            out.at(blockOffset + 4) = s.eastMeterSecond;
-            out.at(blockOffset + 5) = s.downMeterSecond;
-        }
-    }
 }
