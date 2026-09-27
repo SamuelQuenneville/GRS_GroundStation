@@ -10,12 +10,31 @@
 
 #include <fstream>
 #include <iomanip>
+#include <stdexcept>
 
 MpcController::MpcController(const solverConfig& config)
     : m_config(config)
-    , m_solver(Nlpsol::Problem::Nmpc, config.numUavs)
+    , m_solver(config.controller == solverConfig::Controller::Lmpc ? GeneratedFunction::Id::Lmpc : GeneratedFunction::Id::Nmpc,
+               config.numUavs)
 {
     m_refStride = m_config.nx + m_config.nu;
+
+    // Layout of m_packParameters(). A mismatch means SolverConfiguration does
+    // not describe the generated solver.
+    size_t expected = 2 * m_config.nx + m_config.N * m_refStride + m_config.np + m_config.nd
+        + m_config.weight.size() + m_config.nu + m_config.nL0;
+    if (m_config.controller == solverConfig::Controller::Lmpc) {
+        m_linearization.emplace(GeneratedFunction::Id::LmpcLinearization, m_config.numUavs);
+        if (m_linearization->inputSize(0) != m_config.N * m_refStride) {
+            throw std::runtime_error(std::string(m_linearization->name()) + " was generated for another N, nx or nu");
+        }
+        expected += m_linearization->outputSize(0);
+    }
+    if (m_solver.p.size() != expected) {
+        throw std::runtime_error(std::string(m_solver.name()) + " takes " + std::to_string(m_solver.p.size())
+            + " parameters, SolverConfiguration describes " + std::to_string(expected));
+    }
+
     m_layout = {m_config.numUavs, hasPayload()};
     assert(m_layout.size() == static_cast<size_t>(m_config.nx));
 
@@ -171,10 +190,10 @@ std::map<uint8_t, uavCommandsFlags> MpcController::solve(const std::map<uint8_t,
         }
     }
 
-    m_packParameters();
-
     {
+        // Includes the LMPC linearization, part of the online cost.
         PROFILE_SCOPE_OUT("casadi_solve", &m_lastSolveMs, false);
+        m_packParameters();
         const int flag = m_solver.solve();
         m_lastFlag = flag;
 
@@ -410,17 +429,25 @@ void MpcController::m_packInitialGuess() {
 }
 
 void MpcController::m_packParameters() {
-    auto dst = std::ranges::copy(m_initialStates, m_solver.p.begin()).out;
-    dst = std::copy_n(m_referenceTrajectory.begin() + m_lastIdxTraj * m_refStride, m_config.N * m_refStride + m_config.nx, dst);
+    const double* window = m_referenceTrajectory.data() + m_lastIdxTraj * m_refStride;
+    double* dst = std::ranges::copy(m_initialStates, m_solver.p.data()).out;
+    dst = std::copy_n(window, m_config.N * m_refStride + m_config.nx, dst);
+    const double* wind = dst;
     {
         std::lock_guard lock(m_disturbanceMutex);
         dst = std::ranges::copy(m_windEst, dst).out;
         dst = std::ranges::copy(m_dEst, dst).out;
     }
+    const double* d = wind + m_config.np;
     dst = std::ranges::copy(m_config.weight, dst).out;
     dst = std::ranges::copy(m_uPrev, dst).out;
+    const double* L0 = dst;
     dst = std::fill_n(dst, m_config.nL0, m_config.tetherL0);
-    assert(dst == m_solver.p.end());
+    if (m_linearization) {
+        m_linearization->eval({window, wind, d, L0}, {dst});
+        dst += m_linearization->outputSize(0);
+    }
+    assert(dst == m_solver.p.data() + m_solver.p.size());
 }
 
 std::map<uint8_t, uavCommandsFlags> MpcController::m_extractControls() const {

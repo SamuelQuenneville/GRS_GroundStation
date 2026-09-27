@@ -35,6 +35,10 @@ grs_batchsim --config=inputFilesExamples/batchsim_twoUav.yaml \
              --controllers=nmpc_naive,nmpc_of --jobs=8
 ```
 
+Controller variants use the MATLAB campaign names: `nmpc_naive`,
+`nmpc_of`, `lmpc_naive`, `lmpc_of` (`_of`: with the NMHE). The family sets
+`SolverConfiguration.CONTROLLER` for the run.
+
 `--help` lists every option. The inputs come from GRS_Controller
 (`02_matlab/06_comparison/cpp_batchsim/`):
 

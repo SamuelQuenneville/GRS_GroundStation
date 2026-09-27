@@ -13,6 +13,7 @@
 
 #include <chrono>
 #include <mutex>
+#include <optional>
 #include <sstream>
 #include <unordered_map>
 #include <cstring>
@@ -73,6 +74,8 @@ public:
 private:
     solverConfig m_config;
     Nlpsol m_solver;
+    // LMPC only: P_lin, the per-stage affine model about the reference window.
+    std::optional<GeneratedFunction> m_linearization;
 
     grs::control::StateLayout m_layout;
 
@@ -128,13 +131,13 @@ private:
     void m_shiftSolution();
     // Decision-variable bounds, scaled: [x0 u0 ... x(N-1) u(N-1) xN].
     void m_packBounds();
-    // g rows (build_nlp_*_nmpc.m): nx initial-condition equalities, then per
+    // g rows (NMPC and LMPC): nx initial-condition equalities, then per
     // stage nx dynamics equalities followed by numUavs angle-of-attack rows.
     // Only the alpha rows are inequalities, [-alphaMax, alphaMax].
     void m_packInequalityBounds();
     void m_packInitialGuess();
-    // P_optim (build_nlp_*_nmpc.m): [x_initial; reference window x0 u0 ... xN;
-    // Wind_est; D_est; Weight; U_prev; L0].
+    // P_optim (build_nlp_*_nmpc.m, build_nlp_*_lmpc.m): [x_initial; reference
+    // window x0 u0 ... xN; Wind_est; D_est; Weight; U_prev; L0; LMPC: P_lin].
     void m_packParameters();
     std::map<uint8_t, uavCommandsFlags> m_extractControls() const;
 

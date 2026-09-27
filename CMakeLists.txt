@@ -94,6 +94,8 @@ set(GRS_CONTROL_CORE
         source/Control/estimator.h
         source/Control/nmheEstimator.cpp
         source/Control/nmheEstimator.h
+        source/Control/generatedFunction.cpp
+        source/Control/generatedFunction.h
         source/Control/nlpsol.cpp
         source/Control/nlpsol.h
 )
@@ -255,6 +257,8 @@ endfunction()
 # copies.
 nmpc_solver_isolate_runtime_symbols(source/Control/CasadiSolver/solver_oneGround_nmpc.c oneGroundNmpc)
 nmpc_solver_isolate_runtime_symbols(source/Control/CasadiSolver/solver_twoUavPayload_nmpc.c twoUavPayloadNmpc)
+nmpc_solver_isolate_runtime_symbols(source/Control/CasadiSolver/solver_oneGround_lmpc.c oneGroundLmpc)
+nmpc_solver_isolate_runtime_symbols(source/Control/CasadiSolver/solver_twoUavPayload_lmpc.c twoUavPayloadLmpc)
 nmpc_solver_isolate_runtime_symbols(source/Control/CasadiSolver/nmhe_oneGround.c oneGroundNmhe)
 nmpc_solver_isolate_runtime_symbols(source/Control/CasadiSolver/nmhe_twoUavPayload.c twoUavPayloadNmhe)
 
@@ -263,6 +267,14 @@ add_library(nmpc_solver STATIC
         source/Control/CasadiSolver/solver_oneGround_nmpc.h
         source/Control/CasadiSolver/solver_twoUavPayload_nmpc.c
         source/Control/CasadiSolver/solver_twoUavPayload_nmpc.h
+        source/Control/CasadiSolver/solver_oneGround_lmpc.c
+        source/Control/CasadiSolver/solver_oneGround_lmpc.h
+        source/Control/CasadiSolver/solver_twoUavPayload_lmpc.c
+        source/Control/CasadiSolver/solver_twoUavPayload_lmpc.h
+        source/Control/CasadiSolver/linearize_oneGround_lmpc.c
+        source/Control/CasadiSolver/linearize_oneGround_lmpc.h
+        source/Control/CasadiSolver/linearize_twoUavPayload_lmpc.c
+        source/Control/CasadiSolver/linearize_twoUavPayload_lmpc.h
         source/Control/CasadiSolver/nmhe_oneGround.c
         source/Control/CasadiSolver/nmhe_oneGround.h
         source/Control/CasadiSolver/nmhe_twoUavPayload.c

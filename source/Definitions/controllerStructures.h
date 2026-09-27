@@ -13,9 +13,15 @@
 
 #include <vector>
 
-// NMPC configuration. Must match the solver as it was generated
-// (build_nlp_*_nmpc.m): the solver bakes in dt and the constraint structure.
+// NMPC or LMPC configuration. Must match the solver as it was generated
+// (build_nlp_*_nmpc.m, build_nlp_*_lmpc.m): the solver bakes in N, dt and
+// the constraint structure.
 struct solverConfig {
+    // Lmpc: the NMPC problem with the dynamics and angle-of-attack
+    // constraints linearized about the reference window at every solve.
+    enum class Controller { Nmpc, Lmpc };
+    Controller controller = Controller::Nmpc;
+
     int nx;          // joint state size, all vehicles (stateVector.h)
     int nu;          // joint control size, all UAVs
     int np;          // wind parameters (3, shared)

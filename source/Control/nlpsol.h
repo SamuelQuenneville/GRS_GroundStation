@@ -13,20 +13,13 @@
 
 #include <vector>
 
-struct NlpsolApi;
+#include "generatedFunction.h"
 
-// One CasADi-generated nlpsol from CasadiSolver/, with its buffers: dense
-// inputs and outputs in nlpsol order, and workspaces sized by the solver.
+// A generated nlpsol with its buffers: inputs and outputs in nlpsol order.
 class Nlpsol {
 public:
-    enum class Problem { Nmpc, Nmhe };
-
-    // Throws if no solver was generated for this problem and numUavs.
-    Nlpsol(Problem problem, int numUavs);
-    ~Nlpsol();
-
-    Nlpsol(const Nlpsol&) = delete;
-    Nlpsol& operator=(const Nlpsol&) = delete;
+    // id: Nmpc, Lmpc or Nmhe. Throws if not generated for numUavs.
+    Nlpsol(GeneratedFunction::Id id, int numUavs);
 
     // Inputs, zero-filled at construction
     std::vector<double> x0, p, lbx, ubx, lbg, ubg, lamX0, lamG0;
@@ -51,12 +44,7 @@ public:
     [[nodiscard]] const char* name() const;
 
 private:
-    const NlpsolApi& m_api;
-    int m_mem;
-    std::vector<const double*> m_arg;
-    std::vector<double*> m_res;
-    std::vector<long long> m_iw;
-    std::vector<double> m_w;
+    GeneratedFunction m_function;
 };
 
 #endif //NLPSOL_H

@@ -269,19 +269,24 @@ std::vector<std::pair<std::string, double>> computeMetrics(
 
 } // namespace
 
-bool controllerUsesEstimator(const std::string& controller) {
-    if (controller == "nmpc_naive") return false;
-    if (controller == "nmpc_of") return true;
-    throw std::runtime_error("unknown controller '" + controller + "' (nmpc_naive | nmpc_of)");
+ControllerVariant parseController(const std::string& controller) {
+    for (const char* family : {"nmpc", "lmpc"}) {
+        if (controller == std::string(family) + "_naive") return {family, false};
+        if (controller == std::string(family) + "_of") return {family, true};
+    }
+    throw std::runtime_error("unknown controller '" + controller + "' (nmpc_naive | nmpc_of | lmpc_naive | lmpc_of)");
 }
 
 RunResult runClosedLoop(YAML::Node config, const std::string& controller, const std::vector<double>& reference,
                         const TruthSpec& truth, const int sampleId, const RunOptions& opts) {
     const auto wallStart = std::chrono::steady_clock::now();
-    const bool useEst = controllerUsesEstimator(controller);
+    const auto variant = parseController(controller);
+    const bool useEst = variant.useEstimator;
 
     // Fresh controller/estimator per run, built exactly as the GCS builds them.
-    ControlStack stack = buildControlStack(config, useEst);
+    YAML::Node runConfig = YAML::Clone(config);
+    runConfig["SolverConfiguration"]["CONTROLLER"] = variant.family;
+    ControlStack stack = buildControlStack(runConfig, useEst);
     if (useEst && !stack.estimatorInstance) {
         throw std::runtime_error(controller + " needs an EstimatorConfiguration section in the YAML");
     }

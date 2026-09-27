@@ -82,8 +82,8 @@ they're recorded once here rather than re-explained per file.
   concrete controller class by name — `MpcController` is the only
   implementation today, but nothing outside `controlInterface.cpp` (the one
   place that actually constructs one) needs to know that. Similarly,
-  `MpcController` and `NmheEstimator` call a generated solver only through
-  `Nlpsol` (`nlpsol.h`), which picks it from `NUM_UAVS`. See `docs/Control.md` and
+  `MpcController` and `NmheEstimator` call generated code only through
+  `GeneratedFunction`/`Nlpsol`, picked from `CONTROLLER` and `NUM_UAVS`. See `docs/Control.md` and
   `gcs-sitl-integration-plan.md` §3/§3a/Phase 3 for the reasoning and what
   a second implementation of `Controller` (`TvlqrController`) would look
   like.

@@ -83,6 +83,16 @@ namespace YAML {
                 rhs.scalesStates   = node["SCALES_STATES"].as<std::vector<double>>();
                 rhs.scalesControls = node["SCALES_CONTROLS"].as<std::vector<double>>();
 
+                // Optional: "nmpc" (default) or "lmpc".
+                if (const auto controller = node["CONTROLLER"]) {
+                    const auto name = controller.as<std::string>();
+                    if (name == "lmpc") {
+                        rhs.controller = solverConfig::Controller::Lmpc;
+                    } else if (name != "nmpc") {
+                        throw std::runtime_error("SolverConfiguration.CONTROLLER must be 'nmpc' or 'lmpc', got '" + name + "'");
+                    }
+                }
+
                 // Optional: "nearest" (default, the GCS's behavior) or "time".
                 if (const auto indexing = node["REFERENCE_INDEXING"]) {
                     const auto mode = indexing.as<std::string>();

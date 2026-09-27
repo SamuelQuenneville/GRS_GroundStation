@@ -44,6 +44,8 @@ SolverConfiguration:
   N: 30
   DT: 0.05
   NUM_UAVS: 1
+  # nmpc (default) or lmpc, same values below for both.
+  CONTROLLER: nmpc
 
   # Tether rest length [m], packed into every solve's L0 parameter. Fixed
   # here for now (Phase 2) -- see tether-length-parameterization.md for the

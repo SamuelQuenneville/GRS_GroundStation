@@ -60,9 +60,13 @@ struct RunOptions {
 };
 
 // Controller variants, same names as the MATLAB campaign:
-//   nmpc_naive : NMPC only, wind/d estimate stays zero
-//   nmpc_of    : NMPC + NMHE (offset-free), needs EstimatorConfiguration
-bool controllerUsesEstimator(const std::string& controller);
+// <nmpc|lmpc>_<naive|of>. naive: the wind/d estimate stays zero. of: with the
+// NMHE (offset-free), needs EstimatorConfiguration.
+struct ControllerVariant {
+    std::string family;  // SolverConfiguration.CONTROLLER
+    bool useEstimator = false;
+};
+ControllerVariant parseController(const std::string& controller);
 
 struct RunResult {
     // Metric name -> value, in the same order as mc_metrics_twoUav.m plus

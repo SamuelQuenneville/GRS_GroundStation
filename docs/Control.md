@@ -74,11 +74,21 @@ what a second implementation (`TvlqrController`) would look like.
 
 ## `MpcController` (`mpcController.h`/`.cpp`)
 
-The `Controller` implementation for any NLP-based family (NMPC today, LMPC
-eventually). `solve(latestStates)` fills the solver inputs (initial state,
-parameter vector, warm start), runs an `Nlpsol` (see below), unpacks the
-result into per-UAV commands, and moves the reference-
-trajectory index forward. How it moves is `SolverConfiguration.
+The `Controller` implementation for the NMPC and the LMPC
+(`SolverConfiguration.CONTROLLER: nmpc | lmpc`). `solve(latestStates)` fills
+the solver inputs (initial state, parameter vector, warm start), runs an
+`Nlpsol` (see below), unpacks the result into per-UAV commands, and moves the
+reference-trajectory index forward.
+
+The LMPC is the same problem with the dynamics and angle-of-attack
+constraints linearized about the reference window: its solver is a QP with
+the same bounds, constraint rows and warm start, and its parameter vector is
+the NMPC's followed by `P_lin` (each stage's `Ad`, `Bd`, `cd` and alpha
+rows). A second generated function computes `P_lin` from the reference
+window, the wind/disturbance estimate and L0 at every solve; its time counts
+in the solve time. Both are exported by `export_solver_*_lmpc.m`.
+
+How the reference index moves is `SolverConfiguration.
 REFERENCE_INDEXING`: `nearest` (default) searches forward for the reference
 point closest in north/east to UAV 1; `time` advances exactly one sample per
 solve, like the MATLAB sims (used by `grs_batchsim`, see
@@ -99,15 +109,15 @@ State-vector and payload-detection conventions (`kUavBlockSize`,
 `hasPayload()`) are documented once in `docs/ARCHITECTURE.md` rather than
 repeated here.
 
-## `Nlpsol` (`nlpsol.h`/`.cpp`)
+## `GeneratedFunction` / `Nlpsol` (`generatedFunction.h`, `nlpsol.h`)
 
-One CasADi-generated `nlpsol` from `CasadiSolver/` with its input/output
-buffers (8 in, 6 out, nlpsol order), workspaces and solution check. The
-generated C functions are picked by problem (NMPC or NMHE) and
-`NUM_UAVS` at construction; every generated header is included only in
-`nlpsol.cpp`. Adding a configuration means one `NLPSOL_API(...)` entry
-there. The parameter and bound layouts belong to the problem, not the
-solver: `MpcController` and `NmheEstimator` pack them.
+`GeneratedFunction` is one CasADi-generated function from `CasadiSolver/`
+(its memory slot and workspaces), picked by id (NMPC, LMPC, LMPC
+linearization, NMHE) and `NUM_UAVS`. Every generated header is included only
+in `generatedFunction.cpp`; adding one means one `GENERATED_API(...)` entry
+in its table. `Nlpsol` adds the nlpsol buffers (8 in, 6 out, nlpsol order)
+and the solution check. The parameter and bound layouts belong to the
+problem, not the solver: `MpcController` and `NmheEstimator` pack them.
 
 ## `ControlDispatcher` (`controlDispatcher.h`/`.cpp`)
 

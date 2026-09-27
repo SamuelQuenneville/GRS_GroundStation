@@ -64,7 +64,7 @@ Required:
 
 Optional:
   --samples=<csv>|nominal  Monte Carlo samples (mc_export_samples_csv.m); default nominal
-  --controllers=a,b        nmpc_naive | nmpc_of (default nmpc_naive,nmpc_of)
+  --controllers=a,b        nmpc_naive | nmpc_of | lmpc_naive | lmpc_of (default nmpc_naive,nmpc_of)
   --sample=<id>            run only this sample_id
   --t-end=<s>              stop after this much simulated time (default: full reference)
   --abort-err=<m>          divergence threshold on the tracked point (default 50)
@@ -339,7 +339,7 @@ int main(int argc, char** argv) {
         }
 
         const auto controllers = split(args.get("controllers", "nmpc_naive,nmpc_of"), ',');
-        for (const auto& c : controllers) (void)controllerUsesEstimator(c); // validate names early
+        for (const auto& c : controllers) (void)parseController(c); // validate names early
 
         auto samples = readSamples(args.get("samples", "nominal"));
         if (args.has("sample")) {

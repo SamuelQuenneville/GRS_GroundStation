@@ -25,7 +25,7 @@ double scaleAt(const std::vector<double>& scale, const int i) {
 
 NmheEstimator::NmheEstimator(const estimatorConfig& config)
     : m_config(config)
-    , m_solver(Nlpsol::Problem::Nmhe, config.numUavs)
+    , m_solver(GeneratedFunction::Id::Nmhe, config.numUavs)
 {
     m_windEst.assign(m_config.np, 0.0);
     m_dEst.assign(m_config.nd, 0.0);

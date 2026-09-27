@@ -39,6 +39,9 @@ SolverConfiguration:
   N: 30
   DT: 0.05
   NUM_UAVS: 2
+  # nmpc (default) or lmpc, same values below for both. Set by
+  # grs_batchsim from --controllers.
+  CONTROLLER: nmpc
 
   # grs_batchsim only: time-indexed reference, like the MATLAB sims. The
   # live GCS profile leaves this out (default: nearest).
