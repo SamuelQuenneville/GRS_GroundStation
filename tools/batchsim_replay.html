@@ -228,10 +228,14 @@ main { position: relative; z-index: 1; padding-block: 14px 0; }
 .runline .st { font-weight: 500; }
 .runline .st.bad { color: var(--bad); }
 .runline .now { color: var(--muted); }
-.cell .expand {
+.cell .actions {
   position: absolute;
   top: 5px;
   right: 5px;
+  display: flex;
+  gap: 4px;
+}
+.cell .actions button {
   pointer-events: auto;
   font-size: 11px;
   min-height: 24px;
@@ -351,7 +355,7 @@ details.help code { font-family: var(--mono); font-size: 12px; color: var(--ink)
   </div>
   <div class="toolbar">
     <div class="legend" id="legend"></div>
-    <span class="hint">Drag a cell to orbit · wheel to zoom · shift-drag to pan · Space play · ←/→ ±1 s</span>
+    <span class="hint">Drag a cell to orbit · wheel to zoom · shift-drag to pan · Space play · ←/→ ±1 s · Video records a cell at the current speed and camera</span>
   </div>
   <div id="msg" role="status"></div>
 </header>
@@ -401,6 +405,7 @@ const S = {
   tMax: 1,
   playing: false,
   lastFrame: 0,
+  recording: null,       // {stop} while a cell is being recorded to video
   cam: { theta: -0.9, phi: 0.55, dist: 85, pan: new THREE.Vector3() },
   missionCenter: new THREE.Vector3(),
 };
@@ -855,6 +860,7 @@ function rebuildCells() {
     expand.textContent = S.focusId !== null ? "Back to grid" : "Expand";
     expand.onclick = (e) => {
       e.stopPropagation();
+      if (S.recording) return;
       S.focusId = S.focusId !== null ? null : cd.sampleId;
       rebuildCells();
     };
@@ -887,7 +893,20 @@ function rebuildCells() {
       return now;
     });
 
-    el.append(hdr, ftr, expand);
+    const video = document.createElement("button");
+    video.textContent = "Video";
+    video.title = "Record this sample from t = 0 at the current speed and camera, then download it";
+    video.onclick = (e) => {
+      e.stopPropagation();
+      if (S.recording) S.recording.stop = true;
+      else recordCell(cells.find((c) => c.el === el), video);
+    };
+
+    const actions = document.createElement("div");
+    actions.className = "actions";
+    actions.append(video, expand);
+
+    el.append(hdr, ftr, actions);
     grid.append(el);
     attachOrbit(el);
     el.addEventListener("dblclick", () => { S.focusId = S.focusId !== null ? null : cd.sampleId; rebuildCells(); });
@@ -944,11 +963,11 @@ function runIndex(run, t) {
   return Math.max(0, Math.min(run.n - 1, Math.round((t - run.t[0]) / dt)));
 }
 
-function cameraTarget(out) {
+function cameraTarget(out, t) {
   if ($("view").value === "mission") return out.copy(S.missionCenter).add(S.cam.pan);
   let src = null, k = 0;
-  if (S.ref) { src = S.ref.pos; k = refIndex(S.t); }
-  else if (S.runs.length) { src = S.runs[0].pos; k = runIndex(S.runs[0], S.t); }
+  if (S.ref) { src = S.ref.pos; k = refIndex(t); }
+  else if (S.runs.length) { src = S.runs[0].pos; k = runIndex(S.runs[0], t); }
   if (!src) return out.set(0, 0, 0);
   const body = (S.ref ? S.ref.nUav : S.runs[0].nUav) === 2 ? 2 : 0;
   const o = k * 9 + body * 3;
@@ -961,7 +980,18 @@ function cameraTarget(out) {
 // Per-frame update
 // ---------------------------------------------------------------------------
 const UP = new THREE.Vector3(0, 1, 0);
-function updateCell(c, t, markerScale, textTick) {
+function placeCamera(cam, t) {
+  cameraTarget(_target, t);
+  const C = S.cam;
+  cam.position.set(
+    _target.x + C.dist * Math.cos(C.phi) * Math.sin(C.theta),
+    _target.y + C.dist * Math.sin(C.phi),
+    _target.z + C.dist * Math.cos(C.phi) * Math.cos(C.theta));
+  cam.lookAt(_target);
+  return C.dist / 55; // marker scale
+}
+
+function updateCell(c, t, markerScale, textTick, cam = camera) {
   const { refObj, runObjs } = c.three;
   if (S.ref && refObj.pay) {
     const k = refIndex(t);
@@ -970,12 +1000,12 @@ function updateCell(c, t, markerScale, textTick) {
       const o = k * 9 + u * 3;
       toV(S.ref.pos[o], S.ref.pos[o + 1], S.ref.pos[o + 2], refObj.uavs[u].position);
       refObj.uavs[u].scale.setScalar(markerScale);
-      refObj.uavs[u].lookAt(camera.position);
+      refObj.uavs[u].lookAt(cam.position);
     }
     if (nb === 2) {
       toV(S.ref.pos[k * 9 + 6], S.ref.pos[k * 9 + 7], S.ref.pos[k * 9 + 8], refObj.pay.position);
       refObj.pay.scale.setScalar(markerScale * 1.2);
-      refObj.pay.lookAt(camera.position);
+      refObj.pay.lookAt(cam.position);
     }
   }
   const trailMode = $("trail").value;
@@ -1028,6 +1058,7 @@ let textClock = 0;
 function frame(ts) {
   const dtReal = S.lastFrame ? Math.min(0.1, (ts - S.lastFrame) / 1000) : 0;
   S.lastFrame = ts;
+  if (S.recording) { requestAnimationFrame(frame); return; } // the recorder owns the cell scenes
   if (S.playing) {
     S.t += dtReal * +$("speed").value;
     if (S.t >= S.tMax) { S.t = S.tMax; setPlaying(false); }
@@ -1044,15 +1075,7 @@ function frame(ts) {
   renderer.clear();
   renderer.setScissorTest(true);
 
-  // Shared camera pose
-  cameraTarget(_target);
-  const C = S.cam;
-  camera.position.set(
-    _target.x + C.dist * Math.cos(C.phi) * Math.sin(C.theta),
-    _target.y + C.dist * Math.sin(C.phi),
-    _target.z + C.dist * Math.cos(C.phi) * Math.cos(C.theta));
-  camera.lookAt(_target);
-  const markerScale = C.dist / 55;
+  const markerScale = placeCamera(camera, S.t);
 
   textClock += dtReal;
   const textTick = textClock > 0.1 || !S.playing;
@@ -1072,6 +1095,135 @@ function frame(ts) {
     renderer.render(c.three.scene, camera);
   }
   requestAnimationFrame(frame);
+}
+
+// ---------------------------------------------------------------------------
+// Video export: one cell rendered off screen at 1280x720 with its labels,
+// recorded in real time at the current speed. The page's own rendering is
+// paused meanwhile, since the cell scene is shared.
+// ---------------------------------------------------------------------------
+const VIDEO_W = 1280, VIDEO_H = 720, VIDEO_FPS = 30;
+
+function videoMimeType() {
+  if (typeof MediaRecorder === "undefined") return null;
+  return ["video/mp4;codecs=avc1", "video/webm;codecs=vp9", "video/webm;codecs=vp8", "video/webm"]
+    .find((m) => MediaRecorder.isTypeSupported(m)) || null;
+}
+
+function drawVideoLabels(g, c, t, speed) {
+  const cs = getComputedStyle(document.documentElement);
+  const mono = cs.getPropertyValue("--mono").trim() || "monospace";
+  const ink = COL.ink.getStyle(), muted = COL.muted.getStyle();
+  const pad = 24;
+  g.textBaseline = "top";
+
+  g.textAlign = "right";
+  g.fillStyle = ink;
+  g.font = `600 24px ${mono}`;
+  g.fillText(`t = ${t.toFixed(1)} s`, VIDEO_W - pad, pad);
+  g.fillStyle = muted;
+  g.font = `16px ${mono}`;
+  g.fillText(`${speed}× speed`, VIDEO_W - pad, pad + 32);
+  g.textAlign = "left";
+
+  g.fillStyle = ink;
+  g.font = "600 26px system-ui, sans-serif";
+  g.fillText(c.el.querySelector(".sid").textContent, pad, pad);
+  g.fillStyle = muted;
+  g.font = `16px ${mono}`;
+  let line = "", y = pad + 36;
+  for (const part of c.el.querySelector(".params").textContent.split(" · ")) {
+    const next = line ? `${line} · ${part}` : part;
+    if (line && g.measureText(next).width > VIDEO_W - 2 * pad - 220) {
+      g.fillText(line, pad, y);
+      line = part;
+      y += 22;
+    } else {
+      line = next;
+    }
+  }
+  if (line) g.fillText(line, pad, y);
+
+  const rows = [...c.el.querySelectorAll(".runline")];
+  const shown = c.data.runs.map((run, i) => ({ run, row: rows[i] })).filter(({ run }) => !S.hidden.has(run.controller));
+  g.font = `18px ${mono}`;
+  shown.forEach(({ run, row }, i) => {
+    const yy = VIDEO_H - pad - (shown.length - i) * 28;
+    g.fillStyle = COL[controllerColorVar(run.controller)].getStyle();
+    g.fillRect(pad, yy + 4, 12, 12);
+    const st = row.querySelector(".st");
+    const parts = [...row.children].slice(1).map((e) => e.textContent).filter(Boolean);
+    g.fillStyle = st.classList.contains("bad") ? COL.bad.getStyle() : ink;
+    g.fillText(parts.join("   "), pad + 22, yy);
+  });
+}
+
+async function recordCell(c, button) {
+  const mime = videoMimeType();
+  if (!mime) { setMsg("This browser cannot record video (no MediaRecorder support).", true); return; }
+  const tEnd = Math.max(...c.data.runs.map((r) => r.t[r.n - 1]));
+  const speed = +$("speed").value;
+
+  const gl = document.createElement("canvas");
+  gl.width = VIDEO_W;
+  gl.height = VIDEO_H;
+  const r = new THREE.WebGLRenderer({ canvas: gl, antialias: true, preserveDrawingBuffer: true });
+  r.setSize(VIDEO_W, VIDEO_H, false);
+  const cam = new THREE.PerspectiveCamera(42, VIDEO_W / VIDEO_H, 0.5, 5000);
+  const out = document.createElement("canvas");
+  out.width = VIDEO_W;
+  out.height = VIDEO_H;
+  const g = out.getContext("2d");
+
+  const rec = new MediaRecorder(out.captureStream(VIDEO_FPS), { mimeType: mime, videoBitsPerSecond: 8e6 });
+  const chunks = [];
+  rec.ondataavailable = (e) => { if (e.data.size) chunks.push(e.data); };
+  const stopped = new Promise((resolve) => { rec.onstop = resolve; });
+
+  S.recording = { stop: false };
+  setPlaying(false);
+  button.textContent = "Stop";
+  rec.start();
+
+  let t = 0, last = null, endAt = null;
+  await new Promise((resolve) => {
+    const step = (ts) => {
+      if (last !== null) t = Math.min(tEnd, t + (ts - last) / 1000 * speed);
+      last = ts;
+      const scale = placeCamera(cam, t);
+      updateCell(c, t, scale, true, cam);
+      r.setClearColor(COL.scene, 1);
+      r.render(c.three.scene, cam);
+      g.drawImage(gl, 0, 0);
+      drawVideoLabels(g, c, t, speed);
+
+      S.t = t;
+      $("scrub").value = t.toFixed(2);
+      $("time").textContent = `${t.toFixed(1)} / ${S.tMax.toFixed(1)} s`;
+      setMsg(`Recording sample ${c.data.sampleId}: ${t.toFixed(1)} / ${tEnd.toFixed(1)} s. Keep this tab visible.`);
+
+      if (t >= tEnd && endAt === null) endAt = ts;
+      if (S.recording.stop || (endAt !== null && ts - endAt > 500)) resolve(); // hold the last frame 0.5 s
+      else requestAnimationFrame(step);
+    };
+    requestAnimationFrame(step);
+  });
+
+  rec.stop();
+  await stopped;
+  r.dispose();
+  r.forceContextLoss();
+  S.recording = null;
+  button.textContent = "Video";
+
+  const ext = mime.startsWith("video/mp4") ? "mp4" : "webm";
+  const name = `${(S.label || "batchsim").replace(/[^\w.-]+/g, "_")}_sample_${c.data.sampleId}.${ext}`;
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(new Blob(chunks, { type: mime.split(";")[0] }));
+  a.download = name;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 10000);
+  setMsg(`Saved ${name}.`);
 }
 
 // ---------------------------------------------------------------------------
