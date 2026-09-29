@@ -14,6 +14,8 @@
 #include <cstddef>
 #include <vector>
 
+#include "fatropStatus.h"
+
 // Estimates wind and disturbances over a sliding window of past samples.
 // Has no timing of its own: the caller decides when to add samples and
 // when to estimate (see EstimatorRunner).
@@ -41,6 +43,7 @@ public:
         size_t sampleCount = 0;
         double lastSolveMs = 0.0;
         int lastFlag = 0;
+        FatropStatus lastFatrop;
         double lastMaxConstraintViolation = 0.0;
         const char* backendName = "";
     };

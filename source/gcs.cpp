@@ -83,6 +83,8 @@ GroundControlStation::GroundControlStation()
         snap.hasPayload           = m_controlInterface->trajectoryHasPayload();
         snap.loopPeriodMs         = m_loopPeriodMs;
         snap.lastFlag             = info.lastFlag;
+        snap.lastReturnCode       = info.lastFatrop.returnCode;
+        snap.lastIterations       = info.lastFatrop.iterations;
         snap.lastMaxConstraintViolation = info.lastMaxConstraintViolation;
         snap.backendName          = info.backendName;
 

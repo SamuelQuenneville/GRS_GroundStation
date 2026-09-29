@@ -67,14 +67,12 @@ bool NmheEstimator::estimate() {
     m_packParameters();
     m_packInitialGuess();
 
-    int flag = 0;
     {
         PROFILE_SCOPE_OUT("nmhe_solve", &m_lastSolveMs, false);
-        flag = m_solver.solve();
-        m_lastFlag = flag;
+        m_lastStatus = m_solver.solve();
     }
 
-    const auto check = m_solver.check(flag);
+    const auto check = m_solver.check(m_lastStatus);
     m_lastMaxConstraintViolation = check.maxConstraintViolation;
     const bool valid = check.valid;
 
@@ -114,7 +112,8 @@ Estimator::DebugInfo NmheEstimator::getDebugInfo() const {
     info.windowFull = m_windowFull;
     info.sampleCount = m_stateWindow.size();
     info.lastSolveMs = m_lastSolveMs;
-    info.lastFlag = m_lastFlag;
+    info.lastFlag = m_lastStatus.flag;
+    info.lastFatrop = m_lastStatus.fatrop;
     info.lastMaxConstraintViolation = m_lastMaxConstraintViolation;
     info.backendName = m_solver.name();
     return info;

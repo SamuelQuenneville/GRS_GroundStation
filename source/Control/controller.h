@@ -17,6 +17,7 @@
 #include <vector>
 
 #include "Definitions/vehicleStructures.h"
+#include "fatropStatus.h"
 
 // Computes the commands of all vehicles each control tick, whatever the controller family (NMPC today; LMPC, TVLQR...).
 class Controller {
@@ -47,8 +48,10 @@ public:
         size_t trajectoryIndex = 0;
         size_t trajectoryTotal = 0;
 
-        // Last solve: generated solver flag (non-zero on evaluation errors only) and worst constraint violation.
+        // Last solve: generated solver flag (non-zero on evaluation errors only), Fatrop outcome and worst
+        // constraint violation.
         int lastFlag = 0;
+        FatropStatus lastFatrop;
         double lastMaxConstraintViolation = 0.0;
         const char* backendName = "";
     };

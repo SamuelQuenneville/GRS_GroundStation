@@ -89,13 +89,13 @@ struct History {
     std::vector<std::vector<double>> windHat;  // n
     std::vector<std::vector<double>> dHat;     // n
     std::vector<double> ctrlMs, mheMs;         // n
-    std::vector<bool> ok;                      // n
+    std::vector<double> iterations;            // n, Fatrop iterations of the controller solve
+    std::vector<bool> ok;                      // n, Fatrop converged (MATLAB: return status 'success')
 };
 
 // Port of mc_metrics_twoUav.m (same names, same definitions), generalized
 // to the one-UAV layout where a metric has a natural counterpart (payload
-// and second-UAV metrics are NaN without a payload / second UAV). Iteration
-// counts are NaN: the codegen'd C API only returns a status flag.
+// and second-UAV metrics are NaN without a payload / second UAV).
 std::vector<std::pair<std::string, double>> computeMetrics(
     const History& h, const std::vector<double>& ref, const solverConfig& sc, const TruthSpec& truth,
     const bool hasPayload, const bool useEst) {
@@ -234,8 +234,8 @@ std::vector<std::pair<std::string, double>> computeMetrics(
         miss += h.ctrlMs[k] > sc.dt * 1000.0 ? 1 : 0;
     }
     put("fail_rate", n ? static_cast<double>(fails) / static_cast<double>(n) : kNaN);
-    put("iter_mean", kNaN);
-    put("iter_max", kNaN);
+    put("iter_mean", mean(h.iterations));
+    put("iter_max", maxOmitNan(h.iterations));
     put("online_ms_mean", mean(h.ctrlMs));
     put("online_ms_p95", pct(h.ctrlMs, 95.0));
     put("online_ms_max", maxOmitNan(h.ctrlMs));
@@ -368,7 +368,8 @@ RunResult runClosedLoop(YAML::Node config, const std::string& controller, const 
         const auto dbg = stack.controller->getDebugInfo();
         h.controls.push_back(u);
         h.ctrlMs.push_back(dbg.lastSolveMs);
-        h.ok.push_back(dbg.lastFlag == 0 && !dbg.violation);
+        h.iterations.push_back(dbg.lastFatrop.iterations);
+        h.ok.push_back(dbg.lastFatrop.returnCode == 0);
         const EstimatorRunner* er = step.estimatorRunner();
         h.mheMs.push_back(er && er->stats().solvedThisTick ? er->stats().lastSolveMs : kNaN);
         if (er && !step.appliedEstimate().wind.empty()) {

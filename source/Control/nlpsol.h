@@ -13,6 +13,7 @@
 
 #include <vector>
 
+#include "fatropStatus.h"
 #include "generatedFunction.h"
 
 // A generated nlpsol with its buffers: inputs and outputs in nlpsol order.
@@ -26,9 +27,13 @@ public:
     // Outputs
     std::vector<double> x, f, g, lamX, lamG, lamP;
 
-    // Returns the generated function's flag: non-zero on an evaluation
-    // error only, not when Fatrop stops without converging.
-    int solve();
+    struct Status {
+        int flag = 0;          // generated function: non-zero on an evaluation error only
+        FatropStatus fatrop;   // whether Fatrop converged, and in how many iterations
+    };
+
+    // lamX0/lamG0 stay zero: Fatrop takes no dual initial guess.
+    Status solve();
 
     struct Check {
         bool valid = false;
@@ -37,7 +42,7 @@ public:
     };
 
     // Usable if flag is 0, every constraint holds within feasTol, and g, x and f are finite.
-    [[nodiscard]] Check check(int flag, double feasTol = kFeasibilityTolerance) const;
+    [[nodiscard]] Check check(const Status& status, double feasTol = kFeasibilityTolerance) const;
 
     static constexpr double kFeasibilityTolerance = 5e-4;
 

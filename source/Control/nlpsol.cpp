@@ -25,14 +25,17 @@ Nlpsol::Nlpsol(const GeneratedFunction::Id id, const int numUavs)
     }
 }
 
-int Nlpsol::solve() {
-    return m_function.eval({x0.data(), p.data(), lbx.data(), ubx.data(), lbg.data(), ubg.data(), lamX0.data(), lamG0.data()},
-                           {x.data(), f.data(), g.data(), lamX.data(), lamG.data(), lamP.data()});
+Nlpsol::Status Nlpsol::solve() {
+    Status status;
+    status.flag = m_function.eval({x0.data(), p.data(), lbx.data(), ubx.data(), lbg.data(), ubg.data(), lamX0.data(), lamG0.data()},
+                                  {x.data(), f.data(), g.data(), lamX.data(), lamG.data(), lamP.data()});
+    status.fatrop = takeFatropStatus();
+    return status;
 }
 
-Nlpsol::Check Nlpsol::check(const int flag, const double feasTol) const {
+Nlpsol::Check Nlpsol::check(const Status& status, const double feasTol) const {
     Check c;
-    if (flag != 0) {
+    if (status.flag != 0) {
         return c;
     }
 

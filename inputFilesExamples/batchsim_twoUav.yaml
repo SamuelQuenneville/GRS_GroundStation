@@ -79,8 +79,8 @@ SolverConfiguration:
   # (kept all on one flow sequence, no comments between elements, to avoid
   # any risk of yaml-cpp parsing a multi-line flow sequence with embedded
   # comments differently than intended)
-  WEIGHT: [0.1, 0.1, 1, 1, 1, 1, 1, 1,   0.1, 0.1, 1, 1, 1, 1, 1, 1,   1, 1, 1, 1, 1, 1,
-           5, 1, 1,   5, 1, 1,
+  WEIGHT: [0.1, 0.1, 1, 1, 1, 1, 1, 1,   0.1, 0.1, 1, 1, 1, 1, 1, 1,   5, 5, 5, 1, 1, 1,
+           0.1, 0.1, 0.1,   0.1, 0.1, 0.1,
            1, 1, 10, 10, 10, 10, 10, 10,   1, 1, 10, 10, 10, 10, 10, 10,   10, 10, 10, 10, 10, 10,
            0.5, 2.0, 2.0,   0.5, 2.0, 2.0,
            1.0, 4.0, 4.0,   1.0, 4.0, 4.0]

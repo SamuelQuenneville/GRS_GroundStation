@@ -48,7 +48,7 @@ private:
 
     bool m_windowFull = false;
     double m_lastSolveMs = 0.0;
-    int m_lastFlag = 0;
+    Nlpsol::Status m_lastStatus;
     double m_lastMaxConstraintViolation = 0.0;
 
     void m_packInitialGuess();

@@ -69,7 +69,9 @@
  *   "trajectoryLoadedAtMs": 1732650000000,
  *   "numUavs": 1,
  *   "hasPayload": false,
- *   "loopPeriodMs": 50
+ *   "loopPeriodMs": 50,
+ *   "lastReturnCode": 0,
+ *   "lastIterations": 12
  * }
  *
  * Adapt WebSocketServer.cpp / DashboardServer.cpp to emit this shape,
@@ -353,6 +355,9 @@ function updateNmpc(data) {
     setInfo(panel, "nmpc-trajectory", `${data.trajectoryIndex ?? "--"} / ${data.trajectoryTotal ?? "--"}`);
     setInfo(panel, "nmpc-endedTraj", data.endedTraj ? "Yes" : "No");
     setInfo(panel, "nmpc-violation", data.violation ? "Yes" : "No");
+    const outcome = {0: "converged", 1: "iteration limit"}[data.lastReturnCode]
+        ?? (data.lastReturnCode >= 0 ? `failed (${data.lastReturnCode})` : "--");
+    setInfo(panel, "nmpc-solver", `${data.lastIterations ?? "--"} iter, ${outcome}`);
 
     // Loaded-trajectory confirmation: point count is already shown above as
     // part of "Trajectory X / Y" -- this adds *when* it was loaded and

@@ -231,13 +231,12 @@ struct NmpcTelemetrySnapshot {
     /// stall detector off the actual loop rate, not a hardcoded constant.
     double loopPeriodMs = 0.0;
 
-    /// Raw solver return-status flag and worst constraint violation from
-    /// the last solve, and which generated solver produced it. NOT a Fatrop
-    /// iteration count -- the codegen'd C solver interface doesn't expose
-    /// one (see Controller::DebugInfo's comment); this is the most
-    /// detail that's actually available without a deeper Fatrop-side
-    /// change.
+    /// Last solve: generated solver flag (non-zero on evaluation errors
+    /// only), Fatrop return code (0 converged, 1 iteration limit) and
+    /// iterations, worst constraint violation, and which solver ran.
     int lastFlag = 0;
+    int lastReturnCode = -1;
+    int lastIterations = 0;
     double lastMaxConstraintViolation = 0.0;
     std::string backendName;
 
@@ -257,6 +256,8 @@ struct NmpcTelemetrySnapshot {
             .add("hasPayload", hasPayload)
             .add("loopPeriodMs", loopPeriodMs)
             .add("lastFlag", lastFlag)
+            .add("lastReturnCode", lastReturnCode)
+            .add("lastIterations", lastIterations)
             .add("lastMaxConstraintViolation", lastMaxConstraintViolation)
             .add("backendName", backendName);
         return root.str();

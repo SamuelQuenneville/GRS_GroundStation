@@ -103,14 +103,15 @@ private:
     size_t m_endIdxTraj = 0;
     size_t m_numTrajectoryPoints = 0;
 
-    size_t m_pendingSteps = 0;
     size_t m_solvesSinceLaunch = 0; // ReferenceIndexing::Time only
 
     size_t m_trackingNumber = 0;
 
     bool m_violation = false;
-    int m_lastFlag = 0;
+    Nlpsol::Status m_lastStatus;
     double m_lastMaxConstraintViolation = 0.0;
+    // m_solver.x holds an accepted solution for the current reference.
+    bool m_warmStartValid = false;
 
     // Last applied control [T, roll, pitch] per UAV, physical units: the
     // U_prev parameter of the first-stage rate cost (weight Rdu0).
@@ -124,11 +125,12 @@ private:
 
     mutable std::mutex m_solveMutex;
 
-    double m_lastSolveMs = -1.0;
+    double m_lastSolveMs = 0.0;
 
     double m_computeReferenceCost(size_t idx) const;
 
-    void m_shiftSolution();
+    // Previous solution advanced by `shift` stages (shift < N), tail repeated.
+    void m_shiftSolution(size_t shift);
     // Decision-variable bounds, scaled: [x0 u0 ... x(N-1) u(N-1) xN].
     void m_packBounds();
     // g rows (NMPC and LMPC): nx initial-condition equalities, then per
@@ -140,9 +142,6 @@ private:
     // window x0 u0 ... xN; Wind_est; D_est; Weight; U_prev; L0; LMPC: P_lin].
     void m_packParameters();
     std::map<uint8_t, uavCommandsFlags> m_extractControls() const;
-
-    // Sets m_violation / m_lastMaxConstraintViolation from m_solver.check().
-    bool m_solutionIsValid(int flag);
 
     double m_unwrapYaw(uint8_t sysId, double yawRadWrapped);
 

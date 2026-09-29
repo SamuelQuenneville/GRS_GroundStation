@@ -119,6 +119,13 @@ in its table. `Nlpsol` adds the nlpsol buffers (8 in, 6 out, nlpsol order)
 and the solution check. The parameter and bound layouts belong to the
 problem, not the solver: `MpcController` and `NmheEstimator` pack them.
 
+The generated nlpsol functions return 0 even when Fatrop does not converge.
+CMake renames their call to `fatrop_ocp_c_solve()` so it goes through
+`fatropStatus.cpp`, which records Fatrop's return code (0 converged, 1
+iteration limit) and iteration count; `Nlpsol::solve()` returns them. They
+reach `DebugInfo::lastFatrop`, the dashboard and `controls.csv` (last two
+columns). Fatrop takes no dual initial guess, so `lamX0`/`lamG0` stay zero.
+
 ## `ControlDispatcher` (`controlDispatcher.h`/`.cpp`)
 
 Small queue/thread that decouples `ControlInterface` (producer of commands)

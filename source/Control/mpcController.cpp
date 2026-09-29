@@ -133,6 +133,7 @@ void MpcController::setReferenceTrajectory(std::vector<double> referenceTrajecto
 }
 
 void MpcController::m_onReferenceTrajectoryChanged() {
+    m_warmStartValid = false;
     m_numTrajectoryPoints = m_referenceTrajectory.size() / m_refStride;
     m_endIdxTraj = m_numTrajectoryPoints > m_config.N ? m_numTrajectoryPoints - m_config.N : 0;
 
@@ -151,13 +152,7 @@ std::map<uint8_t, uavCommandsFlags> MpcController::solve(const std::map<uint8_t,
 
     m_unpackLatestStates(latestStates);
 
-    // Warm start from the shifted previous solution, cold start the first time.
-    if (m_lastSolveMs <= 0.0) {
-        m_packInitialGuess();
-    } else {
-        m_shiftSolution();
-    }
-
+    size_t steps = 0;
     if (m_launched) {
         size_t idx = m_lastIdxTraj;
 
@@ -182,7 +177,7 @@ std::map<uint8_t, uavCommandsFlags> MpcController::solve(const std::map<uint8_t,
                 ++idx;
             }
         }
-        m_pendingSteps = idx - m_lastIdxTraj;
+        steps = idx - m_lastIdxTraj;
         m_lastIdxTraj = idx;
 
         if (m_endIdxTraj == 0 || idx +1 >= m_endIdxTraj) {
@@ -190,15 +185,24 @@ std::map<uint8_t, uavCommandsFlags> MpcController::solve(const std::map<uint8_t,
         }
     }
 
+    // Warm start: the last accepted solution shifted by the reference progress.
+    // Cold start from the reference when there is none or it is too old.
+    if (m_warmStartValid && steps < static_cast<size_t>(m_config.N)) {
+        m_shiftSolution(steps);
+    } else {
+        m_packInitialGuess();
+    }
+
     {
         // Includes the LMPC linearization, part of the online cost.
         PROFILE_SCOPE_OUT("casadi_solve", &m_lastSolveMs, false);
         m_packParameters();
-        const int flag = m_solver.solve();
-        m_lastFlag = flag;
+        m_lastStatus = m_solver.solve();
 
-        const auto converged = m_solutionIsValid(flag);
-        (void)converged;
+        const auto check = m_solver.check(m_lastStatus);
+        m_violation = !check.valid;
+        m_lastMaxConstraintViolation = check.maxConstraintViolation;
+        m_warmStartValid = check.valid;
     }
 
     auto controls = m_extractControls();
@@ -267,7 +271,8 @@ MpcController::DebugInfo MpcController::getDebugInfo() const {
     info.trackingNumber = m_trackingNumber;
     info.trajectoryIndex = m_lastIdxTraj;
     info.trajectoryTotal = m_numTrajectoryPoints;
-    info.lastFlag = m_lastFlag;
+    info.lastFlag = m_lastStatus.flag;
+    info.lastFatrop = m_lastStatus.fatrop;
     info.lastMaxConstraintViolation = m_lastMaxConstraintViolation;
     info.backendName = m_solver.name();
     return info;
@@ -323,14 +328,12 @@ double MpcController::m_computeReferenceCost(const size_t idx) const {
     return cost;
 }
 
-void MpcController::m_shiftSolution() {
+void MpcController::m_shiftSolution(const size_t shift) {
 
     const size_t nx     = m_config.nx;
     const size_t nu     = m_config.nu;
     const size_t N      = m_config.N;
     const size_t stride = nx + nu;
-
-    const size_t shift = m_pendingSteps;
 
     // Shift the stages by the reference progress.
     for (size_t k = 0; k < N - shift; ++k) {
@@ -360,9 +363,6 @@ void MpcController::m_shiftSolution() {
     for (size_t i = 0; i < nx; ++i) {
         m_solver.x0[i] = m_initialStates[i] * m_config.invScalesStates[i];
     }
-
-    std::ranges::fill(m_solver.lamX0, 0.0);
-    std::ranges::fill(m_solver.lamG0, 0.0);
 }
 
 void MpcController::m_packBounds() {
@@ -496,6 +496,7 @@ std::map<uint8_t, uavCommandsFlags> MpcController::m_extractControls() const {
         std::ostringstream msg;
         msg << std::fixed << std::setprecision(4) << m_trackingNumber << "," << Logger::instance().nowMilliseconds() << "," << Logger::nowWallTimeMs() << "," << m_lastSolveMs << ",";
         msg << cmd.commands.thrust << "," << cmd.commands.rollDegree << "," << cmd.commands.pitchDegree << "," << cmd.commands.yawDegree << "," << m_lastIdxTraj;
+        msg << "," << m_lastStatus.fatrop.iterations << "," << m_lastStatus.fatrop.returnCode;
 
         if (m_violation) {
             msg << ", INVALID SOL";
@@ -504,13 +505,6 @@ std::map<uint8_t, uavCommandsFlags> MpcController::m_extractControls() const {
     }
 
     return out;
-}
-
-bool MpcController::m_solutionIsValid(const int flag) {
-    const auto check = m_solver.check(flag);
-    m_violation = !check.valid;
-    m_lastMaxConstraintViolation = check.maxConstraintViolation;
-    return check.valid;
 }
 
 double MpcController::m_unwrapYaw(const uint8_t sysId, const double yawRadWrapped) {

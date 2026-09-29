@@ -242,8 +242,10 @@ set(NMPC_RUNTIME_SYMBOLS
         fatrop_init_mem
 )
 
+# Every generated nlpsol calls Fatrop through fatropStatus.cpp, which records
+# the return code and iteration count the generated API does not expose.
 function(nmpc_solver_isolate_runtime_symbols source_file prefix)
-    set(defs "")
+    set(defs "fatrop_ocp_c_solve=grs_fatrop_ocp_c_solve")
     foreach(sym ${NMPC_RUNTIME_SYMBOLS})
         list(APPEND defs "${sym}=${prefix}_${sym}")
     endforeach()
@@ -279,6 +281,8 @@ add_library(nmpc_solver STATIC
         source/Control/CasadiSolver/nmhe_oneGround.h
         source/Control/CasadiSolver/nmhe_twoUavPayload.c
         source/Control/CasadiSolver/nmhe_twoUavPayload.h
+        source/Control/fatropStatus.cpp
+        source/Control/fatropStatus.h
 )
 
 target_compile_options(nmpc_solver PRIVATE
@@ -294,6 +298,12 @@ target_link_libraries(nmpc_solver PRIVATE
         ${BLASFEO_LIB}
         casadi::casadi
 )
+
+# The generated solvers are 2 to 45 MB of C each; compiling one takes a few
+# GB of RAM, so several in parallel can exhaust memory. With Ninja they
+# compile one at a time; the rest of the project keeps its parallelism.
+set_property(GLOBAL APPEND PROPERTY JOB_POOLS casadi_codegen=1)
+set_property(TARGET nmpc_solver PROPERTY JOB_POOL_COMPILE casadi_codegen)
 
 # Include libraries
 # YAML
