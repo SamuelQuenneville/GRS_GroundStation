@@ -101,6 +101,18 @@ SolverConfiguration:
                   100.0, 100.0, 50.0,  5.0,  5.0,  5.0]
   SCALES_CONTROLS: [30.0, 0.4, 0.4,   30.0, 0.4, 0.4]
 
+# Cost-weight variants for grs_batchsim --weight-sets=nominal,track,smooth.
+# Each entry scales SolverConfiguration.WEIGHT (same Q|R|Qf|Rdu|Rdu0 layout)
+# by `factor` at the 1-based indices `idx` of `block` (or `idx: all`).
+# "nominal" is WEIGHT as is and needs no entry.
+WeightSets:
+  track:     # payload position tracking x4 (Q and Qf payload x, y, z)
+    - {block: Q,  idx: [17, 18, 19], factor: 4.0}
+    - {block: Qf, idx: [17, 18, 19], factor: 4.0}
+  smooth:    # command-rate penalty x4
+    - {block: Rdu,  idx: all, factor: 4.0}
+    - {block: Rdu0, idx: all, factor: 4.0}
+
 # Same enable-by-presence convention as configuration.yaml's own
 # EstimatorConfiguration -- see that file's comment. NX/NU/NP/ND/NL0/M/DT
 # must match nmhe_twoUavPayload_meta.h (NMHE_TUP_* macros) exactly.

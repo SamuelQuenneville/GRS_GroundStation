@@ -10,12 +10,12 @@
 // controller core (MpcController, NmheEstimator, generated solvers,
 // ControlStep), against a C++ port of the MATLAB truth plant. Runs a Monte
 // Carlo sample set (samples.csv exported from GRS_Controller) for one or
-// more controller variants and writes one metrics file per run, in the
-// same metric names as mc_metrics_twoUav.m, so the MATLAB analysis can read
-// them (mc_collect_results_cpp_twoUav.m).
+// more controller variants and weight sets, and writes one metrics file
+// (mc_metrics_twoUav.m names) and one binary time series per run for the
+// MATLAB analysis (mc_analysis/).
 //
 // Resumable (existing result files are skipped) and parallel by processes:
-// every pending (sample, controller) run goes into one shared queue, and
+// every pending (sample, controller, weight set) run goes into one shared queue, and
 // --jobs=N forked workers each claim the next run as soon as they are free
 // (--jobs=auto: one worker per physical core, --jobs=max: one per logical
 // CPU; --cpu-info prints what this machine offers).
@@ -31,6 +31,7 @@
 #include <chrono>
 #include <cmath>
 #include <cstdio>
+#include <ctime>
 #include <filesystem>
 #include <fstream>
 #include <iomanip>
@@ -65,6 +66,9 @@ Required:
 Optional:
   --samples=<csv>|nominal  Monte Carlo samples (mc_export_samples_csv.m); default nominal
   --controllers=a,b        nmpc_naive | nmpc_of | lmpc_naive | lmpc_of (default nmpc_naive,nmpc_of)
+  --weight-sets=a,b        cost-weight variants from the profile's WeightSets section, crossed
+                           with --controllers (default nominal = SolverConfiguration.WEIGHT as is)
+  --with-nominal           also run the all-nominal plant as sample 0
   --sample=<id>            run only this sample_id
   --t-end=<s>              stop after this much simulated time (default: full reference)
   --abort-err=<m>          divergence threshold on the tracked point (default 50)
@@ -86,9 +90,10 @@ Optional:
                            overrides SolverConfiguration.REFERENCE_INDEXING. 'time' matches
                            the MATLAB sims; 'nearest' (default) is the GCS behavior
   --store-traj=<k>         also write every k-th step to sample_XXXX.traj.csv
+  --ts-decim=<k>           keep every k-th step in sample_XXXX.ts.bin (default 1, 0 = no file)
   --jobs=<n>|auto|max      worker processes (default 1). auto = one per physical core
                            (recommended), max = one per logical CPU (hyper-threads
-                           included). Workers pull (sample, controller) runs from one
+                           included). Workers pull (sample, configuration) runs from one
                            shared queue; never more workers than pending runs.
   --cpu-info               print the CPUs this process may use, then exit
   --force                  re-run even if a result file exists
@@ -169,19 +174,21 @@ std::string fmt(const double v) {
 void writeAtomic(const fs::path& path, const std::string& content) {
     const fs::path tmp = path.string() + ".tmp" + std::to_string(::getpid());
     {
-        std::ofstream f(tmp);
+        std::ofstream f(tmp, std::ios::binary);
         if (!f) throw std::runtime_error("cannot write " + tmp.string());
         f << content;
     }
     fs::rename(tmp, path);
 }
 
-std::string metricsCsv(const std::string& controller, const int sampleId, const RunResult& r) {
+std::string metricsCsv(const std::string& controller, const std::string& weightSet, const int sampleId,
+                       const RunResult& r) {
     // Column order follows mc_collect_results_twoUav.m's rows: controller,
-    // sample_id, the mc_metrics_twoUav.m fields, then the run bookkeeping.
+    // weight_set, sample_id, the mc_metrics_twoUav.m fields, then the run
+    // bookkeeping.
     std::ostringstream h, v;
-    h << "controller,sample_id";
-    v << controller << "," << sampleId;
+    h << "controller,weight_set,sample_id";
+    v << controller << "," << weightSet << "," << sampleId;
     for (const auto& [name, value] : r.metrics) {
         if (name == "wall_s") continue;
         h << "," << name;
@@ -205,6 +212,72 @@ std::string trajCsv(const RunResult& r) {
         o << "\n";
     }
     return o.str();
+}
+
+// Binary time series, read by mc_read_timeseries.m. Little-endian:
+//   char[8] "GRSTS01\0", uint32 nCols, uint32 nRows, float64 dt,
+//   nCols x (uint32 nameLength, name bytes), float32 data column-major.
+std::string tsBinary(const RunResult& r) {
+    std::string out("GRSTS01", 8);
+    auto put = [&out](const auto value) { out.append(reinterpret_cast<const char*>(&value), sizeof(value)); };
+    const auto nRows = static_cast<uint32_t>(r.tsColumns.empty() ? 0 : r.tsColumns.front().size());
+    put(static_cast<uint32_t>(r.tsHeader.size()));
+    put(nRows);
+    put(r.tsDt);
+    for (const auto& name : r.tsHeader) {
+        put(static_cast<uint32_t>(name.size()));
+        out += name;
+    }
+    for (const auto& col : r.tsColumns) out.append(reinterpret_cast<const char*>(col.data()), col.size() * sizeof(float));
+    return out;
+}
+
+// Returns the profile with SolverConfiguration.WEIGHT scaled by the named
+// entry of the profile's WeightSets section. WEIGHT is laid out as
+// Q(nx) | R(nu) | Qf(nx) | Rdu(nu) | Rdu0(nu); an entry is a list of
+// {block: Q|R|Qf|Rdu|Rdu0, idx: [1-based indices within the block] | all, factor: f}.
+// "nominal" is the profile's own WEIGHT.
+YAML::Node applyWeightSet(const YAML::Node& config, const std::string& label, const solverConfig& sc) {
+    YAML::Node out = YAML::Clone(config);
+    if (label == "nominal") return out;
+    const YAML::Node set = config["WeightSets"][label];
+    if (!set) throw std::runtime_error("weight set '" + label + "' not found in the profile's WeightSets section");
+
+    auto w = out["SolverConfiguration"]["WEIGHT"].as<std::vector<double>>();
+    const size_t nx = static_cast<size_t>(sc.nx), nu = static_cast<size_t>(sc.nu);
+    if (w.size() != 2 * nx + 3 * nu) {
+        throw std::runtime_error("WEIGHT has " + std::to_string(w.size()) + " entries, expected Q|R|Qf|Rdu|Rdu0 = " +
+                                 std::to_string(2 * nx + 3 * nu));
+    }
+    const std::map<std::string, std::pair<size_t, size_t>> blocks{
+        {"Q", {0, nx}}, {"R", {nx, nu}}, {"Qf", {nx + nu, nx}}, {"Rdu", {2 * nx + nu, nu}}, {"Rdu0", {2 * nx + 2 * nu, nu}}};
+    for (const auto& item : set) {
+        const auto name = item["block"].as<std::string>();
+        const auto b = blocks.find(name);
+        if (b == blocks.end()) throw std::runtime_error("weight set '" + label + "': unknown block '" + name + "'");
+        const auto [offset, size] = b->second;
+        std::vector<size_t> idx;
+        if (item["idx"].IsScalar() && item["idx"].as<std::string>() == "all") {
+            for (size_t i = 1; i <= size; ++i) idx.push_back(i);
+        } else {
+            idx = item["idx"].as<std::vector<size_t>>();
+        }
+        const double factor = item["factor"].as<double>();
+        for (const size_t i : idx) {
+            if (i < 1 || i > size) {
+                throw std::runtime_error("weight set '" + label + "': index " + std::to_string(i) + " outside block " +
+                                         name + " (1.." + std::to_string(size) + ")");
+            }
+            w[offset + i - 1] *= factor;
+        }
+    }
+    out["SolverConfiguration"]["WEIGHT"] = w;
+    return out;
+}
+
+// cpp_<controller> for the nominal weights, cpp_<controller>__<weight set> otherwise.
+std::string runFolder(const std::string& controller, const std::string& weightSet) {
+    return "cpp_" + controller + (weightSet == "nominal" ? "" : "__" + weightSet);
 }
 
 // CPUs this process is allowed to run on (respects taskset, cgroups/WSL
@@ -328,6 +401,7 @@ int main(int argc, char** argv) {
         opts.nmheFrequency = std::stod(args.get("nmhe-hz", std::to_string(gc.nmheFrequency)));
         if (args.has("nmhe-every")) opts.nmheFrequency = 1.0 / (sc.dt * std::stoi(args.get("nmhe-every")));
         opts.storeTrajDecim = std::stoi(args.get("store-traj", "0"));
+        opts.tsDecim = std::stoi(args.get("ts-decim", "1"));
         {
             const std::string lat = args.get("nmhe-latency", "0");
             opts.nmheLatencyMs = lat == "measured" ? -1.0 : std::stod(lat);
@@ -347,10 +421,34 @@ int main(int argc, char** argv) {
             std::erase_if(samples, [&](const Sample& s) { return s.id != only; });
             if (samples.empty()) throw std::runtime_error("sample_id " + std::to_string(only) + " not in the samples file");
         }
+        if (args.has("with-nominal") && std::ranges::none_of(samples, [](const Sample& s) { return s.id == 0; })) {
+            samples.insert(samples.begin(), Sample{});
+        }
+
+        const auto weightSets = split(args.get("weight-sets", "nominal"), ',');
+        std::map<std::string, YAML::Node> configs;
+        for (const auto& ws : weightSets) configs[ws] = applyWeightSet(config, ws, sc);
 
         const fs::path outDir = args.get("out");
-        for (const auto& c : controllers) fs::create_directories(outDir / ("cpp_" + c));
+        for (const auto& c : controllers) {
+            for (const auto& ws : weightSets) fs::create_directories(outDir / runFolder(c, ws));
+        }
         const bool force = args.has("force");
+
+        // Reproducibility: the exact profile behind each weight set, and every
+        // invocation on this folder.
+        for (const auto& [ws, cfg] : configs) {
+            YAML::Emitter e;
+            e << cfg;
+            writeAtomic(outDir / ("profile_" + ws + ".yaml"), std::string(e.c_str()) + "\n");
+        }
+        {
+            std::ofstream manifest(outDir / "batchsim_manifest.txt", std::ios::app);
+            const auto now = std::chrono::system_clock::to_time_t(std::chrono::system_clock::now());
+            manifest << std::put_time(std::localtime(&now), "%F %T") << " ";
+            for (int i = 0; i < argc; ++i) manifest << (i ? " " : "") << argv[i];
+            manifest << "\n";
+        }
 
         auto runName = [](const int id) {
             char name[32];
@@ -358,30 +456,34 @@ int main(int argc, char** argv) {
             return std::string(name);
         };
 
-        // Pending runs, sample-major (sample 1 for every controller, then 2,
-        // ...), same as run_mc_twoUavPayload.m: workers claim them in this
-        // order, so a partial campaign stays paired across controllers.
+        // Pending runs, sample-major (sample 1 for every configuration, then
+        // 2, ...), same as run_mc_twoUavPayload.m: workers claim them in this
+        // order, so a partial campaign stays paired across configurations.
         struct Job {
             size_t sample;
             std::string controller;
+            std::string weightSet;
         };
         std::vector<Job> queue;
         long already = 0;
         for (size_t si = 0; si < samples.size(); ++si) {
             for (const auto& c : controllers) {
-                const fs::path metricsPath = outDir / ("cpp_" + c) / (runName(samples[si].id) + ".metrics.csv");
-                if (!force && fs::exists(metricsPath)) {
-                    ++already;
-                    continue;
+                for (const auto& ws : weightSets) {
+                    const fs::path metricsPath = outDir / runFolder(c, ws) / (runName(samples[si].id) + ".metrics.csv");
+                    if (!force && fs::exists(metricsPath)) {
+                        ++already;
+                        continue;
+                    }
+                    queue.push_back({si, c, ws});
                 }
-                queue.push_back({si, c});
             }
         }
         const long total = static_cast<long>(queue.size());
 
         const int requested = resolveJobs(args.get("jobs", "1"), cpu);
         const int workers = static_cast<int>(std::max(1L, std::min<long>(requested, total)));
-        std::cout << "grs_batchsim: " << samples.size() << " sample(s) x " << controllers.size() << " controller(s): "
+        std::cout << "grs_batchsim: " << samples.size() << " sample(s) x " << controllers.size() << " controller(s) x "
+                  << weightSets.size() << " weight set(s): "
                   << total << " run(s) to do, " << already << " already present; " << workers << " worker(s) ("
                   << cpu.physical << " physical cores, " << cpu.logical << " logical CPUs)\n"
                   << std::flush;
@@ -400,15 +502,17 @@ int main(int argc, char** argv) {
                 const Job& job = queue[static_cast<size_t>(i)];
                 const Sample& s = samples[job.sample];
                 const std::string& c = job.controller;
+                const std::string& ws = job.weightSet;
+                const fs::path dir = outDir / runFolder(c, ws);
                 const std::string name = runName(s.id);
                 std::ostringstream line;
                 try {
                     const TruthSpec truth = applySample(s, sc.numUavs, sc.tetherL0);
-                    const RunResult r = runClosedLoop(YAML::Clone(config), c, reference, truth, s.id, opts);
-                    if (opts.storeTrajDecim > 0) {
-                        writeAtomic(outDir / ("cpp_" + c) / (name + ".traj.csv"), trajCsv(r));
-                    }
-                    writeAtomic(outDir / ("cpp_" + c) / (name + ".metrics.csv"), metricsCsv("cpp_" + c, s.id, r));
+                    const RunResult r = runClosedLoop(YAML::Clone(configs.at(ws)), c, reference, truth, s.id, opts);
+                    if (opts.storeTrajDecim > 0) writeAtomic(dir / (name + ".traj.csv"), trajCsv(r));
+                    if (opts.tsDecim > 0) writeAtomic(dir / (name + ".ts.bin"), tsBinary(r));
+                    // Written last: its presence marks the run as done for a resume.
+                    writeAtomic(dir / (name + ".metrics.csv"), metricsCsv("cpp_" + c, ws, s.id, r));
 
                     double rms = NAN, wall = NAN, stepsDone = NAN;
                     for (const auto& [k, v] : r.metrics) {
@@ -416,13 +520,13 @@ int main(int argc, char** argv) {
                         if (k == "wall_s") wall = v;
                         if (k == "n_steps_done") stepsDone = v;
                     }
-                    line << c << " sample " << s.id << ": "
+                    line << runFolder(c, ws).substr(4) << " sample " << s.id << ": "
                          << (r.completed ? "completed" : "ABORTED (" + r.abortReason + ")") << ", "
                          << (sc.numUavs > 1 ? "payload" : "uav") << " rms " << fmt(rms) << " m, " << fmt(stepsDone)
                          << " steps in " << fmt(wall) << " s";
                 } catch (const std::exception& e) {
                     sh->failed.fetch_add(1);
-                    line << c << " sample " << s.id << ": ERROR " << e.what();
+                    line << runFolder(c, ws).substr(4) << " sample " << s.id << ": ERROR " << e.what();
                 }
                 const long k = sh->done.fetch_add(1) + 1;
                 const double elapsed = std::chrono::duration<double>(

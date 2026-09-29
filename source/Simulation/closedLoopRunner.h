@@ -57,6 +57,7 @@ struct RunOptions {
     double cmdDelayMs = 0.0;
     bool cmdDelayMeasured = false;
     int storeTrajDecim = 0;            // 0 = no trajectory file, k = keep every k-th step
+    int tsDecim = 1;                   // 0 = no time series, k = keep every k-th step
 };
 
 // Controller variants, same names as the MATLAB campaign:
@@ -78,6 +79,14 @@ struct RunResult {
     // Decimated trajectory (only if RunOptions::storeTrajDecim > 0).
     std::vector<std::string> trajHeader;
     std::vector<std::vector<double>> trajRows;
+
+    // Per-step tracking/constraint/solver signals for the phase-resolved
+    // analysis (only if RunOptions::tsDecim > 0). Column-major:
+    // tsColumns[c][k] is signal tsHeader[c] at time t = (k*tsDecim + 1)*dt,
+    // the state after control k*tsDecim.
+    std::vector<std::string> tsHeader;
+    std::vector<std::vector<float>> tsColumns;
+    double tsDt = 0.0;
 };
 
 // One closed-loop run: builds a fresh controller (+ estimator for *_of)

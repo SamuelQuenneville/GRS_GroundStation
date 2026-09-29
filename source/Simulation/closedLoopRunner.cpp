@@ -267,6 +267,72 @@ std::vector<std::pair<std::string, double>> computeMetrics(
     return m;
 }
 
+// Per-step signals behind computeMetrics(), kept as time series so the
+// analysis can evaluate any time window (mission phase) without re-running.
+// Tracked point: the payload, or UAV1 without a payload. Errors are
+// true - reference, NED.
+void fillTimeSeries(const History& h, const std::vector<double>& ref, const solverConfig& sc, const TruthSpec& truth,
+                    const bool hasPayload, const bool useEst, const int decim, RunResult& r) {
+    const int nu = sc.nu, numUavs = sc.numUavs, perUavNu = nu / numUavs;
+    const size_t stride = static_cast<size_t>(sc.nx + nu);
+    const size_t payOff = static_cast<size_t>(numUavs * kUavBlock);
+    const size_t trackOff = hasPayload ? payOff : 0;
+    const double origin[3] = {0.0, 0.0, 0.0};
+
+    r.tsHeader = {"t", "e_n", "e_e", "e_d", "e_uav1", "e_uav2", "alpha1_deg", "alpha2_deg", "stretch1", "stretch2",
+                  "pay_h", "sat_count", "thrust_sat", "du_norm", "ok", "ctrl_ms", "wind_err", "dF_err", "btrim_err_deg"};
+    r.tsColumns.assign(r.tsHeader.size(), {});
+    r.tsDt = sc.dt * decim;
+
+    for (size_t k = 0; k < h.controls.size(); k += static_cast<size_t>(decim)) {
+        const double* x = h.states[k + 1].data();
+        const double* rk = ref.data() + (k + 1) * stride;
+        const double* anchor = hasPayload ? x + payOff : origin;
+        auto uavErr = [&](const int i) { return i < numUavs ? norm3(x + i * kUavBlock, rk + i * kUavBlock) : kNaN; };
+        auto stretch = [&](const int i) { return i < numUavs ? norm3(x + i * kUavBlock, anchor) - truth.L0Plant : kNaN; };
+        auto alphaDeg = [&](const int i) { return i < numUavs ? grs::radToDeg(h.alpha[k][i]) : kNaN; };
+
+        int satCount = 0;
+        bool thrustSat = false;
+        double du2 = 0.0;
+        for (int i = 0; i < nu; ++i) {
+            const double u = h.controls[k][i], lb = sc.lbxControls[i], ub = sc.ubxControls[i];
+            const double tol = 1e-3 * (ub - lb);
+            const bool sat = u <= lb + tol || u >= ub - tol;
+            satCount += sat ? 1 : 0;
+            if (i % perUavNu == 0) thrustSat = thrustSat || sat;
+            if (k > 0) {
+                const double du = (u - h.controls[k - 1][i]) / ub;
+                du2 += du * du;
+            }
+        }
+
+        double windErr = kNaN, dFErr = kNaN, bErrDeg = kNaN;
+        if (useEst) {
+            double sw = 0.0, sf = 0.0, sb = 0.0;
+            for (size_t i = 0; i < truth.windTrue.size(); ++i) {
+                const double e = h.windHat[k][i] - truth.windTrue[i];
+                sw += e * e;
+            }
+            for (size_t i = 0; i < truth.dTrue.size(); ++i) {
+                const double e = h.dHat[k][i] - truth.dTrue[i];
+                ((i % 5) < 3 ? sf : sb) += e * e;
+            }
+            windErr = std::sqrt(sw);
+            dFErr = std::sqrt(sf);
+            bErrDeg = grs::radToDeg(std::sqrt(sb));
+        }
+
+        const double v[] = {static_cast<double>(k + 1) * sc.dt,
+                            x[trackOff] - rk[trackOff], x[trackOff + 1] - rk[trackOff + 1], x[trackOff + 2] - rk[trackOff + 2],
+                            uavErr(0), uavErr(1), alphaDeg(0), alphaDeg(1), stretch(0), stretch(1),
+                            hasPayload ? -x[payOff + 2] : kNaN,
+                            static_cast<double>(satCount), thrustSat ? 1.0 : 0.0, k > 0 ? std::sqrt(du2) : kNaN,
+                            h.ok[k] ? 1.0 : 0.0, h.ctrlMs[k], windErr, dFErr, bErrDeg};
+        for (size_t c = 0; c < r.tsHeader.size(); ++c) r.tsColumns[c].push_back(static_cast<float>(v[c]));
+    }
+}
+
 } // namespace
 
 ControllerVariant parseController(const std::string& controller) {
@@ -432,6 +498,8 @@ RunResult runClosedLoop(YAML::Node config, const std::string& controller, const 
     r.metrics.emplace_back("n_steps_done", static_cast<double>(nDone));
     r.metrics.emplace_back("completed", r.completed ? 1.0 : 0.0);
     r.metrics.emplace_back("wall_s", std::chrono::duration<double>(std::chrono::steady_clock::now() - wallStart).count());
+
+    if (opts.tsDecim > 0) fillTimeSeries(h, reference, sc, truth, hasPayload, useEst, opts.tsDecim, r);
 
     if (opts.storeTrajDecim > 0) {
         r.trajHeader.emplace_back("t");

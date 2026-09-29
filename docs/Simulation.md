@@ -52,13 +52,33 @@ Controller variants use the MATLAB campaign names: `nmpc_naive`,
 `--reference=generate` uses `TrajectoryGenerator`'s default mission instead
 of a CSV.
 
-Outputs, one folder per controller variant, next to the MATLAB results
-when `--out` is a campaign round folder:
+`--weight-sets=nominal,track,smooth` crosses every controller with cost-weight
+variants defined in the profile's `WeightSets` section (factors on
+`SolverConfiguration.WEIGHT` blocks, see `batchsim_twoUav.yaml`).
+`--with-nominal` adds the all-nominal plant as sample 0 to a sample file,
+so each configuration's nominal run lands next to its Monte Carlo runs.
+
+Outputs, one folder per configuration (controller, weight set), next to the
+MATLAB results when `--out` is a campaign round folder:
 
 ```
-<out>/cpp_nmpc_naive/sample_0001.metrics.csv    one row, mc_metrics_twoUav.m names
-<out>/cpp_nmpc_naive/sample_0001.traj.csv       only with --store-traj=k
+<out>/cpp_nmpc_of/sample_0001.metrics.csv         one row, mc_metrics_twoUav.m names
+<out>/cpp_nmpc_of/sample_0001.ts.bin              per-step signals (default; --ts-decim=k, 0 = off)
+<out>/cpp_nmpc_of/sample_0001.traj.csv            only with --store-traj=k
+<out>/cpp_nmpc_of__track/sample_0001.metrics.csv  weight set "track"
+<out>/profile_<weight set>.yaml                   profile each weight set actually ran with
+<out>/batchsim_manifest.txt                       every command line run on this folder
 ```
+
+`sample_XXXX.ts.bin` holds, for every control step, the signals the metrics
+are computed from: tracked-point error (payload, NED), per-UAV position
+error, angle of attack, tether stretch, payload height, saturation, command
+rate, solver status and time, estimation errors. GRS_Controller's
+`mc_analysis/` reads it (`mc_read_timeseries.m`) to evaluate metrics per
+mission phase without re-running. Format (little-endian): `char[8]
+"GRSTS01\0"`, `uint32 nCols`, `uint32 nRows`, `float64 dt`, then per column
+`uint32 length` + name, then `float32` data column-major. About 230 kB per
+two-UAV run at full rate.
 
 `mc_collect_results_cpp_twoUav.m` gathers them into `summary_cpp.csv`.
 
