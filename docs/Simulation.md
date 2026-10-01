@@ -156,8 +156,12 @@ the point. The known differences a MATLAB/C++ comparison will show:
   `--deadline` makes the batch sim behave like the GCS loop instead: no tick
   while the previous solve still runs, the command acts when the solve ends,
   and the reference keeps its time (`skipped_frac` in the metrics).
-- **Warm start.** `MpcController` shifts the primal solution and resets the
-  duals to zero; MATLAB also shifts the duals (`shift_dual.m`).
+- **Warm start.** `MpcController` shifts the last accepted primal solution
+  and resets the duals to zero; MATLAB shifts the last solution, accepted or
+  not, and also the duals (`shift_dual.m`). After a rejected solve, the GCS
+  applies the last accepted plan's control and the LMPC keeps linearizing
+  about it; MATLAB applies the rejected solution and linearizes about the
+  reference.
 - **Estimator timing.** The GCS runs the NMHE on its own thread; the batch
   sim emulates it deterministically (`DeferredEstimatorRunner`): the NMHE
   solves every `nmheFrequency` period and its result is used from the next

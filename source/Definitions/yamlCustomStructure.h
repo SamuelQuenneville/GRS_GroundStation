@@ -127,9 +127,11 @@ namespace YAML {
                 rhs.wWindPrior = node["W_WINDP"].as<std::vector<double>>();
                 rhs.wDPrior    = node["W_DP"].as<std::vector<double>>();
 
-                rhs.windMax = node["WIND_MAX"].as<double>();
-                rhs.dFMax   = node["DF_MAX"].as<double>();
-                rhs.bAttMax = node["B_ATT_MAX"].as<double>();
+                rhs.windBound = node["WIND_BOUND"].as<std::vector<double>>();
+                rhs.dBound    = node["D_BOUND"].as<std::vector<double>>();
+                if (rhs.windBound.size() != static_cast<size_t>(rhs.np) || rhs.dBound.size() != static_cast<size_t>(rhs.nd)) {
+                    throw std::runtime_error("EstimatorConfiguration: WIND_BOUND needs NP entries and D_BOUND ND entries");
+                }
 
                 rhs.xScale    = node["X_SCALE"].as<std::vector<double>>();
                 rhs.windScale = node["WIND_SCALE"].as<std::vector<double>>();

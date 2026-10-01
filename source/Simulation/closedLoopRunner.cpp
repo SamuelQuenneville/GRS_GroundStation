@@ -82,6 +82,32 @@ double norm3(const double* a, const double* b) {
     return std::sqrt(dx * dx + dy * dy + dz * dz);
 }
 
+// Kind of each disturbance entry, same layout as the plant's d
+// (plantModel.cpp): force [N], lift coefficient offset, attitude bias [rad].
+enum class DKind { Force, Lift, Bias };
+std::vector<DKind> disturbanceKinds(const int numUavs) {
+    if (numUavs == 1) return {DKind::Force, DKind::Force, DKind::Force, DKind::Bias, DKind::Bias};
+    std::vector<DKind> kinds;
+    for (int i = 0; i < numUavs; ++i) {
+        kinds.insert(kinds.end(), {DKind::Force, DKind::Lift, DKind::Bias, DKind::Bias});
+    }
+    kinds.push_back(DKind::Force); // payload dFz
+    return kinds;
+}
+
+// Squared estimation errors of one step, summed per kind.
+struct DError {
+    double force = 0.0, lift = 0.0, bias = 0.0;
+};
+DError disturbanceError(const std::vector<double>& dHat, const std::vector<double>& dTrue, const std::vector<DKind>& kinds) {
+    DError s;
+    for (size_t i = 0; i < dTrue.size(); ++i) {
+        const double e = dHat[i] - dTrue[i];
+        (kinds[i] == DKind::Force ? s.force : kinds[i] == DKind::Lift ? s.lift : s.bias) += e * e;
+    }
+    return s;
+}
+
 struct History {
     std::vector<std::vector<double>> states;   // n+1 true states (index 0 = initial)
     std::vector<std::vector<double>> controls; // n applied controls
@@ -252,22 +278,26 @@ std::vector<std::pair<std::string, double>> computeMetrics(
     if (useEst && n > 0) {
         const size_t from = std::max<size_t>(1, static_cast<size_t>(std::floor(0.5 * static_cast<double>(n)))) - 1;
         const size_t cnt = n - from;
-        double sw = 0.0, sf = 0.0, sb = 0.0;
+        const auto kinds = disturbanceKinds(sc.numUavs);
+        double sw = 0.0;
+        DError sd;
         for (size_t k = from; k < n; ++k) {
             for (size_t i = 0; i < truth.windTrue.size(); ++i) {
                 const double e = h.windHat[k][i] - truth.windTrue[i];
                 sw += e * e;
             }
-            for (size_t i = 0; i < truth.dTrue.size(); ++i) {
-                const double e = h.dHat[k][i] - truth.dTrue[i];
-                ((i % 5) < 3 ? sf : sb) += e * e; // per UAV: dF(3), b_roll, b_pitch
-            }
+            const DError e = disturbanceError(h.dHat[k], truth.dTrue, kinds);
+            sd.force += e.force;
+            sd.lift += e.lift;
+            sd.bias += e.bias;
         }
-        put("wind_err_rms", std::sqrt(sw / static_cast<double>(cnt)));
-        put("dF_err_rms", std::sqrt(sf / static_cast<double>(cnt)));
-        put("btrim_err_rms_deg", grs::radToDeg(std::sqrt(sb / static_cast<double>(cnt))));
+        const double c = static_cast<double>(cnt);
+        put("wind_err_rms", std::sqrt(sw / c));
+        put("dF_err_rms", std::sqrt(sd.force / c));
+        put("btrim_err_rms_deg", grs::radToDeg(std::sqrt(sd.bias / c)));
+        put("dCL_err_rms", sc.numUavs > 1 ? std::sqrt(sd.lift / c) : kNaN);
     } else {
-        for (const char* k : {"wind_err_rms", "dF_err_rms", "btrim_err_rms_deg"}) put(k, kNaN);
+        for (const char* k : {"wind_err_rms", "dF_err_rms", "btrim_err_rms_deg", "dCL_err_rms"}) put(k, kNaN);
     }
     return m;
 }
@@ -285,7 +315,9 @@ void fillTimeSeries(const History& h, const std::vector<double>& ref, const solv
     const double origin[3] = {0.0, 0.0, 0.0};
 
     r.tsHeader = {"t", "e_n", "e_e", "e_d", "e_uav1", "e_uav2", "alpha1_deg", "alpha2_deg", "stretch1", "stretch2",
-                  "pay_h", "sat_count", "thrust_sat", "du_norm", "ok", "ctrl_ms", "wind_err", "dF_err", "btrim_err_deg"};
+                  "pay_h", "sat_count", "thrust_sat", "du_norm", "ok", "ctrl_ms", "wind_err", "dF_err", "btrim_err_deg",
+                  "dCL_err"};
+    const auto kinds = disturbanceKinds(numUavs);
     r.tsColumns.assign(r.tsHeader.size(), {});
     r.tsDt = sc.dt * decim;
 
@@ -312,20 +344,18 @@ void fillTimeSeries(const History& h, const std::vector<double>& ref, const solv
             }
         }
 
-        double windErr = kNaN, dFErr = kNaN, bErrDeg = kNaN;
+        double windErr = kNaN, dFErr = kNaN, bErrDeg = kNaN, dCLErr = kNaN;
         if (useEst) {
-            double sw = 0.0, sf = 0.0, sb = 0.0;
+            double sw = 0.0;
             for (size_t i = 0; i < truth.windTrue.size(); ++i) {
                 const double e = h.windHat[k][i] - truth.windTrue[i];
                 sw += e * e;
             }
-            for (size_t i = 0; i < truth.dTrue.size(); ++i) {
-                const double e = h.dHat[k][i] - truth.dTrue[i];
-                ((i % 5) < 3 ? sf : sb) += e * e;
-            }
+            const DError e = disturbanceError(h.dHat[k], truth.dTrue, kinds);
             windErr = std::sqrt(sw);
-            dFErr = std::sqrt(sf);
-            bErrDeg = grs::radToDeg(std::sqrt(sb));
+            dFErr = std::sqrt(e.force);
+            bErrDeg = grs::radToDeg(std::sqrt(e.bias));
+            if (numUavs > 1) dCLErr = std::sqrt(e.lift);
         }
 
         const double v[] = {static_cast<double>(k + 1) * sc.dt,
@@ -333,7 +363,7 @@ void fillTimeSeries(const History& h, const std::vector<double>& ref, const solv
                             uavErr(0), uavErr(1), alphaDeg(0), alphaDeg(1), stretch(0), stretch(1),
                             hasPayload ? -x[payOff + 2] : kNaN,
                             static_cast<double>(satCount), thrustSat ? 1.0 : 0.0, k > 0 ? std::sqrt(du2) : kNaN,
-                            h.ok[k] ? 1.0 : 0.0, h.ctrlMs[k], windErr, dFErr, bErrDeg};
+                            h.ok[k] ? 1.0 : 0.0, h.ctrlMs[k], windErr, dFErr, bErrDeg, dCLErr};
         for (size_t c = 0; c < r.tsHeader.size(); ++c) r.tsColumns[c].push_back(static_cast<float>(v[c]));
     }
 }

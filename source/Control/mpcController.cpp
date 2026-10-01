@@ -12,6 +12,7 @@
 #include <cmath>
 #include <fstream>
 #include <iomanip>
+#include <limits>
 #include <stdexcept>
 
 MpcController::MpcController(const solverConfig& config)
@@ -20,6 +21,15 @@ MpcController::MpcController(const solverConfig& config)
                config.numUavs)
 {
     m_refStride = m_config.nx + m_config.nu;
+    m_nz = m_config.nx + m_config.nu;
+    m_solStride = m_nz + m_config.nu;
+
+    const size_t nDecision = (m_config.N + 1) * m_nz + m_config.N * m_config.nu;
+    if (m_solver.x0.size() != nDecision) {
+        throw std::runtime_error(std::string(m_solver.name()) + " has " + std::to_string(m_solver.x0.size())
+            + " decision variables, the augmented formulation [x; up] needs " + std::to_string(nDecision)
+            + " (regenerate it with generate_solvers.m)");
+    }
 
     // Layout of m_packParameters(). A mismatch means SolverConfiguration does
     // not describe the generated solver.
@@ -43,6 +53,7 @@ MpcController::MpcController(const solverConfig& config)
     m_initialStates.assign(m_config.nx, 0.0);
     m_referenceWindow.assign(m_config.N * m_refStride + m_config.nx, 0.0);
     m_uPrev.assign(m_config.nu, 0.0);
+    m_linPoint.assign(m_config.N * m_refStride, 0.0);
     m_windEst.assign(m_config.np, 0.0);
     m_dEst.assign(m_config.nd, 0.0);
 
@@ -135,7 +146,7 @@ void MpcController::setReferenceTrajectory(std::vector<double> referenceTrajecto
 }
 
 void MpcController::m_onReferenceTrajectoryChanged() {
-    m_warmStartValid = false;
+    m_planIdx.reset();
     m_numTrajectoryPoints = m_referenceTrajectory.size() / m_refStride;
     m_endIdxTraj = m_numTrajectoryPoints > m_config.N ? m_numTrajectoryPoints - m_config.N : 0;
 
@@ -154,14 +165,15 @@ std::map<uint8_t, uavCommandsFlags> MpcController::solve(const std::map<uint8_t,
 
     m_unpackLatestStates(latestStates);
 
-    const size_t previousIdx = m_lastIdxTraj;
     m_updateReference(time);
-    const size_t steps = m_lastIdxTraj - previousIdx;
 
-    // Warm start: the last accepted solution shifted by the reference progress.
-    // Cold start from the reference when there is none or it is too old.
-    if (m_warmStartValid && steps < static_cast<size_t>(m_config.N)) {
-        m_shiftSolution(steps);
+    // Warm start from the last accepted plan shifted to the current
+    // reference sample, cold start from the reference when it is too old.
+    const auto N = static_cast<size_t>(m_config.N);
+    m_planAge = m_planIdx ? m_lastIdxTraj - *m_planIdx : N;
+    const bool fromPlan = m_planAge < N;
+    if (fromPlan) {
+        m_shiftSolution(m_planAge);
     } else {
         m_packInitialGuess();
     }
@@ -169,24 +181,32 @@ std::map<uint8_t, uavCommandsFlags> MpcController::solve(const std::map<uint8_t,
     {
         // Includes the LMPC linearization, part of the online cost.
         PROFILE_SCOPE_OUT("casadi_solve", &m_lastSolveMs, false);
-        m_packParameters();
+        m_packParameters(fromPlan);
         m_lastStatus = m_solver.solve();
 
         const auto check = m_solver.check(m_lastStatus);
         m_violation = !check.valid;
         m_lastMaxConstraintViolation = check.maxConstraintViolation;
-        m_warmStartValid = check.valid;
+    }
+
+    if (!m_violation) {
+        m_plan = m_solver.x;
+        m_planIdx = m_lastIdxTraj;
+        m_planAge = 0;
+    }
+
+    // Applied control: the plan at its age, else the reference feedforward.
+    // Also U_prev for the next solve.
+    if (m_planAge < N) {
+        const size_t offset = m_planAge * m_solStride + m_nz;
+        for (int i = 0; i < m_config.nu; ++i) {
+            m_uPrev[i] = m_plan[offset + i] * m_config.scalesControls[i];
+        }
+    } else {
+        std::copy_n(m_referenceWindow.begin() + m_config.nx, m_config.nu, m_uPrev.begin());
     }
 
     auto controls = m_extractControls();
-
-    // U_prev for the next solve: the first-stage control, all UAVs. Kept unchanged when the solution was rejected.
-    if (!m_violation) {
-        const int offset = m_config.nx;
-        for (int i = 0; i < m_config.nu; ++i) {
-            m_uPrev[i] = m_solver.x[offset + i] * m_config.scalesControls[i];
-        }
-    }
 
     m_logTransitions();
 
@@ -315,50 +335,42 @@ void MpcController::m_updateReference(const double time) {
 }
 
 void MpcController::m_shiftSolution(const size_t shift) {
+    const size_t N = m_config.N;
+    const size_t stride = m_solStride;
 
-    const size_t nx     = m_config.nx;
-    const size_t nu     = m_config.nu;
-    const size_t N      = m_config.N;
-    const size_t stride = nx + nu;
-
-    // Shift the stages by the reference progress.
-    for (size_t k = 0; k < N - shift; ++k) {
-        const size_t dst = k * stride;
-        const size_t src = (k + shift) * stride;
-
-        std::copy_n(m_solver.x.begin() + src, stride, m_solver.x0.begin() + dst);
+    // Stage k takes the plan's stage k + shift: z up to the terminal one,
+    // u up to the last one (shift_primal.m). The terminal z stays.
+    for (size_t k = 0; k < N; ++k) {
+        const size_t zSrc = std::min(k + shift, N) * stride;
+        const size_t uSrc = std::min(k + shift, N - 1) * stride + m_nz;
+        std::copy_n(m_plan.begin() + zSrc, m_nz, m_solver.x0.begin() + k * stride);
+        std::copy_n(m_plan.begin() + uSrc, m_config.nu, m_solver.x0.begin() + k * stride + m_nz);
     }
+    std::copy_n(m_plan.begin() + N * stride, m_nz, m_solver.x0.begin() + N * stride);
 
-    // Fill the tail with the last shifted stage.
-    const size_t lastValidStage = N - shift;
+    m_packFirstStage();
+}
 
-    for (size_t k = N - shift; k < N; ++k) {
-        const size_t dst = k * stride;
-        const size_t src = lastValidStage * stride;
-
-        std::copy_n(m_solver.x.begin() + src, stride, m_solver.x0.begin() + dst);
-    }
-
-    // Keep the terminal state.
-    const size_t xN_src = N * stride;
-    const size_t xN_dst = N * stride;
-
-    std::copy_n(m_solver.x.begin() + xN_src, nx, m_solver.x0.begin() + xN_dst);
-
-    // Initial state from the measurement.
-    for (size_t i = 0; i < nx; ++i) {
+void MpcController::m_packFirstStage() {
+    for (int i = 0; i < m_config.nx; ++i) {
         m_solver.x0[i] = m_initialStates[i] * m_config.invScalesStates[i];
+    }
+    for (int j = 0; j < m_config.nu; ++j) {
+        m_solver.x0[m_config.nx + j] = m_uPrev[j] * m_config.invScalesControls[j];
     }
 }
 
 void MpcController::m_packBounds() {
+    constexpr double inf = std::numeric_limits<double>::infinity();
     auto lb = m_solver.lbx.begin();
     auto ub = m_solver.ubx.begin();
     for (int k = 0; k <= m_config.N; ++k) {
         for (int i = 0; i < m_config.nx; ++i) {
-            *lb++ = m_config.lbxStates[i] * m_config.invScalesStates[i];
-            *ub++ = m_config.ubxStates[i] * m_config.invScalesStates[i];
+            *lb++ = k == 0 ? -inf : m_config.lbxStates[i] * m_config.invScalesStates[i];
+            *ub++ = k == 0 ? inf : m_config.ubxStates[i] * m_config.invScalesStates[i];
         }
+        lb = std::fill_n(lb, m_config.nu, -inf);
+        ub = std::fill_n(ub, m_config.nu, inf);
         if (k == m_config.N) break;
         for (int i = 0; i < m_config.nu; ++i) {
             *lb++ = m_config.lbxControls[i] * m_config.invScalesControls[i];
@@ -369,14 +381,13 @@ void MpcController::m_packBounds() {
 }
 
 void MpcController::m_packInequalityBounds() {
-    const auto nx = static_cast<size_t>(m_config.nx);
     const auto N = static_cast<size_t>(m_config.N);
     const auto alphaRowsPerStage = static_cast<size_t>(m_config.numUavs);
     const double alphaMax = m_config.alphaMax;
 
-    size_t idx = nx; // skip the leading nx initial-condition equality rows
+    size_t idx = m_nz; // skip the initial-condition equality rows
     for (size_t k = 0; k < N; ++k) {
-        idx += nx; // skip this stage's nx dynamics equality rows
+        idx += m_nz; // skip this stage's dynamics equality rows
         for (size_t a = 0; a < alphaRowsPerStage; ++a) {
             m_solver.lbg[idx] = -alphaMax;
             m_solver.ubg[idx] = alphaMax;
@@ -384,34 +395,39 @@ void MpcController::m_packInequalityBounds() {
         }
     }
 
-    assert(idx == m_solver.lbg.size());
-    assert(idx == m_solver.ubg.size());
-}
-
-void MpcController::m_packInitialGuess() {
-    // Reference window [x0 u0 ... x(N-1) u(N-1) xN], then the measured x0.
-    std::ranges::copy(m_referenceWindow, m_solver.x0.begin());
-    std::ranges::copy(m_initialStates, m_solver.x0.begin());
-
-    // Scale: N+1 state blocks, N control blocks.
-    for (size_t k = 0; k < m_config.N + 1; ++k)
-    {
-        const size_t xOffset = k * m_refStride;
-        for (size_t i = 0; i < m_config.nx; ++i) {
-            m_solver.x0[xOffset + i] *= m_config.invScalesStates[i];
-        }
-
-        if (k == static_cast<size_t>(m_config.N)) break;
-
-        const size_t uOffset = k * m_refStride + m_config.nx;
-        for (size_t i = 0; i < m_config.nu; ++i) {
-            m_solver.x0[uOffset + i] *= m_config.invScalesControls[i];
-        }
+    if (idx != m_solver.lbg.size()) {
+        throw std::runtime_error(std::string(m_solver.name()) + " has " + std::to_string(m_solver.lbg.size())
+            + " constraint rows, expected " + std::to_string(idx));
     }
 }
 
-void MpcController::m_packParameters() {
-    const double* window = m_referenceWindow.data();
+void MpcController::m_packInitialGuess() {
+    const size_t nx = m_config.nx;
+    const size_t nu = m_config.nu;
+    const size_t N = m_config.N;
+
+    for (size_t k = 0; k <= N; ++k) {
+        const double* ref = m_referenceWindow.data() + k * m_refStride; // x_k, u_k
+        double* z = m_solver.x0.data() + k * m_solStride;
+        for (size_t i = 0; i < nx; ++i) {
+            z[i] = ref[i] * m_config.invScalesStates[i];
+        }
+        if (k > 0) {
+            const double* uPrevRef = ref - m_refStride + nx; // u_(k-1)
+            for (size_t j = 0; j < nu; ++j) {
+                z[nx + j] = uPrevRef[j] * m_config.invScalesControls[j];
+            }
+        }
+        if (k == N) break;
+        for (size_t j = 0; j < nu; ++j) {
+            z[m_nz + j] = ref[nx + j] * m_config.invScalesControls[j];
+        }
+    }
+
+    m_packFirstStage();
+}
+
+void MpcController::m_packParameters(const bool aboutPlan) {
     double* dst = std::ranges::copy(m_initialStates, m_solver.p.data()).out;
     dst = std::ranges::copy(m_referenceWindow, dst).out;
     const double* wind = dst;
@@ -426,7 +442,22 @@ void MpcController::m_packParameters() {
     const double* L0 = dst;
     dst = std::fill_n(dst, m_config.nL0, m_config.tetherL0);
     if (m_linearization) {
-        m_linearization->eval({window, wind, d, L0}, {dst});
+        const double* point = m_referenceWindow.data();
+        if (aboutPlan) {
+            // The warm start, unscaled [x u] x N: the shifted plan from the measured state.
+            for (int k = 0; k < m_config.N; ++k) {
+                const double* z = m_solver.x0.data() + k * m_solStride;
+                double* xu = m_linPoint.data() + k * m_refStride;
+                for (int i = 0; i < m_config.nx; ++i) {
+                    xu[i] = z[i] * m_config.scalesStates[i];
+                }
+                for (int j = 0; j < m_config.nu; ++j) {
+                    xu[m_config.nx + j] = z[m_nz + j] * m_config.scalesControls[j];
+                }
+            }
+            point = m_linPoint.data();
+        }
+        m_linearization->eval({point, wind, d, L0}, {dst});
         dst += m_linearization->outputSize(0);
     }
     assert(dst == m_solver.p.data() + m_solver.p.size());
@@ -439,26 +470,13 @@ std::map<uint8_t, uavCommandsFlags> MpcController::m_extractControls() const {
     for (int sysId = 1; sysId <= m_config.numUavs; ++sysId) {
         uavCommandsFlags cmd;
 
-        const int perUavNu = m_config.nu / m_config.numUavs;
-        const int offset = m_config.nx + perUavNu * (sysId - 1);
-        // This UAV's block in the joint scalesControls.
-        const int scaleOffset = perUavNu * (sysId - 1);
-
         // Controls per UAV are [T, roll, pitch], yaw is always 0
-        cmd.commands.sysId = static_cast<uint8_t>(sysId);
-
-        if (m_violation) {
-            // Rejected solution: reference feedforward control.
-            cmd.commands.thrust      = static_cast<float>(m_referenceWindow.at(offset + 0));
-            cmd.commands.rollDegree  = grs::radToDeg(static_cast<float>(m_referenceWindow.at(offset + 1)));
-            cmd.commands.pitchDegree = grs::radToDeg(static_cast<float>(m_referenceWindow.at(offset + 2)));
-            cmd.commands.yawDegree   = 0.0;
-        } else {
-            cmd.commands.thrust      = static_cast<float>(m_solver.x[offset + 0] * m_config.scalesControls[scaleOffset + 0]);
-            cmd.commands.rollDegree  = grs::radToDeg(static_cast<float>(m_solver.x[offset + 1] * m_config.scalesControls[scaleOffset + 1]));
-            cmd.commands.pitchDegree = grs::radToDeg(static_cast<float>(m_solver.x[offset + 2] * m_config.scalesControls[scaleOffset + 2]));
-            cmd.commands.yawDegree   = 0.0;
-        }
+        const int offset = m_config.nu / m_config.numUavs * (sysId - 1);
+        cmd.commands.sysId       = static_cast<uint8_t>(sysId);
+        cmd.commands.thrust      = static_cast<float>(m_uPrev[offset + 0]);
+        cmd.commands.rollDegree  = grs::radToDeg(static_cast<float>(m_uPrev[offset + 1]));
+        cmd.commands.pitchDegree = grs::radToDeg(static_cast<float>(m_uPrev[offset + 2]));
+        cmd.commands.yawDegree   = 0.0;
 
         cmd.F1Command = true;   // Should move?
         cmd.F2Command = false;  // End simulation?
@@ -480,7 +498,7 @@ std::map<uint8_t, uavCommandsFlags> MpcController::m_extractControls() const {
         msg << "," << m_lastStatus.fatrop.iterations << "," << m_lastStatus.fatrop.returnCode << "," << m_referenceTime;
 
         if (m_violation) {
-            msg << ", INVALID SOL";
+            msg << ", INVALID SOL, " << (m_planAge < static_cast<size_t>(m_config.N) ? "plan age " + std::to_string(m_planAge) : "reference");
         }
         Logger::instance().log(LogType::CONTROLS, msg.str());
     }

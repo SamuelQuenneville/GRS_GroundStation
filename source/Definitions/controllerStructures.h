@@ -65,10 +65,11 @@ struct estimatorConfig {
     std::vector<double> wWindPrior;
     std::vector<double> wDPrior;
 
-    // Bounds on wind, force disturbance and attitude bias, physical units.
-    double windMax;
-    double dFMax;
-    double bAttMax;
+    // Bounds |wind_i| <= windBound[i] (np) and |d_i| <= dBound[i] (nd),
+    // physical units, on the first stage (the identity dynamics carry them
+    // to every stage), as build_nmhe_*.m.
+    std::vector<double> windBound;
+    std::vector<double> dBound;
 
     std::vector<double> xScale;
     std::vector<double> windScale;

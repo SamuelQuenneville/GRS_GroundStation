@@ -44,6 +44,11 @@ private:
     std::vector<double> m_windEst;
     std::vector<double> m_dEst;
 
+    // Last valid solution (scaled), the warm start of the next solve, and
+    // the samples added since the window it was solved on.
+    std::vector<double> m_prevSolution;
+    size_t m_samplesSinceSolve = 0;
+
     mutable std::mutex m_solveMutex;
 
     bool m_windowFull = false;
@@ -51,9 +56,13 @@ private:
     Nlpsol::Status m_lastStatus;
     double m_lastMaxConstraintViolation = 0.0;
 
+    // Warm start (shift_nmhe.m): the previous solution moved back by the
+    // samples added since, the new stages with the measured x and the last
+    // wind/d. Cold start (x measured, wind/d from the prior) without a
+    // previous solution or when the whole window is new.
     void m_packInitialGuess();
-    // Per stage [x; wind; d], scaled: x unbounded, wind by windMax, d by
-    // dFMax (force) and bAttMax (attitude bias), per UAV.
+    // Per stage [x; wind; d], scaled: wind and d bounded on the first stage
+    // (windBound, dBound), everything else free.
     void m_packBounds();
     // P_optim (build_nmhe_*.m): [Xmeas_1 Uapp_1 ... Xmeas_M Uapp_M Xmeas_M+1; Wind_prior; D_prior; W_meas; W_windp; W_dp; L0].
     void m_packParameters();

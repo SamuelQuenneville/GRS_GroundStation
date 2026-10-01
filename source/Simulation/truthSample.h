@@ -51,7 +51,8 @@ struct TruthSpec {
 //   'rel' parameters (a<i>_<coef>, pay_mass, tether_k, tether_b) multiply
 //   the nominal value (1 = nominal, must be > 0), 'abs' parameters are
 //   values in their unit (wind_speed m/s, wind_heading deg toward, wind_down
-//   m/s, d<i>_F<xyz> N, d<i>_broll/bpitch deg, tether_L0_err m).
+//   m/s, d<i>_broll/bpitch deg, tether_L0_err m; two UAVs: d<i>_Fa N,
+//   d<i>_CL, pay_Fz N; one UAV: d1_F<xyz> N).
 // numUavs selects the parameter set that exists (1: a1_*, d1_*; 2: both).
 // Unknown names throw, so a typo cannot silently leave a parameter nominal.
 TruthSpec applySample(const Sample& sample, int numUavs, double L0Nominal);

@@ -50,6 +50,7 @@ void NmheEstimator::addSample(const std::vector<double>& measuredState, const st
     if (m_stateWindow.size() > static_cast<size_t>(m_config.M) + 1) {
         m_stateWindow.pop_front();
     }
+    ++m_samplesSinceSolve;
 
     m_windowFull = m_stateWindow.size() == static_cast<size_t>(m_config.M) + 1
         && m_controlWindow.size() == static_cast<size_t>(m_config.M);
@@ -66,6 +67,7 @@ bool NmheEstimator::estimate() {
     // arrival-cost prior.
     m_packParameters();
     m_packInitialGuess();
+    m_samplesSinceSolve = 0;
 
     {
         PROFILE_SCOPE_OUT("nmhe_solve", &m_lastSolveMs, false);
@@ -90,6 +92,9 @@ bool NmheEstimator::estimate() {
         for (int i = 0; i < m_config.nd; ++i) {
             m_dEst[i] = m_solver.x[dOffset + i] * scaleAt(m_config.dScale, i);
         }
+        m_prevSolution = m_solver.x;
+    } else {
+        m_prevSolution.clear();
     }
 
     return valid;
@@ -120,44 +125,48 @@ Estimator::DebugInfo NmheEstimator::getDebugInfo() const {
 }
 
 void NmheEstimator::m_packInitialGuess() {
-    // Cold start: each stage's measurement, and the prior for wind and d.
     const size_t nxi = static_cast<size_t>(m_config.nxi);
+    const size_t M = static_cast<size_t>(m_config.M);
+    const size_t shift = m_samplesSinceSolve;
+    const bool warm = !m_prevSolution.empty() && shift <= M;
 
-    size_t stage = 0;
-    for (const auto& s : m_stateWindow) {
-        const size_t offset = stage * nxi;
-        for (int i = 0; i < m_config.nx; ++i) {
-            m_solver.x0[offset + i] = s[i] * scaleAt(m_config.invXScale, i);
+    for (size_t k = 0; k <= M; ++k) {
+        double* xi = m_solver.x0.data() + k * nxi;
+        if (warm) {
+            // Stage k of the new window is stage k + shift of the previous
+            // one; past its end, the previous last stage.
+            std::copy_n(m_prevSolution.data() + std::min(k + shift, M) * nxi, nxi, xi);
+        } else {
+            for (int i = 0; i < m_config.np; ++i) {
+                xi[m_config.nx + i] = m_windEst[i] / scaleAt(m_config.windScale, i);
+            }
+            for (int i = 0; i < m_config.nd; ++i) {
+                xi[m_config.nx + m_config.np + i] = m_dEst[i] / scaleAt(m_config.dScale, i);
+            }
         }
-        for (int i = 0; i < m_config.np; ++i) {
-            m_solver.x0[offset + m_config.nx + i] = m_windEst[i] / scaleAt(m_config.windScale, i);
+        // Measured x on every stage cold, on the new stages warm.
+        if (!warm || k + shift > M) {
+            const auto& s = m_stateWindow[k];
+            for (int i = 0; i < m_config.nx; ++i) {
+                xi[i] = s[i] * scaleAt(m_config.invXScale, i);
+            }
         }
-        for (int i = 0; i < m_config.nd; ++i) {
-            m_solver.x0[offset + m_config.nx + m_config.np + i] = m_dEst[i] / scaleAt(m_config.dScale, i);
-        }
-        ++stage;
     }
-
-    assert(stage == static_cast<size_t>(m_config.M) + 1);
 }
 
 void NmheEstimator::m_packBounds() {
     constexpr double inf = std::numeric_limits<double>::infinity();
-    const double dBound[] = {m_config.dFMax, m_config.dFMax, m_config.dFMax, m_config.bAttMax, m_config.bAttMax};
-
-    std::vector<double> ub(m_config.nxi, inf);
+    std::ranges::fill(m_solver.lbx, -inf);
+    std::ranges::fill(m_solver.ubx, inf);
     for (int i = 0; i < m_config.np; ++i) {
-        ub[m_config.nx + i] = m_config.windMax / scaleAt(m_config.windScale, i);
+        const double b = m_config.windBound[i] / scaleAt(m_config.windScale, i);
+        m_solver.lbx[m_config.nx + i] = -b;
+        m_solver.ubx[m_config.nx + i] = b;
     }
     for (int i = 0; i < m_config.nd; ++i) {
-        ub[m_config.nx + m_config.np + i] = dBound[i % 5] / scaleAt(m_config.dScale, i);
-    }
-
-    for (int k = 0; k <= m_config.M; ++k) {
-        for (int i = 0; i < m_config.nxi; ++i) {
-            m_solver.lbx[k * m_config.nxi + i] = -ub[i];
-            m_solver.ubx[k * m_config.nxi + i] = ub[i];
-        }
+        const double b = m_config.dBound[i] / scaleAt(m_config.dScale, i);
+        m_solver.lbx[m_config.nx + m_config.np + i] = -b;
+        m_solver.ubx[m_config.nx + m_config.np + i] = b;
     }
 }
 

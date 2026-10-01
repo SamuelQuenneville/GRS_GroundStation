@@ -29,13 +29,13 @@ inline V3 cross(const V3& a, const V3& b) {
 }
 inline V3 load(const double* p) { return {p[0], p[1], p[2]}; }
 
-// Thrust + aerodynamic + gravity + bias force on one UAV, and its angle of
-// attack. xUav points at that UAV's 8-state block [p(3) v(3) roll pitch],
-// thrust is its u(1), dF its NED force bias. Mirrors the per-UAV part of
-// grs*DynamicAugmented.m line for line (same operation order where it
-// matters for rounding).
+// Thrust + aerodynamic + gravity + disturbance force on one UAV, and its
+// angle of attack. xUav points at that UAV's 8-state block [p(3) v(3) roll
+// pitch], thrust is its u(1). Disturbances: dFa along the airspeed and dCL
+// on the lift coefficient (two-UAV model), dF a NED force (one-UAV model).
+// Mirrors the per-UAV part of grs*DynamicAugmented.m line for line.
 V3 uavForce(const AirframeParams& a, const RigParams& rig, const double* xUav, const double thrust,
-            const V3& wind, const V3& dF, double& alpha) {
+            const V3& wind, const double dFa, const double dCL, const V3& dF, double& alpha) {
     const V3 v = load(xUav + 3);
     const double cphi = std::cos(xUav[6]);
     const double sphi = std::sin(xUav[6]);
@@ -58,13 +58,13 @@ V3 uavForce(const AirframeParams& a, const RigParams& rig, const double* xUav, c
 
     const double k = 1.0 / (M_PI * a.AR * a.e);
     const double qs = 0.5 * rig.rho * a.S;
-    const double CL = a.CL0 + a.CL_alpha * alpha;
+    const double CL = a.CL0 + a.CL_alpha * alpha + dCL;
     const double CD = a.CD0 + k * CL * CL;
     const double L = qs * V2 * CL;
     const double D = qs * V2 * CD;
 
     const V3 gravity{0.0, 0.0, a.mass * rig.g};
-    return (thrust - D) * dir + L * eLift + gravity + dF;
+    return (thrust - D + dFa) * dir + L * eLift + gravity + dF;
 }
 
 // Tether force on the UAV end (pull toward the other end), tanh-gated
@@ -108,27 +108,29 @@ void TwoUavPayloadPlant::evaluate(const double* x, const double* u, const double
     const V3 pPay = load(xp);
     const V3 vPay = load(xp + 3);
 
+    // d = [dFa1 dCL1 b_roll1 b_pitch1  dFa2 dCL2 b_roll2 b_pitch2  dFz_pay]
+    const V3 none{0.0, 0.0, 0.0};
     double a1 = 0.0, a2 = 0.0;
-    V3 f1 = uavForce(m_uav[0], m_rig, x1, u[0], w, load(d + 0), a1);
-    V3 f2 = uavForce(m_uav[1], m_rig, x2, u[3], w, load(d + 5), a2);
+    V3 f1 = uavForce(m_uav[0], m_rig, x1, u[0], w, d[0], d[1], none, a1);
+    V3 f2 = uavForce(m_uav[1], m_rig, x2, u[3], w, d[4], d[5], none, a2);
 
     const V3 ft1 = tetherForce(m_rig, load(x1) - pPay, load(x1 + 3) - vPay, L0);
     const V3 ft2 = tetherForce(m_rig, load(x2) - pPay, load(x2 + 3) - vPay, L0);
     f1 = f1 + ft1;
     f2 = f2 + ft2;
 
-    // Payload: gravity, both tethers (reaction), smooth one-sided ground
-    // contact gated on height.
+    // Payload: gravity with its vertical disturbance, both tethers
+    // (reaction), smooth one-sided ground contact gated on height.
     const double zPay = pPay.z;
     const double vzPay = vPay.z;
     const double gateGround = 0.5 * (1.0 + std::tanh(m_rig.kappa_ground * zPay));
     const double raw = m_rig.k_ground * zPay + m_rig.b_ground * vzPay;
     const double softplus = std::max(raw, 0.0) + std::log(1.0 + std::exp(-std::fabs(raw)));
     const V3 fGround{0.0, 0.0, -(gateGround * softplus)};
-    const V3 fPay = V3{0.0, 0.0, m_rig.m_pay * m_rig.g} - ft1 - ft2 + fGround;
+    const V3 fPay = V3{0.0, 0.0, m_rig.m_pay * m_rig.g + d[8]} - ft1 - ft2 + fGround;
 
-    writeUavOde(m_uav[0], x1, f1, u[1], u[2], d[3], d[4], xdot);
-    writeUavOde(m_uav[1], x2, f2, u[4], u[5], d[8], d[9], xdot + 8);
+    writeUavOde(m_uav[0], x1, f1, u[1], u[2], d[2], d[3], xdot);
+    writeUavOde(m_uav[1], x2, f2, u[4], u[5], d[6], d[7], xdot + 8);
 
     const double invMPay = 1.0 / m_rig.m_pay;
     xdot[16] = vPay.x;
@@ -153,7 +155,8 @@ OneGroundPlant::OneGroundPlant(const AirframeParams& uav, const RigParams& rig)
 void OneGroundPlant::evaluate(const double* x, const double* u, const double* wind, const double* d,
                               const double L0, double* xdot, double* alpha) const {
     double a = 0.0;
-    V3 f = uavForce(m_uav, m_rig, x, u[0], load(wind), load(d), a);
+    // d = [dFx dFy dFz b_roll b_pitch]
+    V3 f = uavForce(m_uav, m_rig, x, u[0], load(wind), 0.0, 0.0, load(d), a);
     // Tether anchored at the NED origin.
     f = f + tetherForce(m_rig, load(x), load(x + 3), L0);
     writeUavOde(m_uav, x, f, u[1], u[2], d[3], d[4], xdot);

@@ -81,6 +81,11 @@ private:
     std::vector<double> m_referenceTrajectory;
     size_t m_refStride; // nx+nu
 
+    // Decision vector [z0 u0 ... z(N-1) u(N-1) zN], stage state z = [x; up],
+    // up the previous control (build_nlp_*_nmpc.m, build_nlp_*_lmpc.m).
+    size_t m_nz = 0;        // nx+nu
+    size_t m_solStride = 0; // nz+nu, one stage [z u]
+
     std::vector<double> m_initialStates;
     std::unordered_map<uint8_t, unwrapState> m_yawStates;
 
@@ -111,8 +116,14 @@ private:
     bool m_violation = false;
     Nlpsol::Status m_lastStatus;
     double m_lastMaxConstraintViolation = 0.0;
-    // m_solver.x holds an accepted solution for the current reference.
-    bool m_warmStartValid = false;
+    // Last accepted solution (scaled, m_solver.x layout) and the reference
+    // sample it starts at. While less than N samples old, it gives the warm
+    // start, the LMPC linearization point and, after a rejected solve, the
+    // control. m_planAge: its age at the current solve, N if none.
+    std::vector<double> m_plan;
+    std::optional<size_t> m_planIdx;
+    size_t m_planAge = 0;
+    std::vector<double> m_linPoint; // LMPC: [x u] x N, physical
 
     // Last applied control [T, roll, pitch] per UAV, physical units: the
     // U_prev parameter of the first-stage rate cost (weight Rdu0).
@@ -131,18 +142,26 @@ private:
     // Sets the reference time, m_lastIdxTraj, m_referenceWindow and m_endedTraj.
     void m_updateReference(double time);
 
-    // Previous solution advanced by `shift` stages (shift < N), tail repeated.
+    // m_plan advanced by `shift` stages (shift < N), tail repeated, z0 from
+    // the measured state and U_prev.
     void m_shiftSolution(size_t shift);
-    // Decision-variable bounds, scaled: [x0 u0 ... x(N-1) u(N-1) xN].
+    // z0 = [x measured; U_prev], scaled.
+    void m_packFirstStage();
+    // Decision-variable bounds, scaled: z0 free (fixed by the initial-
+    // condition equality), x of the other stages by LBX/UBX_STATES, up free
+    // (each equals a bounded control), u by LBX/UBX_CONTROLS.
     void m_packBounds();
-    // g rows (NMPC and LMPC): nx initial-condition equalities, then per
-    // stage nx dynamics equalities followed by numUavs angle-of-attack rows.
+    // g rows (NMPC and LMPC): nz initial-condition equalities, then per
+    // stage nz dynamics equalities followed by numUavs angle-of-attack rows.
     // Only the alpha rows are inequalities, [-alphaMax, alphaMax].
     void m_packInequalityBounds();
+    // Reference window: x_k, u_k, up_k = u_(k-1); z0 from the measurement.
     void m_packInitialGuess();
     // P_optim (build_nlp_*_nmpc.m, build_nlp_*_lmpc.m): [x_initial; reference
     // window x0 u0 ... xN; Wind_est; D_est; Weight; U_prev; L0; LMPC: P_lin].
-    void m_packParameters();
+    // P_lin is linearized about the warm start if aboutPlan, else the reference.
+    void m_packParameters(bool aboutPlan);
+    // Commands from m_uPrev, the control applied this solve.
     std::map<uint8_t, uavCommandsFlags> m_extractControls() const;
 
     double m_unwrapYaw(uint8_t sysId, double yawRadWrapped);

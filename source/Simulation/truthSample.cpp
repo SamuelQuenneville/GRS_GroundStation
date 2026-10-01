@@ -41,8 +41,14 @@ std::set<std::string> absNames(const int numUavs) {
     std::set<std::string> names{"wind_speed", "wind_heading", "wind_down", "tether_L0_err"};
     for (int i = 1; i <= numUavs; ++i) {
         const std::string d = "d" + std::to_string(i) + "_";
-        for (const char* c : {"Fx", "Fy", "Fz", "broll", "bpitch"}) names.insert(d + c);
+        for (const char* c : {"broll", "bpitch"}) names.insert(d + c);
+        if (numUavs == 1) {
+            for (const char* c : {"Fx", "Fy", "Fz"}) names.insert(d + c);
+        } else {
+            for (const char* c : {"Fa", "CL"}) names.insert(d + c);
+        }
     }
+    if (numUavs > 1) names.insert("pay_Fz");
     return names;
 }
 
@@ -120,15 +126,19 @@ TruthSpec applySample(const Sample& sample, const int numUavs, const double L0No
     const double hdg = v("wind_heading") * M_PI / 180.0;
     t.windTrue = {spd * std::cos(hdg), spd * std::sin(hdg), v("wind_down")};
 
-    t.dTrue.assign(static_cast<size_t>(5 * numUavs), 0.0);
-    for (int i = 0; i < numUavs; ++i) {
-        const std::string n = "d" + std::to_string(i + 1) + "_";
-        const size_t o = static_cast<size_t>(5 * i);
-        t.dTrue[o + 0] = v(n + "Fx");
-        t.dTrue[o + 1] = v(n + "Fy");
-        t.dTrue[o + 2] = v(n + "Fz");
-        t.dTrue[o + 3] = v(n + "broll") * M_PI / 180.0;
-        t.dTrue[o + 4] = v(n + "bpitch") * M_PI / 180.0;
+    // Same layout as the model's d (plantModel.cpp).
+    constexpr double deg = M_PI / 180.0;
+    if (numUavs == 1) {
+        t.dTrue = {v("d1_Fx"), v("d1_Fy"), v("d1_Fz"), v("d1_broll") * deg, v("d1_bpitch") * deg};
+    } else {
+        t.dTrue.clear();
+        for (int i = 0; i < numUavs; ++i) {
+            const std::string n = "d" + std::to_string(i + 1) + "_";
+            for (const double value : {v(n + "Fa"), v(n + "CL"), v(n + "broll") * deg, v(n + "bpitch") * deg}) {
+                t.dTrue.push_back(value);
+            }
+        }
+        t.dTrue.push_back(v("pay_Fz"));
     }
     return t;
 }

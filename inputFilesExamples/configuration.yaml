@@ -30,16 +30,14 @@ Catapults:
   #- {id: 2, port: 5801, ip: 192.168.50.21}
 
 SolverConfiguration:
-  # NX/NU/NP/ND/NL0/N/DT below must match solver_oneGround_nmpc_meta.h
-  # (auto-generated alongside the solver by export_solver_oneGround_nmpc.m
-  # -- OG_NX/OG_NU/OG_NP/OG_ND/OG_NL0/OG_N/OG_DT) exactly. SCALES_STATES/
-  # SCALES_CONTROLS and the bounds below already matched
-  # solver_oneGround_nmpc's meta header as of this update -- re-verify
-  # against it any time the MATLAB side re-exports.
+  # Must describe the generated solver (GRS_Controller 04_tools/generate_solvers.m,
+  # build_nlp_oneGround_nmpc.m / _lmpc.m and solver_oneGround_nmpc_meta.h).
+  # Decision vector [z0 u0 ... zN], z = [x; previous control]: MpcController
+  # derives it from NX/NU/N and refuses a solver of another layout.
   NX: 8
   NU: 3
-  NP: 3    # wind (shared, not per-UAV)
-  ND: 5    # disturbance bias, from NMHE -- zero vector until NMHE is wired in
+  NP: 3    # wind
+  ND: 5    # [dFx dFy dFz b_roll b_pitch]
   NL0: 1   # tether rest length
   N: 30
   DT: 0.05
@@ -47,58 +45,27 @@ SolverConfiguration:
   # nmpc (default) or lmpc, same values below for both.
   CONTROLLER: nmpc
 
-  # Tether rest length [m], packed into every solve's L0 parameter. Fixed
-  # here for now (Phase 2) -- see tether-length-parameterization.md for the
-  # GCS-settable version this will become.
+  # Tether rest length [m], packed into every solve's L0 parameter.
   L0: 30.0
 
-  # Angle-of-attack path-constraint bound [rad], symmetric -- must match
-  # build_nlp_oneGround_nmpc.m's own 'alpha_max' option (deg2rad(14) by
-  # MATLAB default, re-verify against solver_oneGround_nmpc_meta.h/the
-  # MATLAB build call any time it re-exports). Packed into every solve's
-  # g bounds by MpcController::m_packInequalityBounds() -- previously
-  # missing entirely, which silently enforced alpha == 0 instead of this
-  # bound; see gcs-sitl-integration-plan.md's open questions.
+  # Angle-of-attack bound [rad] (build option 'alpha_max').
   ALPHA_MAX: 0.244346  # deg2rad(14)
 
-  # Q(8) | R(3) | Qf(8) | Rdu(3) | Rdu0(3) -- 25 entries, per
-  # build_nlp_oneGround_nmpc.m's Weight layout. The WEIGHT this file
-  # previously shipped ([0.1,0.1,1,1,1,1,1,1, 5,1,1, 10], 12 entries) used
-  # an incompatible older scheme -- a single scalar Qf_val instead of a
-  # full nx-length Qf diagonal, and no Rdu/Rdu0 slots at all -- left over
-  # from before build_nlp_oneGround_nmpc.m's current Weight layout was
-  # finalized. Q and R below are carried over unchanged from that file
-  # (same 8 state weights, same 3 control weights); Qf is the old scalar
-  # Qf_val=10 broadcast across all 8 states as the closest literal reading
-  # of the old single-value intent -- NOT independently validated for this
-  # layout, retune it. Rdu/Rdu0 (the new stage-to-stage and first-stage
-  # control RATE penalties) are left at 0, matching "no rate penalty",
-  # since there's no prior value for them to carry over.
-  #              x, y,  z, vx, vy, vz, roll, pitch |  T, roll, pitch |              Qf_val (broadcast)             |    Rdu (dU)    |   Rdu0 (dU0)
-  WEIGHT: [0.1, 0.1,  1,  1,  1,  1,    1,     1,     5,    1,     1,   10, 10, 10, 10, 10, 10, 10, 10,   0, 0, 0,        0, 0, 0]
+  # Q(8) | R(3) | Qf(8) | Rdu(3) | Rdu0(3), GRS_Controller tuning_oneGround.m.
+  #         x,   y,  z, vx, vy, vz, roll, pitch | T, roll, pitch | Qf = 10 Q | Rdu | Rdu0 = 2 Rdu
+  WEIGHT: [0.1, 0.1, 1, 1, 1, 1, 1, 1,   5, 1, 1,   1, 1, 10, 10, 10, 10, 10, 10,   0.5, 2.0, 2.0,   1.0, 4.0, 4.0]
+  # State bounds apply from the second stage on (the first is the measured state).
   LBX_STATES: [-.inf, -.inf, -.inf, -40.0, -40.0, -10.0, -0.5236, -0.6981]
   UBX_STATES: [ .inf,  .inf,   0.0,  40.0,  40.0,  10.0,  0.5236,  0.6981]
   LBX_CONTROLS: [ 0.0, -0.5236, -0.6981]
   UBX_CONTROLS: [60.0,  0.5236,  0.6981]
+  # scaling_oneUav.m
   SCALES_STATES: [100.0, 100.0, 50.0, 30.0, 30.0, 15.0, 0.4, 0.4]
   SCALES_CONTROLS: [30.0, 0.4, 0.4]
 
-# Presence of this section is what enables NMHE -- ControlInterface only
-# constructs an Estimator when it exists (see
-# ConfigurationParser::parseEstimatorConfig()); remove/comment it out to run
-# with wind/d hardcoded at zero, same as before Phase 4. NX/NU/NP/ND/NL0/M/DT
-# below must match nmhe_oneGround_meta.h (auto-generated alongside the
-# solver by export_nmhe_oneGround.m -- NMHE_OG_NX/NMHE_OG_NU/NMHE_OG_NP/
-# NMHE_OG_ND/NMHE_OG_NL0/NMHE_OG_M/NMHE_OG_DT) exactly -- re-verify against
-# it any time the MATLAB side re-exports. X_SCALE/WIND_SCALE/D_SCALE are
-# scaling_oneUav.m's own x_scale/wind_scale/d_scale (single source of truth
-# on the MATLAB side -- X_SCALE here is the same vector as
-# SCALES_STATES above, since both the NMPC and NMHE builders pull it from
-# the same scaling_oneUav.m). WIND_MAX/DF_MAX/B_ATT_MAX are
-# build_nmhe_oneGround.m's own defaults (wind_max=25, dF_max=30,
-# b_att_max=deg2rad(15)) -- see estimatorConfig's own comment in
-# controllerStructures.h for why these still have to be packed at runtime
-# despite being "baked in" at MATLAB build time.
+# Enables the NMHE when present (remove it to run with wind and d at zero).
+# Must describe nmhe_oneGround (build_nmhe_oneGround.m, nmhe_oneGround_meta.h).
+# The estimator warm starts from its previous solution.
 EstimatorConfiguration:
   NX: 8
   NU: 3
@@ -109,29 +76,19 @@ EstimatorConfiguration:
   DT: 0.05
   NUM_UAVS: 1
 
-  # Tether rest length [m] -- same physical tether as SolverConfiguration's
-  # own L0 above, packed into NMHE's L0_param block every estimate() solve
-  # (see OneUavNmheBackend::packParameters()). Previously missing from this
-  # section entirely -- estimatorConfig's decode() has always required it,
-  # this file just never had it, which is what threw "invalid node; first
-  # invalid key: L0" once ALPHA_MAX's own missing-key error was fixed.
+  # Tether rest length [m], as SolverConfiguration.L0.
   L0: 30.0
 
-  # W_MEAS(8) | W_WINDP(3) | W_DP(5) -- measurement-fit and arrival-cost
-  # weights, per build_nmhe_oneGround.m's Objective section. NOT pulled
-  # from any validated MATLAB sim run (run_nmhe.m's own call sites weren't
-  # available to this session to carry values over from, unlike Phase 3's
-  # WEIGHT) -- flat, unvalidated first-pass guesses (trust position/
-  # velocity/attitude measurements roughly equally, weak arrival-cost pull
-  # toward the prior). Retune before trusting NMHE's output for anything.
-  W_MEAS: [10, 10, 10, 10, 10, 10, 10, 10]
-  W_WINDP: [1, 1, 1]
-  W_DP: [1, 1, 1, 1, 1]
+  # W_MEAS(8) | W_WINDP(3) | W_DP(5), GRS_Controller tuning_oneGround.m.
+  W_MEAS: [5, 5, 5, 2, 2, 2, 1, 1]
+  W_WINDP: [0.05, 0.05, 0.05]
+  W_DP: [0.02, 0.02, 0.02, 0.2, 0.2]
 
-  WIND_MAX: 25.0
-  DF_MAX: 30.0
-  B_ATT_MAX: 0.261799  # deg2rad(15)
+  # |wind_i| and |d_i| bounds, physical units (build_nmhe_oneGround.m defaults).
+  WIND_BOUND: [25.0, 25.0, 25.0]
+  D_BOUND: [30.0, 30.0, 30.0, 0.261799, 0.261799]   # [dF N (3), b_roll rad, b_pitch rad]
 
+  # scaling_oneUav.m
   X_SCALE: [100.0, 100.0, 50.0, 30.0, 30.0, 15.0, 0.4, 0.4]
   WIND_SCALE: [10.0, 10.0, 10.0]
   D_SCALE: [20.0, 20.0, 20.0, 0.15, 0.15]

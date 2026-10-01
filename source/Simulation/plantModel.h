@@ -85,7 +85,7 @@ public:
     [[nodiscard]] int nx() const override { return 22; }
     [[nodiscard]] int nu() const override { return 6; }
     [[nodiscard]] int np() const override { return 3; }
-    [[nodiscard]] int nd() const override { return 10; }
+    [[nodiscard]] int nd() const override { return 9; }
     [[nodiscard]] int numUavs() const override { return 2; }
     [[nodiscard]] bool hasPayload() const override { return true; }
     [[nodiscard]] const RigParams& rig() const override { return m_rig; }
