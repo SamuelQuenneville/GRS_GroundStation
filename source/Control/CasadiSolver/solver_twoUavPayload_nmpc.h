@@ -36,8 +36,8 @@ int solver_twoUavPayload_nmpc_work(casadi_int *sz_arg, casadi_int* sz_res, casad
 int solver_twoUavPayload_nmpc_work_bytes(casadi_int *sz_arg, casadi_int* sz_res, casadi_int *sz_iw, casadi_int *sz_w);
 #define solver_twoUavPayload_nmpc_SZ_ARG 12
 #define solver_twoUavPayload_nmpc_SZ_RES 10
-#define solver_twoUavPayload_nmpc_SZ_IW 3340
-#define solver_twoUavPayload_nmpc_SZ_W 111929
+#define solver_twoUavPayload_nmpc_SZ_IW 4084
+#define solver_twoUavPayload_nmpc_SZ_W 144157
 #ifdef __cplusplus
 } /* extern "C" */
 #endif

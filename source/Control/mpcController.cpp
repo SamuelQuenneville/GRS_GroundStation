@@ -8,6 +8,8 @@
 
 #include "mpcController.h"
 
+#include <algorithm>
+#include <cmath>
 #include <fstream>
 #include <iomanip>
 #include <stdexcept>
@@ -39,6 +41,7 @@ MpcController::MpcController(const solverConfig& config)
     assert(m_layout.size() == static_cast<size_t>(m_config.nx));
 
     m_initialStates.assign(m_config.nx, 0.0);
+    m_referenceWindow.assign(m_config.N * m_refStride + m_config.nx, 0.0);
     m_uPrev.assign(m_config.nu, 0.0);
     m_windEst.assign(m_config.np, 0.0);
     m_dEst.assign(m_config.nd, 0.0);
@@ -59,7 +62,6 @@ void MpcController::setDisturbanceEstimate(const std::vector<double>& wind, cons
 
 void MpcController::initLaunch() {
     m_launched = true;
-    m_timeAtLaunched = std::chrono::steady_clock::now();
 
     Logger::instance().log(LogType::NMPC_EVENT,
         std::to_string(m_trackingNumber) + "," + std::to_string(Logger::instance().nowMilliseconds()) + ","
@@ -146,44 +148,15 @@ void MpcController::m_onReferenceTrajectoryChanged() {
     Logger::instance().log(LogType::NMPC_EVENT, msg.str());
 }
 
-std::map<uint8_t, uavCommandsFlags> MpcController::solve(const std::map<uint8_t, uavStates>& latestStates) {
+std::map<uint8_t, uavCommandsFlags> MpcController::solve(const std::map<uint8_t, uavStates>& latestStates, const double time) {
 
     std::lock_guard lock(m_solveMutex);
 
     m_unpackLatestStates(latestStates);
 
-    size_t steps = 0;
-    if (m_launched) {
-        size_t idx = m_lastIdxTraj;
-
-        if (m_config.referenceIndexing == solverConfig::ReferenceIndexing::Time) {
-            // One sample per solve, starting at sample 0 at launch.
-            if (m_solvesSinceLaunch > 0 && idx + 1 < m_endIdxTraj) {
-                ++idx;
-            }
-            ++m_solvesSinceLaunch;
-        } else {
-            double bestCost = m_computeReferenceCost(idx);
-
-            // only move forward
-            while (idx + 1 < m_endIdxTraj) {
-                const double nextCost = m_computeReferenceCost(idx + 1);
-
-                // stop once cost increases
-                if (nextCost > bestCost)
-                    break;
-
-                bestCost = nextCost;
-                ++idx;
-            }
-        }
-        steps = idx - m_lastIdxTraj;
-        m_lastIdxTraj = idx;
-
-        if (m_endIdxTraj == 0 || idx +1 >= m_endIdxTraj) {
-            m_endedTraj = true;
-        }
-    }
+    const size_t previousIdx = m_lastIdxTraj;
+    m_updateReference(time);
+    const size_t steps = m_lastIdxTraj - previousIdx;
 
     // Warm start: the last accepted solution shifted by the reference progress.
     // Cold start from the reference when there is none or it is too old.
@@ -312,20 +285,33 @@ std::vector<MpcController::TrajectoryPointView> MpcController::getTrajectoryForV
     return points;
 }
 
-double MpcController::m_computeReferenceCost(const size_t idx) const {
-    const size_t refOffset = idx * m_refStride;
+void MpcController::m_updateReference(const double time) {
+    if (m_launched && !m_launchTime) {
+        m_launchTime = time;
+    }
 
-    double cost = 0.0;
+    // Reference position in samples, clamped to the last full window.
+    const double last = m_endIdxTraj > 0 ? static_cast<double>(m_endIdxTraj - 1) : 0.0;
+    double s = m_launchTime ? std::clamp((time - *m_launchTime) / m_config.dt, 0.0, last) : 0.0;
+    if (std::abs(s - std::round(s)) < 1e-6) {
+        s = std::round(s); // ticks exactly on the sample grid use the samples as they are
+    }
+    m_referenceTime = s * m_config.dt;
+    m_lastIdxTraj = static_cast<size_t>(s);
+    if (m_launched && m_lastIdxTraj + 1 >= m_endIdxTraj) {
+        m_endedTraj = true;
+    }
+    if (m_endIdxTraj == 0) {
+        return; // no reference long enough for a window
+    }
 
-    const double refNorth = m_referenceTrajectory[refOffset + 0];
-    const double refEast = m_referenceTrajectory[refOffset + 1];
-
-    const double dn = m_initialStates[0] - refNorth;
-    const double de = m_initialStates[1]  - refEast;
-
-    cost += dn*dn + de*de;
-
-    return cost;
+    // Window [x u] x N, then x, linearly interpolated between samples.
+    const double a = s - static_cast<double>(m_lastIdxTraj);
+    const double* r0 = m_referenceTrajectory.data() + m_lastIdxTraj * m_refStride;
+    const double* r1 = a > 0.0 ? r0 + m_refStride : r0; // a > 0 only below `last`: r1's window is in range
+    for (size_t j = 0; j < m_referenceWindow.size(); ++j) {
+        m_referenceWindow[j] = (1.0 - a) * r0[j] + a * r1[j];
+    }
 }
 
 void MpcController::m_shiftSolution(const size_t shift) {
@@ -404,11 +390,7 @@ void MpcController::m_packInequalityBounds() {
 
 void MpcController::m_packInitialGuess() {
     // Reference window [x0 u0 ... x(N-1) u(N-1) xN], then the measured x0.
-    const size_t count = m_config.N * m_refStride + m_config.nx;
-    const size_t offsetRef = m_lastIdxTraj * m_refStride;
-
-    std::memcpy(m_solver.x0.data(), m_referenceTrajectory.data() + offsetRef, count * sizeof(double));
-
+    std::ranges::copy(m_referenceWindow, m_solver.x0.begin());
     std::ranges::copy(m_initialStates, m_solver.x0.begin());
 
     // Scale: N+1 state blocks, N control blocks.
@@ -429,9 +411,9 @@ void MpcController::m_packInitialGuess() {
 }
 
 void MpcController::m_packParameters() {
-    const double* window = m_referenceTrajectory.data() + m_lastIdxTraj * m_refStride;
+    const double* window = m_referenceWindow.data();
     double* dst = std::ranges::copy(m_initialStates, m_solver.p.data()).out;
-    dst = std::copy_n(window, m_config.N * m_refStride + m_config.nx, dst);
+    dst = std::ranges::copy(m_referenceWindow, dst).out;
     const double* wind = dst;
     {
         std::lock_guard lock(m_disturbanceMutex);
@@ -467,10 +449,9 @@ std::map<uint8_t, uavCommandsFlags> MpcController::m_extractControls() const {
 
         if (m_violation) {
             // Rejected solution: reference feedforward control.
-            const size_t ctrlOffset = m_lastIdxTraj * m_refStride + offset;
-            cmd.commands.thrust      = static_cast<float>(m_referenceTrajectory.at(ctrlOffset + 0));
-            cmd.commands.rollDegree  = grs::radToDeg(static_cast<float>(m_referenceTrajectory.at(ctrlOffset + 1)));
-            cmd.commands.pitchDegree = grs::radToDeg(static_cast<float>(m_referenceTrajectory.at(ctrlOffset + 2)));
+            cmd.commands.thrust      = static_cast<float>(m_referenceWindow.at(offset + 0));
+            cmd.commands.rollDegree  = grs::radToDeg(static_cast<float>(m_referenceWindow.at(offset + 1)));
+            cmd.commands.pitchDegree = grs::radToDeg(static_cast<float>(m_referenceWindow.at(offset + 2)));
             cmd.commands.yawDegree   = 0.0;
         } else {
             cmd.commands.thrust      = static_cast<float>(m_solver.x[offset + 0] * m_config.scalesControls[scaleOffset + 0]);
@@ -496,7 +477,7 @@ std::map<uint8_t, uavCommandsFlags> MpcController::m_extractControls() const {
         std::ostringstream msg;
         msg << std::fixed << std::setprecision(4) << m_trackingNumber << "," << Logger::instance().nowMilliseconds() << "," << Logger::nowWallTimeMs() << "," << m_lastSolveMs << ",";
         msg << cmd.commands.thrust << "," << cmd.commands.rollDegree << "," << cmd.commands.pitchDegree << "," << cmd.commands.yawDegree << "," << m_lastIdxTraj;
-        msg << "," << m_lastStatus.fatrop.iterations << "," << m_lastStatus.fatrop.returnCode;
+        msg << "," << m_lastStatus.fatrop.iterations << "," << m_lastStatus.fatrop.returnCode << "," << m_referenceTime;
 
         if (m_violation) {
             msg << ", INVALID SOL";

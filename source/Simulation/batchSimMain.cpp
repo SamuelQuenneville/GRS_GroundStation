@@ -86,9 +86,9 @@ Optional:
                            delay from measurement to the command acting on the plant
                            (default 0, MATLAB behavior). 'measured' = each tick's NMPC
                            solve time; prefer a fixed value with --jobs > 1
-  --reference-indexing=nearest|time
-                           overrides SolverConfiguration.REFERENCE_INDEXING. 'time' matches
-                           the MATLAB sims; 'nearest' (default) is the GCS behavior
+  --deadline               real-time controller: no tick while the previous solve still
+                           runs (longer solves skip ticks, the command is held). Implies
+                           --cmd-delay=measured
   --store-traj=<k>         also write every k-th step to sample_XXXX.traj.csv
   --ts-decim=<k>           keep every k-th step in sample_XXXX.ts.bin (default 1, 0 = no file)
   --jobs=<n>|auto|max      worker processes (default 1). auto = one per physical core
@@ -360,9 +360,6 @@ int main(int argc, char** argv) {
 
 
         YAML::Node config = YAML::LoadFile(args.get("config"));
-        if (args.has("reference-indexing")) {
-            config["SolverConfiguration"]["REFERENCE_INDEXING"] = args.get("reference-indexing");
-        }
         const solverConfig sc = ConfigurationParser::parseSolverConfig(config);
         const gcsConfig gc = ConfigurationParser::parseGcsConfig(config);
         const size_t stride = static_cast<size_t>(sc.nx + sc.nu);
@@ -410,6 +407,12 @@ int main(int argc, char** argv) {
             opts.cmdDelayMs = opts.cmdDelayMeasured ? 0.0 : std::stod(cd);
             if (opts.nmheLatencyMs < 0.0 && lat != "measured") throw std::runtime_error("--nmhe-latency must be >= 0 or measured");
             if (opts.cmdDelayMs < 0.0) throw std::runtime_error("--cmd-delay must be >= 0 or measured");
+            opts.deadline = args.has("deadline");
+            if (opts.deadline) {
+                if (args.has("cmd-delay") && !opts.cmdDelayMeasured) throw std::runtime_error("--deadline implies --cmd-delay=measured");
+                opts.cmdDelayMeasured = true;
+                opts.cmdDelayMs = 0.0;
+            }
         }
 
         const auto controllers = split(args.get("controllers", "nmpc_naive,nmpc_of"), ',');

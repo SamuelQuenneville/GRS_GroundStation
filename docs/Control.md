@@ -88,11 +88,12 @@ rows). A second generated function computes `P_lin` from the reference
 window, the wind/disturbance estimate and L0 at every solve; its time counts
 in the solve time. Both are exported by `export_solver_*_lmpc.m`.
 
-How the reference index moves is `SolverConfiguration.
-REFERENCE_INDEXING`: `nearest` (default) searches forward for the reference
-point closest in north/east to UAV 1; `time` advances exactly one sample per
-solve, like the MATLAB sims (used by `grs_batchsim`, see
-`docs/Simulation.md`). Also owns:
+The reference follows the clock: `solve()` gets the time its telemetry was
+sampled (steady clock in the GCS, simulated time in `grs_batchsim`), and the
+reference window starts at the time elapsed since the first solve after
+launch, interpolated linearly between samples. A slow or skipped tick does
+not delay the reference, and all UAVs follow the same schedule. The
+reference time is the last column of `controls.csv`. Also owns:
 
 - **Reference trajectory** — `loadTrajectory()`/`saveTrajectory()` (CSV) and
   `setReferenceTrajectory()` (in-process, from `TrajectoryGenerator`), all

@@ -36,8 +36,8 @@ int nmhe_twoUavPayload_work(casadi_int *sz_arg, casadi_int* sz_res, casadi_int *
 int nmhe_twoUavPayload_work_bytes(casadi_int *sz_arg, casadi_int* sz_res, casadi_int *sz_iw, casadi_int *sz_w);
 #define nmhe_twoUavPayload_SZ_ARG 12
 #define nmhe_twoUavPayload_SZ_RES 10
-#define nmhe_twoUavPayload_SZ_IW 5838
-#define nmhe_twoUavPayload_SZ_W 218767
+#define nmhe_twoUavPayload_SZ_IW 5676
+#define nmhe_twoUavPayload_SZ_W 210193
 #ifdef __cplusplus
 } /* extern "C" */
 #endif

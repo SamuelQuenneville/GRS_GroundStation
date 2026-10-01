@@ -35,7 +35,10 @@ public:
     // Same as loadTrajectory() for a reference built in memory.
     virtual void setReferenceTrajectory(std::vector<double> referenceTrajectory) = 0;
 
-    virtual std::map<uint8_t, uavCommandsFlags> solve(const std::map<uint8_t, uavStates>& latestStates) = 0;
+    // time: when latestStates were sampled, in seconds on the caller's clock
+    // (steady clock in the GCS, simulated time in grs_batchsim). The
+    // reference advances with it, whatever the tick rate.
+    virtual std::map<uint8_t, uavCommandsFlags> solve(const std::map<uint8_t, uavStates>& latestStates, double time) = 0;
     [[nodiscard]] virtual double lastSolveMs() const = 0;
 
     struct DebugInfo {

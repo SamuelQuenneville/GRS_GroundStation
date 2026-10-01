@@ -93,18 +93,6 @@ namespace YAML {
                     }
                 }
 
-                // Optional: "nearest" (default, the GCS's behavior) or "time".
-                if (const auto indexing = node["REFERENCE_INDEXING"]) {
-                    const auto mode = indexing.as<std::string>();
-                    if (mode == "time") {
-                        rhs.referenceIndexing = solverConfig::ReferenceIndexing::Time;
-                    } else if (mode == "nearest") {
-                        rhs.referenceIndexing = solverConfig::ReferenceIndexing::Nearest;
-                    } else {
-                        throw std::runtime_error("SolverConfiguration.REFERENCE_INDEXING must be 'nearest' or 'time', got '" + mode + "'");
-                    }
-                }
-
                 for (const auto scale: rhs.scalesStates) {
                     rhs.invScalesStates.push_back(1.0 / scale);
                 }

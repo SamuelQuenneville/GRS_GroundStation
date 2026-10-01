@@ -152,11 +152,10 @@ reference.
 The controller side is the GCS's, not a copy of the MATLAB loop, which is
 the point. The known differences a MATLAB/C++ comparison will show:
 
-- **Reference indexing.** The GCS picks the reference window by searching
-  forward for the nearest point; MATLAB advances one sample per step.
-  `REFERENCE_INDEXING: time` (in `batchsim_twoUav.yaml`, or
-  `--reference-indexing=time`) switches `MpcController` to the MATLAB
-  behavior.
+- **Tick timing.** MATLAB solves at every step whatever the solve time.
+  `--deadline` makes the batch sim behave like the GCS loop instead: no tick
+  while the previous solve still runs, the command acts when the solve ends,
+  and the reference keeps its time (`skipped_frac` in the metrics).
 - **Warm start.** `MpcController` shifts the primal solution and resets the
   duals to zero; MATLAB also shifts the duals (`shift_dual.m`).
 - **Estimator timing.** The GCS runs the NMHE on its own thread; the batch

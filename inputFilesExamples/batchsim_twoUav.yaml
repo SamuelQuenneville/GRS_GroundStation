@@ -3,11 +3,9 @@
 #          grs_batchsim profile, two-UAV + payload       #
 #--------------------------------------------------
 #
-# Same solver/estimator profile as configuration_twoUav.yaml, with two
-# differences so a grs_batchsim run is directly comparable to the MATLAB
+# Same solver/estimator profile as configuration_twoUav.yaml, with one
+# difference so a grs_batchsim run is directly comparable to the MATLAB
 # Monte Carlo campaign (mc_run_one_twoUav.m):
-#   - REFERENCE_INDEXING: time (the MATLAB sims advance the reference one
-#     sample per step; the GCS default searches for the nearest point)
 #   - NMHE weights W_MEAS/W_WINDP/W_DP copied from
 #     mc_build_controllers_twoUav.m (the MATLAB-validated tuning), instead
 #     of configuration_twoUav.yaml's flat first-pass guess.
@@ -42,10 +40,6 @@ SolverConfiguration:
   # nmpc (default) or lmpc, same values below for both. Set by
   # grs_batchsim from --controllers.
   CONTROLLER: nmpc
-
-  # grs_batchsim only: time-indexed reference, like the MATLAB sims. The
-  # live GCS profile leaves this out (default: nearest).
-  REFERENCE_INDEXING: time
 
   # Tether rest length [m], packed into every solve's L0 parameter (shared
   # by both tethers). Fixed here for now, same as configuration.yaml -- see

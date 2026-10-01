@@ -213,6 +213,7 @@ void ControlInterface::m_controlLoop() {
             std::lock_guard lock(m_stateMutex);
             latestStates = m_latestStates;
         }
+        const double time = std::chrono::duration<double>(std::chrono::steady_clock::now().time_since_epoch()).count();
 
         // Every tick: adds the offset of systems that connected since (see initializeOffset()).
         m_navFrameManager.initializeOffset(latestStates, m_config.pixhawk.sitl);
@@ -232,7 +233,7 @@ void ControlInterface::m_controlLoop() {
 
             } else if (m_config.controlMode == ControlMode::MPC) {
                 // Commands in physical units.
-                cmds = m_controlStep->tick(navStates);
+                cmds = m_controlStep->tick(navStates, time);
 
                 for (auto& [sysId, states] : cmds) {
                     states.commands.thrust = static_cast<float>(thrust2rpm(navStates[sysId].airspeedMeterSecond, states.commands.thrust));

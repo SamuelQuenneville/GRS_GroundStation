@@ -33,13 +33,6 @@ struct solverConfig {
     double tetherL0; // tether rest length [m]
     double alphaMax; // angle-of-attack bound [rad], symmetric
 
-    // Where the reference window starts at each solve after launch:
-    //   Nearest: search forward for the point closest to UAV 1 in north/east,
-    //            so the reference waits for a vehicle that falls behind.
-    //   Time:    one sample per solve, like the MATLAB closed-loop sims.
-    enum class ReferenceIndexing { Nearest, Time };
-    ReferenceIndexing referenceIndexing = ReferenceIndexing::Nearest;
-
     std::vector<double> weight; // [Q(nx) R(nu) Qf(nx) Rdu(nu) Rdu0(nu)]
     std::vector<double> lbxStates;
     std::vector<double> ubxStates;

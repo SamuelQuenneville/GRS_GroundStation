@@ -599453,11 +599453,12 @@ static int casadi_f0(const casadi_real** arg, casadi_real** res, casadi_int* iw,
   casadi_fatrop_init(d, &arg, &res, &iw, &w);
   casadi_oracle_init(d->nlp->oracle, &arg, &res, &iw, &w);
   casadi_fatrop_presolve(d);
-  fatrop_ocp_c_set_option_double(d->solver, "acceptable_tol", 0.0001);
+  fatrop_ocp_c_set_option_double(d->solver, "acceptable_tol", 0.0005);
   fatrop_ocp_c_set_option_int(d->solver, "max_iter", 20);
-  fatrop_ocp_c_set_option_double(d->solver, "mu_init", 0.001);
+  fatrop_ocp_c_set_option_double(d->solver, "mu_init", 1e-06);
   fatrop_ocp_c_set_option_int(d->solver, "print_level", 0);
-  fatrop_ocp_c_set_option_double(d->solver, "tol", 1e-05);
+  fatrop_ocp_c_set_option_double(d->solver, "tol", 0.0001);
+  fatrop_ocp_c_set_option_bool(d->solver, "warm_start_init_point", 1);
   casadi_fatrop_solve(d);
   d->arg[0] = d_nlp.z;
   d->arg[1] = d_nlp.p;
@@ -599466,9 +599467,8 @@ static int casadi_f0(const casadi_real** arg, casadi_real** res, casadi_int* iw,
   d->res[0] = &d_nlp.objective;
   d->res[1] = d_nlp.z+656;
   d->res[2] = 0;
-  d->res[3] = d_nlp.lam_p;
+  d->res[3] = 0;
   if (casadi_f1(d->arg, d->res, d->iw, d->w, 0)) return 1;
-  casadi_scal(473, -1.0, d_nlp.lam_p);
   casadi_copy(d_nlp.z, 656, d_nlp.x);
   casadi_copy(d_nlp.z + 656, 640, d_nlp.g);
   casadi_copy(d_nlp.lam, 656, d_nlp.lam_x);

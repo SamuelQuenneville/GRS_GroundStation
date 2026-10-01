@@ -36,8 +36,8 @@ int solver_oneGround_lmpc_work(casadi_int *sz_arg, casadi_int* sz_res, casadi_in
 int solver_oneGround_lmpc_work_bytes(casadi_int *sz_arg, casadi_int* sz_res, casadi_int *sz_iw, casadi_int *sz_w);
 #define solver_oneGround_lmpc_SZ_ARG 12
 #define solver_oneGround_lmpc_SZ_RES 10
-#define solver_oneGround_lmpc_SZ_IW 1364
-#define solver_oneGround_lmpc_SZ_W 24344
+#define solver_oneGround_lmpc_SZ_IW 1736
+#define solver_oneGround_lmpc_SZ_W 32731
 #ifdef __cplusplus
 } /* extern "C" */
 #endif

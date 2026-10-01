@@ -56,6 +56,11 @@ struct RunOptions {
     // measured NMPC solve time instead of cmdDelayMs.
     double cmdDelayMs = 0.0;
     bool cmdDelayMeasured = false;
+    // Real-time controller: no tick while the previous solve still runs, so
+    // a solve longer than dt skips the next ticks (the command is held) and
+    // the reference, on the simulated clock, moves on meanwhile. Implies
+    // cmdDelayMeasured.
+    bool deadline = false;
     int storeTrajDecim = 0;            // 0 = no trajectory file, k = keep every k-th step
     int tsDecim = 1;                   // 0 = no time series, k = keep every k-th step
 };

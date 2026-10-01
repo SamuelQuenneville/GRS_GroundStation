@@ -37,7 +37,7 @@ int linearize_twoUavPayload_lmpc_work_bytes(casadi_int *sz_arg, casadi_int* sz_r
 #define linearize_twoUavPayload_lmpc_SZ_ARG 14
 #define linearize_twoUavPayload_lmpc_SZ_RES 3
 #define linearize_twoUavPayload_lmpc_SZ_IW 0
-#define linearize_twoUavPayload_lmpc_SZ_W 24046
+#define linearize_twoUavPayload_lmpc_SZ_W 24010
 #ifdef __cplusplus
 } /* extern "C" */
 #endif

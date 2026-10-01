@@ -22,7 +22,7 @@ ControlStep::ControlStep(Controller& controller, std::unique_ptr<EstimatorRunner
     }
 }
 
-std::map<uint8_t, uavCommandsFlags> ControlStep::tick(const std::map<uint8_t, uavStates>& navStates) {
+std::map<uint8_t, uavCommandsFlags> ControlStep::tick(const std::map<uint8_t, uavStates>& navStates, const double time) {
     m_estimateAppliedThisTick = false;
 
     if (m_runner) {
@@ -40,7 +40,7 @@ std::map<uint8_t, uavCommandsFlags> ControlStep::tick(const std::map<uint8_t, ua
     }
 
     // 3. NMPC solve.
-    auto cmds = m_controller.solve(navStates);
+    auto cmds = m_controller.solve(navStates, time);
 
     if (m_runner) {
         // Estimator control: thrust in N, roll/pitch in radians.

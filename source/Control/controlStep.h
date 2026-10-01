@@ -42,8 +42,9 @@ public:
     ControlStep(Controller& controller, std::unique_ptr<EstimatorRunner> runner, int estimatorNu);
 
     // navStates: telemetry in the NED frame, by sysId (stateVector.h).
+    // time: when navStates were sampled (see Controller::solve()).
     // Returns commands in physical units: thrust in N, attitude in degrees.
-    std::map<uint8_t, uavCommandsFlags> tick(const std::map<uint8_t, uavStates>& navStates);
+    std::map<uint8_t, uavCommandsFlags> tick(const std::map<uint8_t, uavStates>& navStates, double time);
 
     // True if this tick handed the controller a new estimate.
     [[nodiscard]] bool estimateAppliedThisTick() const { return m_estimateAppliedThisTick; }

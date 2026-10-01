@@ -227,19 +227,24 @@ std::vector<std::pair<std::string, double>> computeMetrics(
     }
 
     // --- Solver
+    // Over the steps that ran a solve (all of them unless deadline mode skipped some).
+    size_t ticks = 0;
     size_t fails = 0;
     size_t miss = 0;
     for (size_t k = 0; k < n; ++k) {
+        if (std::isnan(h.ctrlMs[k])) continue;
+        ++ticks;
         fails += h.ok[k] ? 0 : 1;
         miss += h.ctrlMs[k] > sc.dt * 1000.0 ? 1 : 0;
     }
-    put("fail_rate", n ? static_cast<double>(fails) / static_cast<double>(n) : kNaN);
+    put("fail_rate", ticks ? static_cast<double>(fails) / static_cast<double>(ticks) : kNaN);
     put("iter_mean", mean(h.iterations));
     put("iter_max", maxOmitNan(h.iterations));
     put("online_ms_mean", mean(h.ctrlMs));
     put("online_ms_p95", pct(h.ctrlMs, 95.0));
     put("online_ms_max", maxOmitNan(h.ctrlMs));
-    put("deadline_miss_frac", n ? static_cast<double>(miss) / static_cast<double>(n) : kNaN);
+    put("deadline_miss_frac", ticks ? static_cast<double>(miss) / static_cast<double>(ticks) : kNaN);
+    put("skipped_frac", n ? static_cast<double>(n - ticks) / static_cast<double>(n) : kNaN);
     put("mhe_ms_mean", mean(h.mheMs));
     put("mhe_ms_max", maxOmitNan(h.mheMs));
 
@@ -402,6 +407,7 @@ RunResult runClosedLoop(YAML::Node config, const std::string& controller, const 
     std::vector<double> uActive(reference.begin() + nx, reference.begin() + nx + nu);
     std::deque<std::pair<double, std::vector<double>>> pendingCmds;
     double lastActivation = 0.0;
+    double nextTick = 0.0; // deadline mode: when the previous solve ends
 
     stack.controller->initLaunch();
 
@@ -411,33 +417,38 @@ RunResult runClosedLoop(YAML::Node config, const std::string& controller, const 
         }
         const auto telemetry = toTelemetry(xMeas, numUavs, hasPayload, truth.windTrue);
 
-        std::map<uint8_t, uavCommandsFlags> cmds;
-        try {
-            cmds = step.tick(telemetry);
-        } catch (const std::exception& e) {
-            abortReason = std::string("solver_exception: ") + e.what();
-            break;
+        const double tk = static_cast<double>(it) * dt;
+        const bool ticked = !opts.deadline || tk >= nextTick - 1e-12;
+        if (ticked) {
+            std::map<uint8_t, uavCommandsFlags> cmds;
+            try {
+                cmds = step.tick(telemetry, tk);
+            } catch (const std::exception& e) {
+                abortReason = std::string("solver_exception: ") + e.what();
+                break;
+            }
+
+            const int perUavNu = nu / numUavs;
+            for (int i = 0; i < numUavs; ++i) {
+                const auto& c = cmds.at(static_cast<uint8_t>(i + 1)).commands;
+                u[i * perUavNu + 0] = c.thrust;
+                u[i * perUavNu + 1] = grs::degToRad(static_cast<double>(c.rollDegree));
+                u[i * perUavNu + 2] = grs::degToRad(static_cast<double>(c.pitchDegree));
+            }
+            if (std::any_of(u.begin(), u.end(), [](const double v) { return !std::isfinite(v); })) {
+                abortReason = "nonfinite_control";
+                break;
+            }
         }
 
-        const int perUavNu = nu / numUavs;
-        for (int i = 0; i < numUavs; ++i) {
-            const auto& c = cmds.at(static_cast<uint8_t>(i + 1)).commands;
-            u[i * perUavNu + 0] = c.thrust;
-            u[i * perUavNu + 1] = grs::degToRad(static_cast<double>(c.rollDegree));
-            u[i * perUavNu + 2] = grs::degToRad(static_cast<double>(c.pitchDegree));
-        }
-        if (std::any_of(u.begin(), u.end(), [](const double v) { return !std::isfinite(v); })) {
-            abortReason = "nonfinite_control";
-            break;
-        }
-
+        // Skipped ticks (deadline mode) hold u and log no solve.
         const auto dbg = stack.controller->getDebugInfo();
         h.controls.push_back(u);
-        h.ctrlMs.push_back(dbg.lastSolveMs);
-        h.iterations.push_back(dbg.lastFatrop.iterations);
-        h.ok.push_back(dbg.lastFatrop.returnCode == 0);
+        h.ctrlMs.push_back(ticked ? dbg.lastSolveMs : kNaN);
+        h.iterations.push_back(ticked ? dbg.lastFatrop.iterations : kNaN);
+        h.ok.push_back(!ticked || dbg.lastFatrop.returnCode == 0);
         const EstimatorRunner* er = step.estimatorRunner();
-        h.mheMs.push_back(er && er->stats().solvedThisTick ? er->stats().lastSolveMs : kNaN);
+        h.mheMs.push_back(ticked && er && er->stats().solvedThisTick ? er->stats().lastSolveMs : kNaN);
         if (er && !step.appliedEstimate().wind.empty()) {
             // The estimate the controller actually used this tick.
             h.windHat.push_back(step.appliedEstimate().wind);
@@ -451,11 +462,13 @@ RunResult runClosedLoop(YAML::Node config, const std::string& controller, const 
         // takes effect `delay` after this tick's measurement (never before
         // the previous one); until then the previous command is held. With
         // no delay this is one integration over the whole interval.
-        const double tk = static_cast<double>(it) * dt;
-        const double delay = (opts.cmdDelayMeasured ? dbg.lastSolveMs : opts.cmdDelayMs) / 1000.0;
-        const double activation = std::max(tk + std::max(0.0, delay), lastActivation);
-        lastActivation = activation;
-        pendingCmds.emplace_back(activation, u);
+        if (ticked) {
+            const double delay = (opts.cmdDelayMeasured ? dbg.lastSolveMs : opts.cmdDelayMs) / 1000.0;
+            const double activation = std::max(tk + std::max(0.0, delay), lastActivation);
+            lastActivation = activation;
+            pendingCmds.emplace_back(activation, u);
+            nextTick = tk + dbg.lastSolveMs / 1000.0;
+        }
         for (double t = tk, tEnd = tk + dt; t < tEnd - 1e-12;) {
             while (!pendingCmds.empty() && pendingCmds.front().first <= t + 1e-12) {
                 uActive = pendingCmds.front().second;

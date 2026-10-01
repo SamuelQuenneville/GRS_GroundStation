@@ -11,7 +11,6 @@
 
 #pragma once
 
-#include <chrono>
 #include <mutex>
 #include <optional>
 #include <sstream>
@@ -58,7 +57,7 @@ public:
     // validated.
     void setReferenceTrajectory(std::vector<double> referenceTrajectory) override;
 
-    std::map<uint8_t, uavCommandsFlags> solve(const std::map<uint8_t, uavStates>& latestStates) override;
+    std::map<uint8_t, uavCommandsFlags> solve(const std::map<uint8_t, uavStates>& latestStates, double time) override;
     [[nodiscard]] double lastSolveMs() const override;
 
     [[nodiscard]] DebugInfo getDebugInfo() const override;
@@ -97,13 +96,15 @@ private:
     // (its block then keeps its previous value, see m_unpackLatestStates()).
     bool m_telemetryComplete = true;
     bool m_prevTelemetryComplete = true;
-    std::chrono::steady_clock::time_point m_timeAtLaunched;
 
+    // Reference time: time since the first solve after launch, on the
+    // caller's clock. Sample floor(t/dt) and the window interpolated at t.
+    std::optional<double> m_launchTime;
+    double m_referenceTime = 0.0;
     size_t m_lastIdxTraj = 0;
-    size_t m_endIdxTraj = 0;
+    std::vector<double> m_referenceWindow; // [x u] x N, then x
+    size_t m_endIdxTraj = 0;               // number of full windows
     size_t m_numTrajectoryPoints = 0;
-
-    size_t m_solvesSinceLaunch = 0; // ReferenceIndexing::Time only
 
     size_t m_trackingNumber = 0;
 
@@ -127,7 +128,8 @@ private:
 
     double m_lastSolveMs = 0.0;
 
-    double m_computeReferenceCost(size_t idx) const;
+    // Sets the reference time, m_lastIdxTraj, m_referenceWindow and m_endedTraj.
+    void m_updateReference(double time);
 
     // Previous solution advanced by `shift` stages (shift < N), tail repeated.
     void m_shiftSolution(size_t shift);
