@@ -32,6 +32,9 @@ struct solverConfig {
     double dt;       // shooting interval [s]
     double tetherL0; // tether rest length [m]
     double alphaMax; // angle-of-attack bound [rad], symmetric
+    // Plan stage, counted from the applied control, whose predicted angle of
+    // attack is sent as feedforward (1: the next sample, + link latency).
+    int aoaFeedforwardStage = 1;
 
     std::vector<double> weight; // [Q(nx) R(nu) Qf(nx) Rdu(nu) Rdu0(nu)]
     std::vector<double> lbxStates;

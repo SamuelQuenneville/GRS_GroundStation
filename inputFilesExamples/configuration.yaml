@@ -51,6 +51,10 @@ SolverConfiguration:
   # Angle-of-attack bound [rad] (build option 'alpha_max').
   ALPHA_MAX: 0.244346  # deg2rad(14)
 
+  # Angle-of-attack feedforward sent with each command: the plan's alpha this
+  # many stages after the applied control (1 + link latency in samples).
+  AOA_FF_STAGE: 1
+
   # Q(8) | R(3) | Qf(8) | Rdu(3) | Rdu0(3), GRS_Controller tuning_oneGround.m.
   #         x,   y,  z, vx, vy, vz, roll, pitch | T, roll, pitch | Qf = 10 Q | Rdu | Rdu0 = 2 Rdu
   WEIGHT: [0.1, 0.1, 1, 1, 1, 1, 1, 1,   5, 1, 1,   1, 1, 10, 10, 10, 10, 10, 10,   0.5, 2.0, 2.0,   1.0, 4.0, 4.0]

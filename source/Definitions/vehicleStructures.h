@@ -43,12 +43,24 @@ struct uavCommands {
     float thrust;           // [0 1]
 }__attribute__((packed));
 
+// Feedforward for the onboard attitude loop. NaN: none available.
+struct uavEstimates {
+    float aoaDegree = 0.0f;
+    float tension = 0.0f;   // [N]
+}__attribute__((packed));
+
+// Bits of uavCommandsFlags::flags, as decoded by the ArduPilot SITL fork.
+namespace commandFlag {
+inline constexpr uint8_t kShouldMove = 1u << 0; // in-flight initialization, no launcher
+inline constexpr uint8_t kEndSim     = 1u << 1; // end of a command file
+inline constexpr uint8_t kLaunch     = 1u << 2; // trigger the launch in SITL
+}
+
 struct uavCommandsFlags {
     uavCommands commands{};
     std::optional<double> timestamp;
-    std::optional<bool> F1Command;
-    std::optional<bool> F2Command;
-    std::optional<bool> F3Command;
+    uavEstimates estimates{};
+    uint8_t flags = 0;      // commandFlag bits
 };
 
 #endif //VEHICLESTRUCTURES_H

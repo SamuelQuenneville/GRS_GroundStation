@@ -96,6 +96,13 @@ that sample instead of the new solution. Otherwise the solve starts cold from
 the reference window and a rejected solve applies the reference feedforward
 control. `controls.csv` marks rejected solves with the source used.
 
+Each command also carries the plan's predicted angle of attack
+`AOA_FF_STAGE` stages after the applied control (optional
+`SolverConfiguration` key, default 1; add the link latency in samples), a
+feedforward for the onboard attitude loop. It comes from the alpha rows of
+the accepted solution's `g` (linearized for the LMPC) and is NaN while there
+is no plan. The tether tension slot is NaN for now.
+
 The LMPC is the same problem with the dynamics and angle-of-attack
 constraints linearized: its solver is a QP with the same bounds, constraint
 rows and warm start, and its parameter vector is the NMPC's followed by
@@ -113,7 +120,8 @@ sampled (steady clock in the GCS, simulated time in `grs_batchsim`), and the
 reference window starts at the time elapsed since the first solve after
 launch, interpolated linearly between samples. A slow or skipped tick does
 not delay the reference, and all UAVs follow the same schedule. The
-reference time is the last column of `controls.csv`. Also owns:
+reference time is followed by the angle-of-attack feedforward [deg] in
+`controls.csv`. Also owns:
 
 - **Reference trajectory** — `loadTrajectory()`/`saveTrajectory()` (CSV) and
   `setReferenceTrajectory()` (in-process, from `TrajectoryGenerator`), all

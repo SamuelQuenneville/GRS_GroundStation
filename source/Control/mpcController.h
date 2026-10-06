@@ -121,6 +121,7 @@ private:
     // start, the LMPC linearization point and, after a rejected solve, the
     // control. m_planAge: its age at the current solve, N if none.
     std::vector<double> m_plan;
+    std::vector<double> m_planAlpha; // its angle of attack [rad], numUavs per stage, N stages
     std::optional<size_t> m_planIdx;
     size_t m_planAge = 0;
     std::vector<double> m_linPoint; // LMPC: [x u] x N, physical
@@ -161,7 +162,8 @@ private:
     // window x0 u0 ... xN; Wind_est; D_est; Weight; U_prev; L0; LMPC: P_lin].
     // P_lin is linearized about the warm start if aboutPlan, else the reference.
     void m_packParameters(bool aboutPlan);
-    // Commands from m_uPrev, the control applied this solve.
+    // Commands from m_uPrev, the control applied this solve, with the plan's
+    // angle of attack AOA_FF_STAGE stages later (NaN without a plan).
     std::map<uint8_t, uavCommandsFlags> m_extractControls() const;
 
     double m_unwrapYaw(uint8_t sysId, double yawRadWrapped);

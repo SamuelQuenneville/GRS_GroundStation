@@ -61,6 +61,10 @@ SolverConfiguration:
   # Angle-of-attack bound [rad], both UAVs (build option 'alpha_max').
   ALPHA_MAX: 0.436332  # deg2rad(25)
 
+  # Angle-of-attack feedforward sent with each command: the plan's alpha this
+  # many stages after the applied control (1 + link latency in samples).
+  AOA_FF_STAGE: 1
+
   # Q(22) | R(6) | Qf(22) | Rdu(6) | Rdu0(6), GRS_Controller tuning_twoUav.m.
   # Scaled errors (SCALES_*): position up, attitude and controls down, so
   # the controller follows the path rather than the windless attitude and

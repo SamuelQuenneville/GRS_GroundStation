@@ -191,6 +191,12 @@ std::map<uint8_t, uavCommandsFlags> MpcController::solve(const std::map<uint8_t,
 
     if (!m_violation) {
         m_plan = m_solver.x;
+        // g: nz initial rows, then per stage nz dynamics rows and numUavs alpha rows
+        const auto numUavs = static_cast<size_t>(m_config.numUavs);
+        m_planAlpha.resize(N * numUavs);
+        for (size_t k = 0; k < N; ++k) {
+            std::copy_n(m_solver.g.begin() + m_nz + k * (m_nz + numUavs) + m_nz, numUavs, m_planAlpha.begin() + k * numUavs);
+        }
         m_planIdx = m_lastIdxTraj;
         m_planAge = 0;
     }
@@ -467,6 +473,9 @@ std::map<uint8_t, uavCommandsFlags> MpcController::m_extractControls() const {
 
     std::map<uint8_t, uavCommandsFlags> out;
 
+    const auto N = static_cast<size_t>(m_config.N);
+    const size_t aoaStage = std::min(m_planAge + static_cast<size_t>(m_config.aoaFeedforwardStage), N - 1);
+
     for (int sysId = 1; sysId <= m_config.numUavs; ++sysId) {
         uavCommandsFlags cmd;
 
@@ -478,17 +487,14 @@ std::map<uint8_t, uavCommandsFlags> MpcController::m_extractControls() const {
         cmd.commands.pitchDegree = grs::radToDeg(static_cast<float>(m_uPrev[offset + 2]));
         cmd.commands.yawDegree   = 0.0;
 
-        cmd.F1Command = true;   // Should move?
-        cmd.F2Command = false;  // End simulation?
-        cmd.F3Command = false;  // Launch?
+        cmd.estimates.aoaDegree = m_planAge < N
+            ? grs::radToDeg(static_cast<float>(m_planAlpha[aoaStage * m_config.numUavs + (sysId - 1)]))
+            : std::numeric_limits<float>::quiet_NaN();
+        cmd.estimates.tension = std::numeric_limits<float>::quiet_NaN();
 
-        if (m_launched) {
-            cmd.F3Command = true;
-        }
-
-        if (m_endedTraj) {
-            cmd.F2Command = true;
-        }
+        cmd.flags = commandFlag::kShouldMove;
+        if (m_launched) cmd.flags |= commandFlag::kLaunch;
+        if (m_endedTraj) cmd.flags |= commandFlag::kEndSim;
 
         out[static_cast<uint8_t>(sysId)] = cmd;
 
@@ -496,6 +502,7 @@ std::map<uint8_t, uavCommandsFlags> MpcController::m_extractControls() const {
         msg << std::fixed << std::setprecision(4) << m_trackingNumber << "," << Logger::instance().nowMilliseconds() << "," << Logger::nowWallTimeMs() << "," << m_lastSolveMs << ",";
         msg << cmd.commands.thrust << "," << cmd.commands.rollDegree << "," << cmd.commands.pitchDegree << "," << cmd.commands.yawDegree << "," << m_lastIdxTraj;
         msg << "," << m_lastStatus.fatrop.iterations << "," << m_lastStatus.fatrop.returnCode << "," << m_referenceTime;
+        msg << "," << cmd.estimates.aoaDegree;
 
         if (m_violation) {
             msg << ", INVALID SOL, " << (m_planAge < static_cast<size_t>(m_config.N) ? "plan age " + std::to_string(m_planAge) : "reference");

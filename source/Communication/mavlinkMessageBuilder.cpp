@@ -23,11 +23,11 @@ mavlink_message_t MavlinkMessageBuilder::buildSetAttitudeTarget(const MavlinkAdd
         static_cast<uint32_t>(std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count()),
         targetSysid,
         targetCompid,
-        ATTITUDE_TARGET_TYPEMASK_BODY_ROLL_RATE_IGNORE | ATTITUDE_TARGET_TYPEMASK_BODY_PITCH_RATE_IGNORE | ATTITUDE_TARGET_TYPEMASK_BODY_YAW_RATE_IGNORE,
+        0,                              // type_mask: the body-rate fields carry data
         q,
-        target.F1Command.value(),       // should_move (in flight initialization, no launcher)
-        target.F2Command.value(),       // end_sim (reach end of a command file)
-        target.F3Command.value(),       // launch (trigger the launch in SITL)
+        target.estimates.aoaDegree,     // body_roll_rate field
+        target.estimates.tension,       // body_pitch_rate field
+        static_cast<float>(target.flags), // body_yaw_rate field, commandFlag bits
         target.commands.thrust,
         thrustBody
     );
