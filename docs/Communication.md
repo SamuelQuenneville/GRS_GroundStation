@@ -37,16 +37,33 @@ and keeps happening in the background after `connectAll()` returns.
 
 Vehicle commands (`setUavCommands()`) go out as `SET_ATTITUDE_TARGET`
 messages built by `MavlinkMessageBuilder` (see below), sent over
-`MavlinkPassthrough` at a fixed rate by `m_sendAttitudeTarget()`.
+`MavlinkPassthrough` as soon as the control loop produces them.
+
+**Link budget.** Every message is requested by the GCS with
+`SET_MESSAGE_INTERVAL` on connection; set every `SRx_*` of the GCS port to 0
+on the vehicle so nothing else is streamed:
+
+| Message | Rate | Use |
+|---|---|---|
+| `CONTROL_SYSTEM_STATE` (146) | `stateRateHz` (50) | controller and NMHE state, GRS convention (`grsMavlinkConventions.h`) |
+| `GLOBAL_POSITION_INT` | 5 Hz | GCS origin, frame-offset check, dashboard |
+| `SYS_STATUS`, `GPS_RAW_INT`, `BATTERY_STATUS`, `RC_CHANNELS` | 1 Hz | dashboard |
+| `HEARTBEAT` | 1 Hz (always) | mode, armed, link |
+| `GPS_GLOBAL_ORIGIN` | on request (2 s until known, then 10 s) | frame offset |
+
+`CONTROL_SYSTEM_STATE` is requested again (at most every 2 s, with a
+warning) while it is missing or older than 1 s, so a vehicle without the GRS
+firmware is reported and a rebooted one resumes. Its measured rate is logged
+after the first 5 s and whenever it drops below 70 % of the request.
 
 ## `StatesAggregator` (`statesAggregator.h`/`.cpp`)
 
-One instance per UAV. MAVSDK delivers attitude, position, velocity,
-airspeed, and global-position as separate, independently-rated
-subscriptions; `StatesAggregator` merges the latest value from each into
-one `uavStates` snapshot (`getSnapshot()`) and tracks each subscription's
-observed update rate (`getRates()`, used for diagnostics — e.g. spotting a
-stalled GPS feed).
+One instance per vehicle. Merges `CONTROL_SYSTEM_STATE` (position,
+velocity, airspeed, attitude from the quaternion, all from one EKF sample)
+and `GLOBAL_POSITION_INT` into one `uavStates` snapshot (`getSnapshot()`).
+A state not newer than the last (`time_usec`) is dropped. `lastStateTime()`
+gives the arrival time of the last state, the telemetry age used by the
+control loop's staleness check.
 
 ## `MavlinkMessageBuilder` (`mavlinkMessageBuilder.h`/`.cpp`)
 

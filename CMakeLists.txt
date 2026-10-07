@@ -131,6 +131,7 @@ set(GRS_DEFINITION_CORE
 
 set(GRS_DEFINITION
         source/Definitions/communicationStructures.h
+        source/Definitions/grsMavlinkConventions.h
         source/Definitions/gpsDefinitions.h
 )
 

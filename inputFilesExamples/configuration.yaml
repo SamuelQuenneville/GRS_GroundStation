@@ -10,6 +10,7 @@ GcsConfiguration:
   hlcFrequency: 20.0
   nmheFrequency: 5.0      # NMHE update rate -- starting point per gcs-sitl-integration-plan.md's Decisions, not yet validated
   telemetryTimeout: 0.3  # [s] MPC: no command while a UAV's telemetry is older
+  stateRateHz: 50.0       # CONTROL_SYSTEM_STATE request; at most the vehicle's SCHED_LOOP_RATE
   controlMode: MPC        # MPC | MATLAB | ATTITUDE_FILE
 
 Pixhawk:

@@ -11,28 +11,31 @@
 
 #pragma once
 
+#include <chrono>
+#include <cstdint>
 #include <mutex>
+#include <optional>
 
 #include "Definitions/communicationStructures.h"
 
+// Latest state of one vehicle, merged from CONTROL_SYSTEM_STATE (controller
+// state, GRS convention in grsMavlinkConventions.h) and GLOBAL_POSITION_INT.
 class StatesAggregator {
 public:
-    StatesAggregator();
-
-    void updateAttitude(float roll, float pitch, float yaw);
-    void updatePosition(float n, float e, float d);
-    void updateVelocity(float vn, float ve, float vd);
-    void updateAirspeed(float airspeed);
+    // Returns false (state unchanged) for a sample not newer than the last one.
+    bool updateControlState(uint64_t timeUsec, const float pos[3], const float vel[3], float airspeed,
+                            const float q[4]);
     void updateGlobalPosition(double lat, double lon, double alt);
 
     uavStates getSnapshot() const;
-    aggregatorRates getRates() const;
+    // Arrival time of the last control state; nullopt before the first.
+    std::optional<std::chrono::steady_clock::time_point> lastStateTime() const;
 
 private:
     mutable std::mutex m_mutex;
     uavStates m_state{};
-
-    aggregatorRates m_rates{};
+    uint64_t m_lastTimeUsec = 0;
+    std::optional<std::chrono::steady_clock::time_point> m_lastStateTime;
 };
 
 #endif //STATESAGGREGATOR_H

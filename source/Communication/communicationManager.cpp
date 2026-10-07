@@ -121,9 +121,9 @@ std::optional<double> CommunicationManager::telemetryAge(const uint8_t sysId) {
         if (it == m_aggregators.end() || !it->second) return std::nullopt;
         aggregator = it->second;
     }
-    const auto rates = aggregator->getRates();
-    const auto oldest = std::min({rates.lastPosition, rates.lastVelocity, rates.lastAttitude});
-    return std::chrono::duration<double>(std::chrono::steady_clock::now() - oldest).count();
+    const auto last = aggregator->lastStateTime();
+    if (!last) return std::nullopt;
+    return std::chrono::duration<double>(std::chrono::steady_clock::now() - *last).count();
 }
 
 void CommunicationManager::setEkfOriginCallback(std::function<void(uint8_t, double, double, double)> cb) {
@@ -513,30 +513,21 @@ void CommunicationManager::m_subscribeMavlink(const uint8_t sysId) {
     m_subscribeGpsInfo(telemetry, sysId, handles);
     m_subscribeRcStatus(telemetry, sysId, handles);
 
-    // LOCAL_POSITION_NED
-    m_subscribePositionVelocity(telemetry, sysId, handles);
+    // CONTROL_SYSTEM_STATE: the controller state, the only high-rate message
+    m_subscribeControlState(sysId);
+    m_requestControlState(sysId);
 
-    // GLOBAL_POSITION_INT
+    // GLOBAL_POSITION_INT (origin, offset check, dashboard)
     m_subscribePosition(telemetry, sysId, handles);
 
     // GPS_GLOBAL_ORIGIN (requested from the position callback)
     m_subscribeGpsGlobalOrigin(sysId);
 
-    // Command Ack
     m_subscribeHome(telemetry, sysId, handles);
     m_subscribeCommandAck(sysId);
     m_subscribeToHeartbeat(sysId);
 
-    if (m_vehicleType[sysId] == mavsdk::Vehicle::FixedWing) {
-        // ATTITUDE
-        m_subscribeAttitude(telemetry, sysId, handles);
-
-        // VFR_HUD
-        m_subscribeFixedwingMetrics(telemetry, sysId, handles);
-
-        m_requestAttitudeTarget(sysId);
-        m_subscribeAttitudeTarget(sysId);
-    }
+    m_requestStatusRates(sysId);
 
     m_messageHandles[sysId] = handles;
 }
@@ -569,19 +560,8 @@ void CommunicationManager::m_unsubscribeMavlink(const uint8_t sysId) {
     }
     m_onStatusUpdate();
 
-    // LOCAL_POSITION_NED
-    telemetry->unsubscribe_position_velocity_ned(handles.positionVelocityNedHandle);
-
     // GLOBAL_POSITION_INT
     telemetry->unsubscribe_position(handles.positionHandle);
-
-    if (m_vehicleType[sysId] == mavsdk::Vehicle::FixedWing) {
-       // ATTITUDE
-        telemetry->unsubscribe_attitude_euler(handles.attitudeHandle);
-
-        // VFR_HUD
-        telemetry->unsubscribe_fixedwing_metrics(handles.fixedwingMetricsHandle);
-    }
 
     // Remove from map
     m_messageHandles.erase(sysId);
@@ -621,10 +601,6 @@ void CommunicationManager::m_handleCommandAck(const mavlink_message_t& message) 
         std::lock_guard lock(m_commandAckMutex);
         m_lastAck = ack;
 
-        if (m_lastAck.command == MAVLINK_MSG_ID_ATTITUDE_TARGET) {
-           LOG_DEBUG("ATTITUDE ACK");
-        }
-
         m_cvCommandAck.notify_all();
     }).detach();
 }
@@ -651,48 +627,6 @@ void CommunicationManager::m_handleHeartbeat(const uint8_t sysId, const mavlink_
 void CommunicationManager::m_subscribeToHeartbeat(const uint8_t sysId) {
     m_passthrough[sysId]->subscribe_message(MAVLINK_MSG_ID_HEARTBEAT,
         [this, sysId](const mavlink_message_t& message) { m_handleHeartbeat(sysId, message); });
-}
-
-void CommunicationManager::m_requestAttitudeTarget(const uint8_t sysId) {
-    const auto result = m_passthrough[sysId]->queue_message(
-        [&](const MavlinkAddress mavlink_address, const uint8_t channel) {
-            mavlink_message_t message;
-            mavlink_msg_command_long_pack_chan(
-                mavlink_address.system_id,
-                mavlink_address.component_id,
-                channel,
-                &message,
-                m_passthrough[sysId]->get_target_sysid(),
-                m_passthrough[sysId]->get_target_compid(),
-                MAV_CMD_SET_MESSAGE_INTERVAL, // Command 511
-                0,
-                MAVLINK_MSG_ID_ATTITUDE_TARGET, // Message ID 83
-                1e6 / 10.0, // Microseconds between messages
-                0, 0, 0, 0, 0
-            );
-            return message;
-        });
-
-    if (result != mavsdk::MavlinkPassthrough::Result::Success) {
-        LOG_WARNING("Failed to request ATTITUDE_TARGET stream! Result = " + std::to_string(static_cast<int>(result)));
-    } else {
-        LOG_INFO("Requested ATTITUDE_TARGET stream at " + std::to_string(10.0) + " Hz");
-    }
-}
-
-void CommunicationManager::m_handleAttitudeTarget(const mavlink_message_t& message) const {
-    std::thread([this, message]() {
-        mavlink_attitude_target_t attitudeTarget;
-        mavlink_msg_attitude_target_decode(&message, &attitudeTarget);
-
-        LOG_DEBUG("Thrust target from AP = " + std::to_string(attitudeTarget.thrust));
-    }).detach();
-}
-
-void CommunicationManager::m_subscribeAttitudeTarget(const uint8_t sysId) {
-     m_passthrough[sysId]->subscribe_message(MAVLINK_MSG_ID_ATTITUDE_TARGET, [this](const mavlink_message_t& message) {
-         m_handleAttitudeTarget(message);
-     });
 }
 
 void CommunicationManager::m_subscribeHealth(const std::shared_ptr<mavsdk::Telemetry> &telemetry, uint8_t sysId, subscriptionHandles &handles) {
@@ -772,50 +706,12 @@ void CommunicationManager::m_subscribeHome(const std::shared_ptr<mavsdk::Telemet
 }
 
 
-void CommunicationManager::m_subscribeAttitude(const std::shared_ptr<mavsdk::Telemetry>& telemetry, uint8_t sysId, subscriptionHandles& handles) {
-
-    const mavsdk::Telemetry::Result setRateResult = telemetry->set_rate_attitude_euler(25.0);
-    if (setRateResult != mavsdk::Telemetry::Result::Success) {
-        LOG_ERROR("Failed to set rate attitude_euler");
-    }
-
-    handles.attitudeHandle = telemetry->subscribe_attitude_euler([this, sysId](const mavsdk::Telemetry::EulerAngle& attitude) {
-        m_aggregators[sysId]->updateAttitude(attitude.roll_deg, attitude.pitch_deg, attitude.yaw_deg);
-
-        if (m_config.telemetry_publish_hz <= 0.0) {
-            // immediate publish
-            m_onTelemetryUpdate();
-        } else {
-            m_snapshotDirty.store(true);
-        }
-    });
-}
-
-void CommunicationManager::m_subscribePositionVelocity(const std::shared_ptr<mavsdk::Telemetry>& telemetry, uint8_t sysId, subscriptionHandles& handles) {
-
-    const mavsdk::Telemetry::Result setRateResult = telemetry->set_rate_position_velocity_ned(25.0);
-    if (setRateResult != mavsdk::Telemetry::Result::Success) {
-        LOG_ERROR("Failed to set rate position_velocity_ned");
-    }
-
-    handles.positionVelocityNedHandle = telemetry->subscribe_position_velocity_ned([this, sysId](const mavsdk::Telemetry::PositionVelocityNed& positionVelocityNed) {
-        m_aggregators[sysId]->updatePosition(positionVelocityNed.position.north_m, positionVelocityNed.position.east_m, positionVelocityNed.position.down_m);
-        m_aggregators[sysId]->updateVelocity(positionVelocityNed.velocity.north_m_s, positionVelocityNed.velocity.east_m_s, positionVelocityNed.velocity.down_m_s);
-
-        if (m_config.telemetry_publish_hz <= 0.0) {
-            // immediate publish
-            m_onTelemetryUpdate();
-        } else {
-            m_snapshotDirty.store(true);
-        }
-    });
-}
-
 void CommunicationManager::m_subscribePosition(const std::shared_ptr<mavsdk::Telemetry>& telemetry, uint8_t sysId, subscriptionHandles& handles) {
 
     handles.positionHandle = telemetry->subscribe_position([this, sysId](const mavsdk::Telemetry::Position& position) {
         m_aggregators[sysId]->updateGlobalPosition(position.latitude_deg, position.longitude_deg, position.absolute_altitude_m);
         m_requestGpsGlobalOrigin(sysId);
+        m_requestControlState(sysId);
 
         if (m_config.telemetry_publish_hz <= 0.0) {
             // immediate publish
@@ -823,6 +719,98 @@ void CommunicationManager::m_subscribePosition(const std::shared_ptr<mavsdk::Tel
         } else {
             m_snapshotDirty.store(true);
         }
+    });
+}
+
+void CommunicationManager::m_subscribeControlState(const uint8_t sysId) {
+        m_passthrough[sysId]->subscribe_message(MAVLINK_MSG_ID_CONTROL_SYSTEM_STATE, [this, sysId](const mavlink_message_t& message) {
+        mavlink_control_system_state_t state;
+        mavlink_msg_control_system_state_decode(&message, &state);
+        const float pos[3] = {state.x_pos, state.y_pos, state.z_pos};
+        const float vel[3] = {state.x_vel, state.y_vel, state.z_vel};
+
+        std::shared_ptr<StatesAggregator> aggregator;
+        {
+            std::lock_guard lock(m_statesMutex);
+            const auto it = m_aggregators.find(sysId);
+            if (it == m_aggregators.end() || !it->second) return;
+            aggregator = it->second;
+        }
+        if (!aggregator->updateControlState(state.time_usec, pos, vel, state.airspeed, state.q)) return;
+
+        {
+            std::lock_guard lock(m_ekfOriginMutex);
+            auto& w = m_stateRate[sysId];
+            const auto now = std::chrono::steady_clock::now();
+            if (w.count++ == 0 && !w.reported) w.start = now;
+            const double elapsed = std::chrono::duration<double>(now - w.start).count();
+            if (elapsed >= 5.0) {
+                const double rate = (w.count - 1) / elapsed;
+                if (!w.reported || rate < 0.7 * m_config.stateRateHz) {
+                    LOG_INFO("sysId " + std::to_string(sysId) + ": CONTROL_SYSTEM_STATE at " + std::to_string(rate)
+                             + " Hz (requested " + std::to_string(m_config.stateRateHz) + " Hz)");
+                }
+                w = {now, 1, true};
+            }
+        }
+
+        if (m_config.telemetry_publish_hz <= 0.0) {
+            m_onTelemetryUpdate();
+        } else {
+            m_snapshotDirty.store(true);
+        }
+    });
+}
+
+void CommunicationManager::m_requestControlState(const uint8_t sysId) {
+    std::shared_ptr<StatesAggregator> aggregator;
+    {
+        std::lock_guard lock(m_statesMutex);
+        const auto it = m_aggregators.find(sysId);
+        if (it == m_aggregators.end() || !it->second) return;
+        aggregator = it->second;
+    }
+    const auto now = std::chrono::steady_clock::now();
+    const auto last = aggregator->lastStateTime();
+    if (last && now - *last < std::chrono::seconds(1)) return;
+    {
+        std::lock_guard lock(m_ekfOriginMutex);
+        const auto requested = m_stateRequestedAt.find(sysId);
+        if (requested != m_stateRequestedAt.end() && now - requested->second < std::chrono::seconds(2)) return;
+        if (requested != m_stateRequestedAt.end()) {
+            LOG_WARNING("sysId " + std::to_string(sysId) + ": no CONTROL_SYSTEM_STATE (GRS firmware required), requested again");
+        }
+        m_stateRequestedAt[sysId] = now;
+    }
+    m_setMessageInterval(sysId, MAVLINK_MSG_ID_CONTROL_SYSTEM_STATE, m_config.stateRateHz);
+}
+
+void CommunicationManager::m_requestStatusRates(const uint8_t sysId) {
+    // Dashboard and frame offset only. Set every SRx_* of this port to 0 on the
+    // vehicle: then only what is requested here is sent.
+    m_setMessageInterval(sysId, MAVLINK_MSG_ID_GLOBAL_POSITION_INT, 5.0);
+    for (const uint32_t id : {MAVLINK_MSG_ID_SYS_STATUS, MAVLINK_MSG_ID_GPS_RAW_INT, MAVLINK_MSG_ID_BATTERY_STATUS,
+                              MAVLINK_MSG_ID_RC_CHANNELS}) {
+        m_setMessageInterval(sysId, id, 1.0);
+    }
+}
+
+void CommunicationManager::m_setMessageInterval(const uint8_t sysId, const uint32_t messageId, const double rateHz) {
+    std::shared_ptr<mavsdk::MavlinkPassthrough> passthrough;
+    {
+        std::lock_guard lock(m_linkMutex);
+        const auto it = m_passthrough.find(sysId);
+        if (it == m_passthrough.end()) return;
+        passthrough = it->second;
+    }
+    const float intervalUs = static_cast<float>(1e6 / rateHz);
+    passthrough->queue_message([passthrough, messageId, intervalUs](const MavlinkAddress address, const uint8_t channel) {
+        mavlink_message_t message;
+        mavlink_msg_command_long_pack_chan(address.system_id, address.component_id, channel, &message,
+                                           passthrough->get_target_sysid(), passthrough->get_target_compid(),
+                                           MAV_CMD_SET_MESSAGE_INTERVAL, 0, static_cast<float>(messageId), intervalUs,
+                                           0, 0, 0, 0, 0);
+        return message;
     });
 }
 
@@ -863,20 +851,6 @@ void CommunicationManager::m_requestGpsGlobalOrigin(const uint8_t sysId) {
                                            passthrough->get_target_sysid(), passthrough->get_target_compid(),
                                            MAV_CMD_REQUEST_MESSAGE, 0, MAVLINK_MSG_ID_GPS_GLOBAL_ORIGIN, 0, 0, 0, 0, 0, 0);
         return message;
-    });
-}
-
-void CommunicationManager::m_subscribeFixedwingMetrics(const std::shared_ptr<mavsdk::Telemetry>& telemetry, uint8_t sysId, subscriptionHandles& handles) {
-
-    handles.fixedwingMetricsHandle = telemetry->subscribe_fixedwing_metrics([this, sysId](const mavsdk::Telemetry::FixedwingMetrics& fixedwingMetrics) {
-        m_aggregators[sysId]->updateAirspeed(fixedwingMetrics.airspeed_m_s);
-
-        if (m_config.telemetry_publish_hz <= 0.0) {
-            // immediate publish
-            m_onTelemetryUpdate();
-        } else {
-            m_snapshotDirty.store(true);
-        }
     });
 }
 

@@ -8,64 +8,36 @@
 
 #include "statesAggregator.h"
 
-#include <iostream>
+#include <algorithm>
+#include <cmath>
 
-StatesAggregator::StatesAggregator()
-{
-    const auto now = std::chrono::steady_clock::now();
+bool StatesAggregator::updateControlState(const uint64_t timeUsec, const float pos[3], const float vel[3], const float airspeed, const float q[4]) {
+    // q = [w x y z], body to NED (ZYX Euler).
+    const float w = q[0], x = q[1], y = q[2], z = q[3];
+    constexpr float radToDeg = 180.0f / static_cast<float>(M_PI);
+    const float roll  = std::atan2(2.0f * (w * x + y * z), 1.0f - 2.0f * (x * x + y * y)) * radToDeg;
+    const float pitch = std::asin(std::clamp(2.0f * (w * y - z * x), -1.0f, 1.0f)) * radToDeg;
+    const float yaw   = std::atan2(2.0f * (w * z + x * y), 1.0f - 2.0f * (y * y + z * z)) * radToDeg;
 
-    m_rates.lastAttitude = now;
-    m_rates.lastPosition = now;
-    m_rates.lastVelocity = now;
-    m_rates.lastAirspeed = now;
-    m_rates.lastGlobalPosition = now;
-}
-
-void StatesAggregator::updateAttitude(const float roll, const float pitch, const float yaw) {
     std::lock_guard lock(m_mutex);
+    if (m_lastStateTime && timeUsec <= m_lastTimeUsec) {
+        return false; // duplicate or reordered datagram
+    }
+
+    m_lastTimeUsec = timeUsec;
+    m_lastStateTime = std::chrono::steady_clock::now();
+
+    m_state.northMeter = pos[0];
+    m_state.eastMeter  = pos[1];
+    m_state.downMeter  = pos[2];
+    m_state.northMeterSecond = vel[0];
+    m_state.eastMeterSecond  = vel[1];
+    m_state.downMeterSecond  = vel[2];
+    m_state.airspeedMeterSecond = airspeed;
     m_state.rollDegree  = roll;
     m_state.pitchDegree = pitch;
     m_state.yawDegree   = yaw;
-
-    const auto now = std::chrono::steady_clock::now();
-    const std::chrono::duration<double> dt = now - m_rates.lastAttitude;
-    m_rates.rateAttitude = 1.0 / dt.count();
-    m_rates.lastAttitude = now;
-}
-
-void StatesAggregator::updatePosition(const float n, const float e, const float d) {
-    std::lock_guard lock(m_mutex);
-    m_state.northMeter = n;
-    m_state.eastMeter  = e;
-    m_state.downMeter  = d;
-
-    const auto now = std::chrono::steady_clock::now();
-    const std::chrono::duration<double> dt = now - m_rates.lastPosition;
-    m_rates.ratePosition = 1.0 / dt.count();
-    m_rates.lastPosition = now;
-
-}
-
-void StatesAggregator::updateVelocity(const float vn, const float ve, const float vd) {
-    std::lock_guard lock(m_mutex);
-    m_state.northMeterSecond = vn;
-    m_state.eastMeterSecond  = ve;
-    m_state.downMeterSecond  = vd;
-
-    const auto now = std::chrono::steady_clock::now();
-    const std::chrono::duration<double> dt = now - m_rates.lastVelocity;
-    m_rates.rateVelocity = 1.0 / dt.count();
-    m_rates.lastVelocity = now;
-}
-
-void StatesAggregator::updateAirspeed(const float airspeed) {
-    std::lock_guard lock(m_mutex);
-    m_state.airspeedMeterSecond = airspeed;
-
-    const auto now = std::chrono::steady_clock::now();
-    const std::chrono::duration<double> dt = now - m_rates.lastAirspeed;
-    m_rates.rateAirspeed = 1.0 / dt.count();
-    m_rates.lastAirspeed = now;
+    return true;
 }
 
 void StatesAggregator::updateGlobalPosition(const double lat, const double lon, const double alt) {
@@ -73,11 +45,6 @@ void StatesAggregator::updateGlobalPosition(const double lat, const double lon, 
     m_state.latitudeDegree    = lat;
     m_state.longitudeDegree   = lon;
     m_state.altitudeAmslMeter = alt;
-
-    const auto now = std::chrono::steady_clock::now();
-    const std::chrono::duration<double> dt = now - m_rates.lastGlobalPosition;
-    m_rates.rateGlobalPosition = 1.0 / dt.count();
-    m_rates.lastGlobalPosition = now;
 }
 
 uavStates StatesAggregator::getSnapshot() const {
@@ -85,7 +52,7 @@ uavStates StatesAggregator::getSnapshot() const {
     return m_state;
 }
 
-aggregatorRates StatesAggregator::getRates() const {
+std::optional<std::chrono::steady_clock::time_point> StatesAggregator::lastStateTime() const {
     std::lock_guard lock(m_mutex);
-    return m_rates;
+    return m_lastStateTime;
 }

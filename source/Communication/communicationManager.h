@@ -134,7 +134,7 @@ private:
     void m_onStatusUpdate();
 
     std::function<void(uint8_t, double, double, double)> m_ekfOriginCallback;
-    std::mutex m_ekfOriginMutex; // the two maps below
+    std::mutex m_ekfOriginMutex; // the two maps below, and the request/rate maps of the control state
     std::map<uint8_t, bool> m_ekfOriginKnown;
     std::map<uint8_t, std::chrono::steady_clock::time_point> m_ekfOriginRequestedAt;
     void m_subscribeGpsGlobalOrigin(uint8_t sysId);
@@ -185,9 +185,23 @@ private:
     void m_handleHeartbeat(uint8_t sysId, const mavlink_message_t& message);
     void m_subscribeToHeartbeat(uint8_t sysId);
 
-    void m_requestAttitudeTarget(uint8_t sysId);
-    void m_handleAttitudeTarget(const mavlink_message_t& message) const;
-    void m_subscribeAttitudeTarget(uint8_t sysId);
+    // CONTROL_SYSTEM_STATE: the controller state (grsMavlinkConventions.h),
+    // requested at stateRateHz. Its arrival rate is logged every 5 s window
+    // the first time and when below 70 % of the request.
+    void m_subscribeControlState(uint8_t sysId);
+    // Requested again on any global position while the state is missing or
+    // older than 1 s (startup, vehicle reboot), at most every 2 s.
+    void m_requestControlState(uint8_t sysId);
+    // Everything else at the low rates the dashboard needs.
+    void m_requestStatusRates(uint8_t sysId);
+    void m_setMessageInterval(uint8_t sysId, uint32_t messageId, double rateHz);
+    struct RateWindow {
+        std::chrono::steady_clock::time_point start;
+        int count = 0;
+        bool reported = false;
+    };
+    std::map<uint8_t, RateWindow> m_stateRate;                                    // m_ekfOriginMutex
+    std::map<uint8_t, std::chrono::steady_clock::time_point> m_stateRequestedAt; // m_ekfOriginMutex
 
     void m_subscribeHealth(const std::shared_ptr<mavsdk::Telemetry>& telemetry, uint8_t sysId, subscriptionHandles& handles);
     void m_subscribeHealthAllOk(const std::shared_ptr<mavsdk::Telemetry>& telemetry, uint8_t sysId, subscriptionHandles& handles);
@@ -197,10 +211,7 @@ private:
     void m_subscribeRcStatus(const std::shared_ptr<mavsdk::Telemetry>& telemetry, uint8_t sysId, subscriptionHandles& handles);
 
     static void m_subscribeHome(const std::shared_ptr<mavsdk::Telemetry>& telemetry, uint8_t sysId, subscriptionHandles& handles);
-    void m_subscribeAttitude(const std::shared_ptr<mavsdk::Telemetry>& telemetry, uint8_t sysId, subscriptionHandles& handles);
-    void m_subscribePositionVelocity(const std::shared_ptr<mavsdk::Telemetry>& telemetry, uint8_t sysId, subscriptionHandles& handles);
     void m_subscribePosition(const std::shared_ptr<mavsdk::Telemetry>& telemetry, uint8_t sysId, subscriptionHandles& handles);
-    void m_subscribeFixedwingMetrics(const std::shared_ptr<mavsdk::Telemetry>& telemetry, uint8_t sysId, subscriptionHandles& handles);
 
     void m_sendAttitudeTarget();
 

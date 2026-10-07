@@ -26,13 +26,7 @@ struct subscriptionHandles {
     mavsdk::Telemetry::HealthAllOkHandle                 healthAllOkHandle;
     mavsdk::Telemetry::ArmedHandle                       armedHandle;
     mavsdk::Telemetry::HomeHandle                        homeHandle;
-    mavsdk::Telemetry::AttitudeEulerHandle               attitudeHandle;
-    mavsdk::Telemetry::AttitudeAngularVelocityBodyHandle angularVelocityHandle;
-    mavsdk::Telemetry::PositionVelocityNedHandle         positionVelocityNedHandle;
     mavsdk::Telemetry::PositionHandle                    positionHandle;
-    mavsdk::Telemetry::VelocityNedHandle                 velocityNedHandle;
-    mavsdk::Telemetry::HeadingHandle                     headingHandle;
-    mavsdk::Telemetry::FixedwingMetricsHandle            fixedwingMetricsHandle;
     mavsdk::Telemetry::BatteryHandle                     batteryHandle;
     mavsdk::Telemetry::GpsInfoHandle                     gpsInfoHandle;
     mavsdk::Telemetry::RcStatusHandle                    rcStatusHandle;
@@ -68,17 +62,5 @@ struct uavHealth {
     float rcSignalPercent = 0.0f;
 };
 
-struct aggregatorRates {
-    std::chrono::steady_clock::time_point lastAttitude;
-    std::chrono::steady_clock::time_point lastPosition;
-    std::chrono::steady_clock::time_point lastVelocity;
-    std::chrono::steady_clock::time_point lastAirspeed;
-    std::chrono::steady_clock::time_point lastGlobalPosition;
-    double rateAttitude = 0.0;
-    double ratePosition = 0.0;
-    double rateVelocity = 0.0;
-    double rateAirspeed = 0.0;
-    double rateGlobalPosition = 0.0;
-};
 
 #endif //COMMUNICATIONSTRUCTURES_H
