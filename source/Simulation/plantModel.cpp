@@ -151,8 +151,7 @@ OneGroundPlant::OneGroundPlant(const AirframeParams& uav, const RigParams& rig)
 {
 }
 
-void OneGroundPlant::evaluate(const double* x, const double* u, const double* wind, const double* d,
-                              const double L0, double* xdot, double* alpha) const {
+void OneGroundPlant::evaluate(const double* x, const double* u, const double* wind, const double* d, const double L0, double* xdot, double* alpha) const {
     double a = 0.0;
     // d = [dFx dFy dFz b_roll b_pitch]
     V3 f = uavForce(m_uav, m_rig, x, u[0], load(wind), 0.0, 0.0, load(d), a);
@@ -169,9 +168,7 @@ IntegrationMethod parseIntegrationMethod(const std::string& name) {
     throw std::runtime_error("Unknown integration method '" + name + "' (rk4 | rk2 | euler)");
 }
 
-void integrate(const PlantModel& plant, std::vector<double>& x, const std::vector<double>& u,
-               const std::vector<double>& wind, const std::vector<double>& d, const double L0,
-               const double dt, const int nSub, const IntegrationMethod method) {
+void integrate(const PlantModel& plant, std::vector<double>& x, const std::vector<double>& u, const std::vector<double>& wind, const std::vector<double>& d, const double L0, const double dt, const int nSub, const IntegrationMethod method) {
     const size_t n = x.size();
     const double h = dt / nSub;
     std::vector<double> k1(n), k2(n), k3(n), k4(n), tmp(n);

@@ -100,8 +100,7 @@ struct RunResult {
 // solver-stride reference ([x0 u0 x1 u1 ...], nx+nu per sample, sampled at
 // the solver's dt), used both as the controller's reference and as the
 // ground truth for the tracking metrics (time-indexed, like MATLAB).
-RunResult runClosedLoop(YAML::Node config, const std::string& controller, const std::vector<double>& reference,
-                        const TruthSpec& truth, int sampleId, const RunOptions& opts);
+RunResult runClosedLoop(YAML::Node config, const std::string& controller, const std::vector<double>& reference, const TruthSpec& truth, int sampleId, const RunOptions& opts);
 
 } // namespace grs::sim
 

@@ -13,8 +13,6 @@
 
 #include <mavsdk/mavsdk.h>
 #include <mavsdk/plugins/telemetry/telemetry.h>
-#include <chrono>
-#include <cstdint>
 
 // uavStates/uavCommands/uavCommandsFlags live in vehicleStructures.h (no
 // MAVSDK dependency) so the controller core and grs_batchsim can use them

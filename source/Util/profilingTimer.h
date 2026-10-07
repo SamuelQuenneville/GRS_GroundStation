@@ -18,7 +18,7 @@
 
 class ProfilingTimer {
 public:
-    explicit ProfilingTimer(std::string name, double* outMs = nullptr, bool print = false)
+    explicit ProfilingTimer(std::string name, double* outMs = nullptr, const bool print = false)
         : m_name(std::move(name))
         , m_start(std::chrono::steady_clock::now())
         , m_out(outMs)

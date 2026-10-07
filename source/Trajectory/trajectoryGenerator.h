@@ -115,8 +115,7 @@ public:
     ///        (nullopt = no correction for that UAV); call this before
     ///        extractSubset(), while that indexing still matches the full
     ///        mission. A no-op when every entry is nullopt.
-    static void snapToLiveLaunchPositions(GeneratedMission& mission,
-        const std::vector<std::optional<Vec3d>>& liveLaunchPositionsNed);
+    static void snapToLiveLaunchPositions(GeneratedMission& mission, const std::vector<std::optional<Vec3d>>& liveLaunchPositionsNed);
 
     /// Flattens a mission into the exact [x0 u0 x1 u1 ... xN uN] stride
     /// format MpcController::loadTrajectory()/setReferenceTrajectory()

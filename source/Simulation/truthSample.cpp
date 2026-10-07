@@ -87,11 +87,11 @@ TruthSpec applySample(const Sample& sample, const int numUavs, const double L0No
     const auto rel = relNames(numUavs);
     const auto abs = absNames(numUavs);
     for (const auto& [name, value] : sample.values) {
-        if (!rel.count(name) && !abs.count(name)) {
+        if (!rel.contains(name) && !abs.contains(name)) {
             throw std::runtime_error("sample " + std::to_string(sample.id) + ": unknown parameter '" + name +
                                      "' for a " + std::to_string(numUavs) + "-UAV plant (names follow mc_param_space_twoUav.m)");
         }
-        if (rel.count(name) && !(std::isfinite(value) && value > 0.0)) {
+        if (rel.contains(name) && !(std::isfinite(value) && value > 0.0)) {
             throw std::runtime_error("sample " + std::to_string(sample.id) + ": " + name + " = " + std::to_string(value) +
                                      ", but it is a multiplicative factor on nominal (1 = nominal) and must be > 0");
         }
@@ -99,7 +99,7 @@ TruthSpec applySample(const Sample& sample, const int numUavs, const double L0No
     auto v = [&](const std::string& name) {
         const auto it = sample.values.find(name);
         if (it != sample.values.end()) return it->second;
-        return rel.count(name) ? 1.0 : 0.0; // every 'abs' nominal is 0 in mc_param_space_twoUav.m
+        return rel.contains(name) ? 1.0 : 0.0; // every 'abs' nominal is 0 in mc_param_space_twoUav.m
     };
 
     TruthSpec t;

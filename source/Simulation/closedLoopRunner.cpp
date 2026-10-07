@@ -19,8 +19,7 @@ constexpr int kUavBlock = grs::control::kUavBlockSize;
 // controller (NavigationFrameManager output): UAVs as sysId 1..numUavs,
 // payload as numUavs+1. Same float precision and degree units as live
 // telemetry, so the controller sees exactly what it would see in flight.
-std::map<uint8_t, uavStates> toTelemetry(const std::vector<double>& x, const int numUavs, const bool hasPayload,
-                                        const std::vector<double>& wind) {
+std::map<uint8_t, uavStates> toTelemetry(const std::vector<double>& x, const int numUavs, const bool hasPayload, const std::vector<double>& wind) {
     std::map<uint8_t, uavStates> out;
     auto fill = [&](const size_t o, const bool attitude) {
         uavStates s{};
@@ -306,8 +305,7 @@ std::vector<std::pair<std::string, double>> computeMetrics(
 // analysis can evaluate any time window (mission phase) without re-running.
 // Tracked point: the payload, or UAV1 without a payload. Errors are
 // true - reference, NED.
-void fillTimeSeries(const History& h, const std::vector<double>& ref, const solverConfig& sc, const TruthSpec& truth,
-                    const bool hasPayload, const bool useEst, const int decim, RunResult& r) {
+void fillTimeSeries(const History& h, const std::vector<double>& ref, const solverConfig& sc, const TruthSpec& truth, const bool hasPayload, const bool useEst, const int decim, RunResult& r) {
     const int nu = sc.nu, numUavs = sc.numUavs, perUavNu = nu / numUavs;
     const size_t stride = sc.nx + nu;
     const size_t payOff = numUavs * kUavBlock;
@@ -378,8 +376,7 @@ ControllerVariant parseController(const std::string& controller) {
     throw std::runtime_error("unknown controller '" + controller + "' (nmpc_naive | nmpc_of | lmpc_naive | lmpc_of)");
 }
 
-RunResult runClosedLoop(YAML::Node config, const std::string& controller, const std::vector<double>& reference,
-                        const TruthSpec& truth, const int sampleId, const RunOptions& opts) {
+RunResult runClosedLoop(YAML::Node config, const std::string& controller, const std::vector<double>& reference, const TruthSpec& truth, const int sampleId, const RunOptions& opts) {
     const auto wallStart = std::chrono::steady_clock::now();
     const auto variant = parseController(controller);
     const bool useEst = variant.useEstimator;

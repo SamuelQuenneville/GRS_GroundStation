@@ -46,7 +46,7 @@
 using gps_abstime = uint64_t;
 
 static inline gps_abstime gps_absolute_time() {
-    struct timeval tv;
+    struct timeval tv{};
     gettimeofday(&tv, nullptr);
     return static_cast<gps_abstime>(tv.tv_sec) * 1'000'000ULL + static_cast<gps_abstime>(tv.tv_usec);
 }

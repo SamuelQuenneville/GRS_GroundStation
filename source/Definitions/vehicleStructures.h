@@ -11,7 +11,6 @@
 
 #pragma once
 
-#include <cstdint>
 #include <optional>
 
 // Per-vehicle state/command structs exchanged between the controller core
