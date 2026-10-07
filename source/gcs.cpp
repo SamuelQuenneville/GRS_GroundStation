@@ -41,6 +41,14 @@ GroundControlStation::GroundControlStation()
         }
     });
 
+    m_controlInterface->setTelemetryAgeProvider([this](const uint8_t sysId) {
+        return m_communicationManager->telemetryAge(sysId);
+    });
+
+    m_communicationManager->setEkfOriginCallback([this](const uint8_t sysId, const double lat, const double lon, const double alt) {
+        m_controlInterface->setEkfOrigin(sysId, lat, lon, alt);
+    });
+
     // Non-numeric status (health, battery, GPS, RC, armed, mode, connection)
     // arrives separately and at a much lower rate -- merge it with whatever
     // numeric state we already have and re-push the full snapshot.
@@ -325,6 +333,10 @@ void GroundControlStation::startController() const {
 }
 
 void GroundControlStation::initLaunch() const {
+    if (std::string reason; !m_controlInterface->launchReady(reason)) {
+        LOG_ERROR("Launch refused: " + reason);
+        return;
+    }
     m_controlInterface->initLaunch();
 }
 
@@ -644,6 +656,10 @@ void GroundControlStation::catapultArm() const {
 }
 
 void GroundControlStation::catapultFire(const uint32_t countdownMs) const {
+    if (std::string reason; !m_controlInterface->launchReady(reason)) {
+        LOG_ERROR("Fire refused: " + reason);
+        return;
+    }
     const bool res = m_catapultLauncher->fireAll(countdownMs);
 
     if (res) {

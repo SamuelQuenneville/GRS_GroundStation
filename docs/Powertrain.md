@@ -11,7 +11,9 @@ repeated across every function).
   Solves the (nonlinear in RPM) thrust model with Newton-Raphson
   (`evalThrustModel()` gives both the function value and its derivative),
   capped at `MAX_ITER_RPM` iterations, then saturates to `[0, 9000]` RPM
-  before normalizing.
+  before normalizing. Always finite: a non-finite thrust gives 0, a
+  non-finite or negative airspeed is taken as 0, and the static-thrust RPM
+  (initial guess) is used if Newton ends non-finite.
 - **`rpm2thrust(airspeed, rpmTarget)`** — the inverse (closed-form, no
   iteration needed).
 - **`maxThrust(airspeed)`** — the model's thrust ceiling at a given

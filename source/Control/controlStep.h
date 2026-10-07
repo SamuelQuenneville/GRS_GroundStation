@@ -28,8 +28,8 @@
 #include "Configuration/configurationParser.h"
 
 // One tick of the MPC control mode, shared by the GCS and grs_batchsim:
-// hand the controller the newest NMHE estimate, push this tick's sample to
-// the estimator, solve the NMPC. The NMHE solves elsewhere, through the
+// hand the controller the newest NMHE estimate, solve the NMPC, push this
+// tick's sample to the estimator (in flight only). The NMHE solves elsewhere, through the
 // EstimatorRunner; a tick never waits for it.
 //
 // The controller and estimator are owned by the caller. The runner is owned
@@ -60,6 +60,7 @@ private:
     std::vector<double> m_appliedControl;
     bool m_estimateAppliedThisTick = false;
     EstimatorRunner::Estimate m_appliedEstimate;
+    bool m_wasInFlight = false;
 
     // Estimator sample, same layout as the controller's state (stateVector.h).
     // Kept between ticks: a vehicle without telemetry keeps its last value.

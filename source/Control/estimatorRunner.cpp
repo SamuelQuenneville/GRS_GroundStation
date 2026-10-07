@@ -42,6 +42,16 @@ void ThreadedEstimatorRunner::pushSample(const std::vector<double>& measuredStat
     while (m_pending.size() > m_maxPending) m_pending.pop_front();
 }
 
+void ThreadedEstimatorRunner::reset() {
+    {
+        std::lock_guard lock(m_inMutex);
+        m_pending.clear();
+        ++m_resets;
+    }
+    std::lock_guard lock(m_outMutex);
+    m_hasNew = false;
+}
+
 EstimatorRunner::Stats ThreadedEstimatorRunner::stats() const {
     std::lock_guard lock(m_outMutex);
     return m_stats;
@@ -62,20 +72,33 @@ void ThreadedEstimatorRunner::m_loop() {
 
         // Pull everything the control thread pushed since the last wake-up;
         // the Estimator is only ever touched from this thread.
+        uint64_t resets;
         {
             std::lock_guard lock(m_inMutex);
             batch.swap(m_pending);
+            resets = m_resets;
         }
-        for (const auto& [x, u] : batch) m_estimator.addSample(x, u);
-        batch.clear();
+        const bool reset = resets != m_seenResets;
+        m_seenResets = resets;
 
         const auto t0 = clock::now();
-        const bool ok = m_estimator.estimate();
+        bool ok = false;
+        bool attempted = false;
+        try {
+            if (reset) m_estimator.reset();
+            for (const auto& [x, u] : batch) m_estimator.addSample(x, u);
+            ok = m_estimator.estimate();
+            attempted = m_estimator.getDebugInfo().windowFull;
+        } catch (const std::exception& e) {
+            // The controller keeps the last estimate; the next solve retries.
+            LOG_ERROR(std::string("NMHE thread: ") + e.what());
+        }
+        batch.clear();
         const double ms = std::chrono::duration<double, std::milli>(clock::now() - t0).count();
-        const bool attempted = m_estimator.getDebugInfo().windowFull;
 
         {
             std::lock_guard lock(m_outMutex);
+            if (m_resets != resets) ok = false; // reset during the solve: stale window
             if (attempted) {
                 ++m_stats.solves;
                 m_stats.lastSolveMs = ms;
@@ -126,6 +149,12 @@ std::optional<EstimatorRunner::Estimate> DeferredEstimatorRunner::takeEstimate()
 
 void DeferredEstimatorRunner::pushSample(const std::vector<double>& measuredState, const std::vector<double>& appliedControl) {
     m_estimator.addSample(measuredState, appliedControl);
+}
+
+void DeferredEstimatorRunner::reset() {
+    m_estimator.reset();
+    m_inFlight.clear();
+    m_accumulatorMs = 0.0;
 }
 
 void DeferredEstimatorRunner::endTick() {

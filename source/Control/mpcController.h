@@ -11,6 +11,7 @@
 
 #pragma once
 
+#include <limits>
 #include <mutex>
 #include <optional>
 #include <sstream>
@@ -41,6 +42,8 @@ public:
     ~MpcController() override;
 
     void initLaunch() override;
+    [[nodiscard]] bool launchReady(std::string& reason) const override;
+    [[nodiscard]] bool inFlight() const override { return m_inFlight; }
 
     void setDisturbanceEstimate(const std::vector<double>& wind, const std::vector<double>& d) override;
 
@@ -90,13 +93,22 @@ private:
     std::unordered_map<uint8_t, unwrapState> m_yawStates;
 
     bool m_launched = false;
+    // Largest UAV distance to its reference start, measured before launch.
+    double m_launchPositionError = std::numeric_limits<double>::infinity();
     bool m_inFlight = false;
     bool m_endedTraj = false;
+    // Past the last full window: no solve, the last applied control is repeated
+    // (the trajectory ends with a buffer in which the pilot takes over).
+    bool m_holding = false;
+    // In flight with no plan left (N rejected solves): reference feedforward, open loop.
+    bool m_openLoop = false;
 
     // Previous values, to log transitions only (m_logTransitions()).
     bool m_prevInFlight = false;
     bool m_prevEndedTraj = false;
     bool m_prevViolation = false;
+    bool m_prevHolding = false;
+    bool m_prevOpenLoop = false;
     // False while some vehicle of the layout sent no telemetry this tick
     // (its block then keeps its previous value, see m_unpackLatestStates()).
     bool m_telemetryComplete = true;
@@ -168,10 +180,13 @@ private:
 
     double m_unwrapYaw(uint8_t sysId, double yawRadWrapped);
 
-    // Fills m_initialStates from telemetry (stateVector.h), then applies the
-    // pre-flight substitution: until launched and in flight, UAV position and
-    // velocity come from the reference's first sample.
-    void m_unpackLatestStates(const std::map<uint8_t, uavStates>& latestStates);
+    // Fills m_initialStates from telemetry (stateVector.h) and updates the
+    // launch phase: standby until initLaunch(), launching until a UAV
+    // exceeds inFlightSpeed (back to standby after launchTimeout), then in
+    // flight. Until in flight, the UAV velocity is the reference's first one
+    // (the launch velocity), so the solve keeps a flight plan from the
+    // launcher; position and attitude stay measured.
+    void m_unpackLatestStates(const std::map<uint8_t, uavStates>& latestStates, double time);
 
     // Emits a LogType::NMPC_EVENT line for any of m_telemetryComplete/
     // m_inFlight/m_endedTraj/m_violation that changed since the last call.

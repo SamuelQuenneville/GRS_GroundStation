@@ -92,6 +92,8 @@ struct gcsConfig {
     double hlcFrequency = 20.0;
     // NMHE rate [Hz], independent of hlcFrequency. Used only when the YAML has an EstimatorConfiguration section.
     double nmheFrequency = 5.0;
+    // MPC mode: no command while a UAV's last LOCAL_POSITION_NED is older than this [s].
+    double telemetryTimeout = 0.3;
     pixhawkConfig pixhawk;
     std::vector<pixhawkEndpointConfig> pixhawkEndpoints; // used when pixhawk.sitl == false
     std::optional<std::pair<std::string, uint16_t>> matlab;

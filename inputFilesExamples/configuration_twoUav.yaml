@@ -15,6 +15,7 @@ GcsConfiguration:
   verbose: false
   hlcFrequency: 20.0
   nmheFrequency: 5.0      # NMHE update rate -- starting point per gcs-sitl-integration-plan.md's Decisions, not yet validated
+  telemetryTimeout: 0.3  # [s] MPC: no command while a UAV's telemetry is older
   controlMode: MPC        # MPC | MATLAB | ATTITUDE_FILE
 
 Pixhawk:
@@ -64,6 +65,14 @@ SolverConfiguration:
   # Angle-of-attack feedforward sent with each command: the plan's alpha this
   # many stages after the applied control (1 + link latency in samples).
   AOA_FF_STAGE: 1
+
+  # Launch (docs/Control.md): fire refused while a UAV is farther than
+  # LAUNCH_POS_TOL [m] from its reference start; in flight above
+  # IN_FLIGHT_SPEED [m/s]; back to standby if not in flight LAUNCH_TIMEOUT [s]
+  # after the launch.
+  LAUNCH_POS_TOL: 3.0
+  IN_FLIGHT_SPEED: 10.0
+  LAUNCH_TIMEOUT: 1.0
 
   # Q(22) | R(6) | Qf(22) | Rdu(6) | Rdu0(6), GRS_Controller tuning_twoUav.m.
   # Scaled errors (SCALES_*): position up, attitude and controls down, so

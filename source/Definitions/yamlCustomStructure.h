@@ -88,6 +88,10 @@ namespace YAML {
                     throw std::runtime_error("SolverConfiguration.AOA_FF_STAGE must be in [0, N-1]");
                 }
 
+                if (node["LAUNCH_POS_TOL"])   rhs.launchPositionTolerance = node["LAUNCH_POS_TOL"].as<double>();
+                if (node["IN_FLIGHT_SPEED"])  rhs.inFlightSpeed = node["IN_FLIGHT_SPEED"].as<double>();
+                if (node["LAUNCH_TIMEOUT"])   rhs.launchTimeout = node["LAUNCH_TIMEOUT"].as<double>();
+
                 // Optional: "nmpc" (default) or "lmpc".
                 if (const auto controller = node["CONTROLLER"]) {
                     const auto name = controller.as<std::string>();

@@ -8,6 +8,8 @@
 
 #include "communicationManager.h"
 
+#include <algorithm>
+
 CommunicationManager::CommunicationManager()
     : m_mavsdk(GROUND_STATION)
 {
@@ -109,6 +111,23 @@ void CommunicationManager::setTelemetryCallback(std::function<void(const std::ma
 
 void CommunicationManager::setStatusCallback(std::function<void(const std::map<uint8_t, uavHealth>&)> cb) {
     m_statusCallback = std::move(cb);
+}
+
+std::optional<double> CommunicationManager::telemetryAge(const uint8_t sysId) {
+    std::shared_ptr<StatesAggregator> aggregator;
+    {
+        std::lock_guard lock(m_statesMutex);
+        const auto it = m_aggregators.find(sysId);
+        if (it == m_aggregators.end() || !it->second) return std::nullopt;
+        aggregator = it->second;
+    }
+    const auto rates = aggregator->getRates();
+    const auto oldest = std::min({rates.lastPosition, rates.lastVelocity, rates.lastAttitude});
+    return std::chrono::duration<double>(std::chrono::steady_clock::now() - oldest).count();
+}
+
+void CommunicationManager::setEkfOriginCallback(std::function<void(uint8_t, double, double, double)> cb) {
+    m_ekfOriginCallback = std::move(cb);
 }
 
 void CommunicationManager::connectAll(const std::string& baseIp, const uint16_t basePort, const int numUavs, const int increment, const int discoveryTimeoutMs) {
@@ -500,6 +519,9 @@ void CommunicationManager::m_subscribeMavlink(const uint8_t sysId) {
     // GLOBAL_POSITION_INT
     m_subscribePosition(telemetry, sysId, handles);
 
+    // GPS_GLOBAL_ORIGIN (requested from the position callback)
+    m_subscribeGpsGlobalOrigin(sysId);
+
     // Command Ack
     m_subscribeHome(telemetry, sysId, handles);
     m_subscribeCommandAck(sysId);
@@ -793,6 +815,7 @@ void CommunicationManager::m_subscribePosition(const std::shared_ptr<mavsdk::Tel
 
     handles.positionHandle = telemetry->subscribe_position([this, sysId](const mavsdk::Telemetry::Position& position) {
         m_aggregators[sysId]->updateGlobalPosition(position.latitude_deg, position.longitude_deg, position.absolute_altitude_m);
+        m_requestGpsGlobalOrigin(sysId);
 
         if (m_config.telemetry_publish_hz <= 0.0) {
             // immediate publish
@@ -800,6 +823,46 @@ void CommunicationManager::m_subscribePosition(const std::shared_ptr<mavsdk::Tel
         } else {
             m_snapshotDirty.store(true);
         }
+    });
+}
+
+void CommunicationManager::m_subscribeGpsGlobalOrigin(const uint8_t sysId) {
+    m_passthrough[sysId]->subscribe_message(MAVLINK_MSG_ID_GPS_GLOBAL_ORIGIN, [this, sysId](const mavlink_message_t& message) {
+        mavlink_gps_global_origin_t origin;
+        mavlink_msg_gps_global_origin_decode(&message, &origin);
+        {
+            std::lock_guard lock(m_ekfOriginMutex);
+            m_ekfOriginKnown[sysId] = true;
+        }
+        if (m_ekfOriginCallback) {
+            m_ekfOriginCallback(sysId, origin.latitude * 1e-7, origin.longitude * 1e-7, origin.altitude * 1e-3);
+        }
+    });
+}
+
+void CommunicationManager::m_requestGpsGlobalOrigin(const uint8_t sysId) {
+    const auto now = std::chrono::steady_clock::now();
+    {
+        std::lock_guard lock(m_ekfOriginMutex);
+        const auto period = std::chrono::seconds(m_ekfOriginKnown[sysId] ? 10 : 2);
+        const auto last = m_ekfOriginRequestedAt.find(sysId);
+        if (last != m_ekfOriginRequestedAt.end() && now - last->second < period) return;
+        m_ekfOriginRequestedAt[sysId] = now;
+    }
+
+    std::shared_ptr<mavsdk::MavlinkPassthrough> passthrough;
+    {
+        std::lock_guard lock(m_linkMutex);
+        const auto it = m_passthrough.find(sysId);
+        if (it == m_passthrough.end()) return;
+        passthrough = it->second;
+    }
+    passthrough->queue_message([passthrough](const MavlinkAddress address, const uint8_t channel) {
+        mavlink_message_t message;
+        mavlink_msg_command_long_pack_chan(address.system_id, address.component_id, channel, &message,
+                                           passthrough->get_target_sysid(), passthrough->get_target_compid(),
+                                           MAV_CMD_REQUEST_MESSAGE, 0, MAVLINK_MSG_ID_GPS_GLOBAL_ORIGIN, 0, 0, 0, 0, 0, 0);
+        return message;
     });
 }
 

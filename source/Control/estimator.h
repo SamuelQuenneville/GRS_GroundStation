@@ -33,6 +33,9 @@ public:
     // previous estimate is kept in both cases.
     virtual bool estimate() = 0;
 
+    // Empties the window and zeroes the estimate, as at construction.
+    virtual void reset() = 0;
+
     // Last valid estimate, physical units; zero before the first one.
     [[nodiscard]] virtual const std::vector<double>& windEstimate() const = 0;
     [[nodiscard]] virtual const std::vector<double>& dEstimate() const = 0;

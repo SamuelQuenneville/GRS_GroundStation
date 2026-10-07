@@ -20,7 +20,10 @@
 
 #include <mavsdk/mavlink/common/mavlink_msg_param_set.h>
 
+#include <chrono>
+#include <functional>
 #include <map>
+#include <optional>
 #include <mutex>
 #include <thread>
 #include <ranges>
@@ -55,6 +58,13 @@ public:
     // should be built from, kept separate from the tight numeric
     // telemetryCallback used by the control loop.
     void setStatusCallback(std::function<void(const std::map<uint8_t, uavHealth>&)> cb);
+    // Each vehicle's EKF origin (GPS_GLOBAL_ORIGIN: lat, lon [deg], altitude
+    // AMSL [m]), requested until it arrives, then every 10 s to see a change.
+    void setEkfOriginCallback(std::function<void(uint8_t, double, double, double)> cb);
+
+    // Age [s] of the oldest of a vehicle's position, velocity and attitude
+    // messages; nullopt for an unknown sysId.
+    [[nodiscard]] std::optional<double> telemetryAge(uint8_t sysId);
 
     // Vehicle registration itself is fully event-driven (see m_watchSystem) and
     // is not gated by any timeout -- a vehicle that powers on late, or whose
@@ -122,6 +132,14 @@ private:
     std::function<void(const std::map<uint8_t, uavStates>&)> m_telemetryCallback;
     std::function<void(const std::map<uint8_t, uavHealth>&)> m_statusCallback;
     void m_onStatusUpdate();
+
+    std::function<void(uint8_t, double, double, double)> m_ekfOriginCallback;
+    std::mutex m_ekfOriginMutex; // the two maps below
+    std::map<uint8_t, bool> m_ekfOriginKnown;
+    std::map<uint8_t, std::chrono::steady_clock::time_point> m_ekfOriginRequestedAt;
+    void m_subscribeGpsGlobalOrigin(uint8_t sysId);
+    // Called on every global position: requests GPS_GLOBAL_ORIGIN when due.
+    void m_requestGpsGlobalOrigin(uint8_t sysId);
 
     std::unordered_map<uint8_t, subscriptionHandles> m_messageHandles;
     void m_subscribeMavlink(uint8_t sysId);

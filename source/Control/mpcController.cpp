@@ -72,11 +72,35 @@ void MpcController::setDisturbanceEstimate(const std::vector<double>& wind, cons
 }
 
 void MpcController::initLaunch() {
+    std::lock_guard lock(m_solveMutex);
     m_launched = true;
 
     Logger::instance().log(LogType::NMPC_EVENT,
         std::to_string(m_trackingNumber) + "," + std::to_string(Logger::instance().nowMilliseconds()) + ","
         + std::to_string(Logger::nowWallTimeMs()) + ",LAUNCH triggered");
+}
+
+bool MpcController::launchReady(std::string& reason) const {
+    std::lock_guard lock(m_solveMutex);
+
+    std::ostringstream why;
+    if (m_launched) {
+        why << "already launched";
+    } else if (m_referenceTrajectory.empty()) {
+        why << "no reference trajectory";
+    } else if (m_trackingNumber == 0) {
+        why << "controller not running (no solve yet)";
+    } else if (!m_telemetryComplete) {
+        why << "telemetry incomplete";
+    } else if (m_violation || !m_planIdx) {
+        why << "no valid plan from the launcher (last solve rejected)";
+    } else if (!(m_launchPositionError <= m_config.launchPositionTolerance)) {
+        why << "a UAV is " << std::fixed << std::setprecision(1) << m_launchPositionError
+            << " m from its reference start (LAUNCH_POS_TOL " << m_config.launchPositionTolerance
+            << " m): regenerate the trajectory from the live launch positions";
+    }
+    reason = why.str();
+    return reason.empty();
 }
 
 void MpcController::loadTrajectory(const std::string& file) {
@@ -163,13 +187,25 @@ std::map<uint8_t, uavCommandsFlags> MpcController::solve(const std::map<uint8_t,
 
     std::lock_guard lock(m_solveMutex);
 
-    m_unpackLatestStates(latestStates);
+    if (m_referenceTrajectory.empty()) {
+        throw std::runtime_error("solve: no reference trajectory loaded");
+    }
+
+    m_unpackLatestStates(latestStates, time);
 
     m_updateReference(time);
 
+    const auto N = static_cast<size_t>(m_config.N);
+    if (m_holding) {
+        m_planAge = N; // no plan: no AoA feedforward
+        auto controls = m_extractControls();
+        m_logTransitions();
+        m_trackingNumber += 1;
+        return controls;
+    }
+
     // Warm start from the last accepted plan shifted to the current
     // reference sample, cold start from the reference when it is too old.
-    const auto N = static_cast<size_t>(m_config.N);
     m_planAge = m_planIdx ? m_lastIdxTraj - *m_planIdx : N;
     const bool fromPlan = m_planAge < N;
     if (fromPlan) {
@@ -203,6 +239,7 @@ std::map<uint8_t, uavCommandsFlags> MpcController::solve(const std::map<uint8_t,
 
     // Applied control: the plan at its age, else the reference feedforward.
     // Also U_prev for the next solve.
+    m_openLoop = m_inFlight && m_planAge >= N;
     if (m_planAge < N) {
         const size_t offset = m_planAge * m_solStride + m_nz;
         for (int i = 0; i < m_config.nu; ++i) {
@@ -243,6 +280,25 @@ void MpcController::m_logTransitions() {
             + std::to_string(Logger::nowWallTimeMs()) + ","
             + (m_endedTraj ? "TRAJECTORY ended, idx=" + std::to_string(m_lastIdxTraj) : "TRAJECTORY resumed"));
         m_prevEndedTraj = m_endedTraj;
+    }
+
+    if (m_holding != m_prevHolding) {
+        Logger::instance().log(LogType::NMPC_EVENT,
+            std::to_string(m_trackingNumber) + "," + std::to_string(Logger::instance().nowMilliseconds()) + ","
+            + std::to_string(Logger::nowWallTimeMs()) + ","
+            + (m_holding ? "TRAJECTORY end, repeating the last control" : "TRAJECTORY end cleared"));
+        if (m_holding) LOG_WARNING("Trajectory end reached: repeating the last control, pilot takeover expected");
+        m_prevHolding = m_holding;
+    }
+
+    if (m_openLoop != m_prevOpenLoop) {
+        Logger::instance().log(LogType::NMPC_EVENT,
+            std::to_string(m_trackingNumber) + "," + std::to_string(Logger::instance().nowMilliseconds()) + ","
+            + std::to_string(Logger::nowWallTimeMs()) + ","
+            + (m_openLoop ? "PLAN exhausted, reference feedforward (open loop)" : "PLAN recovered"));
+        if (m_openLoop) LOG_ERROR("No valid solve for N steps: reference feedforward (open loop), take over");
+        else LOG_INFO("Valid solve again: closed loop resumed");
+        m_prevOpenLoop = m_openLoop;
     }
 
     if (m_violation != m_prevViolation) {
@@ -324,6 +380,7 @@ void MpcController::m_updateReference(const double time) {
     }
     m_referenceTime = s * m_config.dt;
     m_lastIdxTraj = static_cast<size_t>(s);
+    m_holding = m_launchTime && (time - *m_launchTime) / m_config.dt > last + 1e-6;
     if (m_launched && m_lastIdxTraj + 1 >= m_endIdxTraj) {
         m_endedTraj = true;
     }
@@ -538,28 +595,46 @@ double MpcController::m_unwrapYaw(const uint8_t sysId, const double yawRadWrappe
     return s.unwrapped;
 }
 
-void MpcController::m_unpackLatestStates(const std::map<uint8_t, uavStates>& latestStates) {
+void MpcController::m_unpackLatestStates(const std::map<uint8_t, uavStates>& latestStates, const double time) {
     // A vehicle without telemetry this tick keeps its previous values.
     const auto fill = grs::control::fillStateVector(latestStates, m_layout, m_initialStates);
     m_telemetryComplete = fill.complete(m_layout);
 
-    // In flight once any UAV exceeds 12 m/s (catapult launch done).
-    for (int i = 0; i < m_config.numUavs; ++i) {
-        const size_t o = m_layout.uavOffset(i);
-        const double vn = m_initialStates[o + 3], ve = m_initialStates[o + 4], vd = m_initialStates[o + 5];
-        if (fill.uav[i] && std::sqrt(vn * vn + ve * ve + vd * vd) > 12.0) {
-            m_inFlight = true;
+    if (m_launched && !m_inFlight) {
+        for (int i = 0; i < m_config.numUavs; ++i) {
+            const size_t o = m_layout.uavOffset(i);
+            const double vn = m_initialStates[o + 3], ve = m_initialStates[o + 4], vd = m_initialStates[o + 5];
+            if (fill.uav[i] && std::sqrt(vn * vn + ve * ve + vd * vd) > m_config.inFlightSpeed) {
+                m_inFlight = true;
+            }
+        }
+        if (!m_inFlight && m_launchTime && time - *m_launchTime > m_config.launchTimeout) {
+            // No release (misfire, or the speed threshold above the launch
+            // speed): back to standby, the reference restarts at its first sample.
+            m_launched = false;
+            m_launchTime.reset();
+            m_planIdx.reset();
+            Logger::instance().log(LogType::NMPC_EVENT,
+                std::to_string(m_trackingNumber) + "," + std::to_string(Logger::instance().nowMilliseconds()) + ","
+                + std::to_string(Logger::nowWallTimeMs()) + ",LAUNCH failed, not in flight after "
+                + std::to_string(m_config.launchTimeout) + " s, back to standby");
+            LOG_ERROR("Launch failed: no UAV above " + std::to_string(m_config.inFlightSpeed) + " m/s within "
+                + std::to_string(m_config.launchTimeout) + " s, controller back to standby");
         }
     }
 
-    // Pre-flight: UAV position/velocity from the reference's first sample
-    // (attitude stays measured), so the solver starts from a consistent state
-    // while the aircraft sit on the launchers.
-    if (!m_launched || !m_inFlight) {
+    if (!m_inFlight) {
+        m_launchPositionError = 0.0;
         for (int i = 0; i < m_config.numUavs; ++i) {
             const size_t o = m_layout.uavOffset(i);
-            for (size_t k = 0; k < 6; ++k) {
-                m_initialStates[o + k] = m_referenceTrajectory.at(o + k);
+            double e2 = 0.0;
+            for (size_t k = 0; k < 3; ++k) {
+                const double e = m_initialStates[o + k] - m_referenceTrajectory[o + k];
+                e2 += e * e;
+            }
+            m_launchPositionError = std::max(m_launchPositionError, std::sqrt(e2));
+            for (size_t k = 3; k < 6; ++k) {
+                m_initialStates[o + k] = m_referenceTrajectory[o + k];
             }
         }
     }

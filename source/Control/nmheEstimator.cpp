@@ -11,6 +11,8 @@
 #include <algorithm>
 #include <cassert>
 #include <limits>
+#include <stdexcept>
+#include <string>
 
 #include "Util/profilingTimer.h"
 
@@ -27,6 +29,21 @@ NmheEstimator::NmheEstimator(const estimatorConfig& config)
     : m_config(config)
     , m_solver(GeneratedFunction::Id::Nmhe, config.numUavs)
 {
+    // Layout of m_packParameters() and of the decision vector. A mismatch
+    // means EstimatorConfiguration does not describe the generated NMHE.
+    auto require = [this](const bool ok, const std::string& what) {
+        if (!ok) throw std::runtime_error(std::string(m_solver.name()) + ": " + what + " (EstimatorConfiguration vs generated NMHE)");
+    };
+    const auto& c = m_config;
+    require(c.nxi == c.nx + c.np + c.nd, "NXI != NX + NP + ND");
+    require(c.wMeas.size() == static_cast<size_t>(c.nx) && c.wWindPrior.size() == static_cast<size_t>(c.np)
+            && c.wDPrior.size() == static_cast<size_t>(c.nd), "W_MEAS/W_WINDP/W_DP sizes");
+    require(m_solver.x0.size() == static_cast<size_t>((c.M + 1) * c.nxi),
+            "takes " + std::to_string(m_solver.x0.size()) + " decision variables, expected (M+1)*NXI = " + std::to_string((c.M + 1) * c.nxi));
+    const size_t np = static_cast<size_t>((c.M + 1) * c.nx + c.M * c.nu + 2 * (c.np + c.nd) + c.nx + c.nL0);
+    require(m_solver.p.size() == np,
+            "takes " + std::to_string(m_solver.p.size()) + " parameters, expected " + std::to_string(np));
+
     m_windEst.assign(m_config.np, 0.0);
     m_dEst.assign(m_config.nd, 0.0);
 
@@ -98,6 +115,17 @@ bool NmheEstimator::estimate() {
     }
 
     return valid;
+}
+
+void NmheEstimator::reset() {
+    std::lock_guard lock(m_solveMutex);
+    m_stateWindow.clear();
+    m_controlWindow.clear();
+    std::ranges::fill(m_windEst, 0.0);
+    std::ranges::fill(m_dEst, 0.0);
+    m_prevSolution.clear();
+    m_samplesSinceSolve = 0;
+    m_windowFull = false;
 }
 
 const std::vector<double>& NmheEstimator::windEstimate() const {

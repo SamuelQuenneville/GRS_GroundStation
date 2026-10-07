@@ -25,24 +25,35 @@ ControlStep::ControlStep(Controller& controller, std::unique_ptr<EstimatorRunner
 std::map<uint8_t, uavCommandsFlags> ControlStep::tick(const std::map<uint8_t, uavStates>& navStates, const double time) {
     m_estimateAppliedThisTick = false;
 
+    // 1. Newest NMHE estimate, if one finished since the last tick. Only in
+    //    flight: the estimator only sees in-flight samples.
     if (m_runner) {
-        // 1. Newest NMHE estimate, if one finished since the last tick.
-        if (auto est = m_runner->takeEstimate()) {
+        if (auto est = m_runner->takeEstimate(); est && m_controller.inFlight()) {
             m_controller.setDisturbanceEstimate(est->wind, est->d);
             m_appliedEstimate = std::move(*est);
             m_estimateAppliedThisTick = true;
         }
-
-        // 2. This tick's measured state with the control applied up to it
-        //    (the previous tick's command). Raw telemetry, even before launch.
-        grs::control::fillStateVector(navStates, m_layout, m_measuredState);
-        m_runner->pushSample(m_measuredState, m_appliedControl);
     }
 
-    // 3. NMPC solve.
+    // 2. NMPC solve, which also updates the launch phase.
     auto cmds = m_controller.solve(navStates, time);
 
     if (m_runner) {
+        // 3. This tick's measured state with the control applied up to it
+        //    (the previous tick's command), in flight only: on the launcher
+        //    and in the catapult stroke the model does not hold, and the
+        //    estimate would saturate. The window restarts at each change.
+        const bool flying = m_controller.inFlight();
+        if (flying != m_wasInFlight) {
+            m_runner->reset();
+            m_appliedEstimate = {};
+            m_wasInFlight = flying;
+        }
+        if (flying) {
+            grs::control::fillStateVector(navStates, m_layout, m_measuredState);
+            m_runner->pushSample(m_measuredState, m_appliedControl);
+        }
+
         // Estimator control: thrust in N, roll/pitch in radians.
         const size_t perUavNu = m_appliedControl.size() / static_cast<size_t>(m_controller.numUavs());
         for (const auto& [sysId, cmd] : cmds) {

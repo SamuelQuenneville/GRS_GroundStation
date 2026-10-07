@@ -59,13 +59,19 @@ float df(const float n, const float phi, const float psi)
  */
 double thrust2rpm(const float airspeed, const float thrustTarget) {
 
-    if (thrustTarget <= 2.0f)
+    // Always a throttle in [0, 1]: a non-finite target gives 0, a
+    // non-finite or negative airspeed is taken as 0 (static thrust, the
+    // lowest rpm for a given thrust).
+    if (!std::isfinite(thrustTarget) || thrustTarget <= 2.0f)
         return 0.0;
 
-    const float phi = 60*airspeed/kPropDiameter;
+    const float v = std::isfinite(airspeed) ? std::max(airspeed, 0.0f) : 0.0f;
+    const float phi = 60*v/kPropDiameter;
     constexpr float psi = kAirDensity*kPropDiameter*kPropDiameter*kPropDiameter*kPropDiameter/3600.0f;
 
-    float x0 = 4000;        // initial guess about half range
+    // Static-thrust rpm: the initial guess, and the result if Newton fails.
+    const float rpmStatic = std::sqrt(thrustTarget / (kThrustCoeffZ * psi));
+    float x0 = rpmStatic;
     float x1 = 0;
     float res = 100;
 
@@ -79,6 +85,10 @@ double thrust2rpm(const float airspeed, const float thrustTarget) {
 
         res = f(x1, phi, psi, thrustTarget);
         x0 = x1;
+    }
+
+    if (!std::isfinite(x0) || x0 <= 0.0f) {
+        x0 = rpmStatic;
     }
 
     // Saturate desired RPM

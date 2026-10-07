@@ -26,6 +26,11 @@ public:
 
     virtual void initLaunch() = 0;
 
+    // Whether a launch may start now; reason says why not.
+    [[nodiscard]] virtual bool launchReady(std::string& reason) const = 0;
+    // Launched and flying (speed threshold crossed since the launch).
+    [[nodiscard]] virtual bool inFlight() const = 0;
+
     // Latest wind/disturbance estimate, physical units, lengths np/nd.
     virtual void setDisturbanceEstimate(const std::vector<double>& wind, const std::vector<double>& d) = 0;
 

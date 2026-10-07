@@ -60,6 +60,9 @@ public:
     virtual std::optional<Estimate> takeEstimate() = 0;
     virtual void pushSample(const std::vector<double>& measuredState, const std::vector<double>& appliedControl) = 0;
     virtual void endTick() {}
+    // Drops the pending samples and estimates and resets the estimator
+    // (window empty, estimate zero) before its next sample.
+    virtual void reset() = 0;
     [[nodiscard]] virtual Stats stats() const = 0;
 };
 
@@ -79,6 +82,7 @@ public:
 
     std::optional<Estimate> takeEstimate() override;
     void pushSample(const std::vector<double>& measuredState, const std::vector<double>& appliedControl) override;
+    void reset() override;
     [[nodiscard]] Stats stats() const override;
 
 private:
@@ -93,6 +97,11 @@ private:
     Estimate m_latest;
     bool m_hasNew = false;
     Stats m_stats;
+
+    // reset() calls so far; the worker, which owns the Estimator, resets it
+    // when the count changed and drops a solve that a reset overtook.
+    std::atomic<uint64_t> m_resets{0};
+    uint64_t m_seenResets = 0;
 
     std::mutex m_wakeMutex;
     std::condition_variable m_wake;
@@ -119,6 +128,7 @@ public:
     std::optional<Estimate> takeEstimate() override;
     void pushSample(const std::vector<double>& measuredState, const std::vector<double>& appliedControl) override;
     void endTick() override;
+    void reset() override;
     [[nodiscard]] Stats stats() const override { return m_stats; }
 
 private:

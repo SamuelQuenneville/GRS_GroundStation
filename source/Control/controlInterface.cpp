@@ -8,6 +8,8 @@
 
 #include "controlInterface.h"
 
+#include <algorithm>
+
 #include "mpcController.h"
 #include "nmheEstimator.h"
 
@@ -55,6 +57,35 @@ void ControlInterface::stop() {
 
 void ControlInterface::setCommandCallback(std::function<void(const std::map<uint8_t, uavCommandsFlags>&)> cb) {
     m_sendCommand = std::move(cb);
+}
+
+void ControlInterface::setTelemetryAgeProvider(std::function<std::optional<double>(uint8_t)> provider) {
+    m_telemetryAge = std::move(provider);
+}
+
+bool ControlInterface::m_checkTelemetry() {
+    std::string reason;
+    if (m_telemetryAge) {
+        for (int id = 1; id <= m_controller->numUavs(); ++id) {
+            const auto age = m_telemetryAge(static_cast<uint8_t>(id));
+            if (!age) {
+                reason = "no telemetry from sysId " + std::to_string(id);
+            } else if (!(*age <= m_config.telemetryTimeout)) {
+                reason = "telemetry of sysId " + std::to_string(id) + " is " + std::to_string(*age) + " s old";
+            } else {
+                continue;
+            }
+            break;
+        }
+    }
+    const bool stale = !reason.empty();
+    if (stale != m_telemetryStale.exchange(stale)) {
+        if (stale) LOG_ERROR("Telemetry stale (" + reason + "): no command sent until it recovers");
+        else LOG_INFO("Telemetry fresh again: commands resumed");
+    }
+    std::lock_guard lock(m_staleMutex);
+    m_staleReason = reason;
+    return !stale;
 }
 
 void ControlInterface::setNmpcDebugCallback(std::function<void(const Controller::DebugInfo&)> cb) {
@@ -115,7 +146,21 @@ void ControlInterface::setCommandsList(const std::map<uint8_t, std::vector<uavCo
 }
 
 void ControlInterface::initLaunch() const {
-    m_controller->initLaunch();
+    if (m_controller) m_controller->initLaunch();
+}
+
+bool ControlInterface::launchReady(std::string& reason) const {
+    if (!m_controller) return true;
+    if (m_telemetryStale) {
+        std::lock_guard lock(m_staleMutex);
+        reason = m_staleReason.empty() ? "telemetry not checked yet (controller not running)" : m_staleReason;
+        return false;
+    }
+    return m_navFrameManager.frameReady(m_controller->numUavs(), reason) && m_controller->launchReady(reason);
+}
+
+void ControlInterface::setEkfOrigin(const uint8_t sysId, const double latitudeDegrees, const double longitudeDegrees, const double altitude) {
+    m_navFrameManager.setEkfOrigin(sysId, latitudeDegrees, longitudeDegrees, altitude);
 }
 
 void ControlInterface::loadTrajectory(const std::string& file) const {
@@ -192,6 +237,7 @@ void ControlInterface::debugConvert(const double latitudeDegrees, const double l
 
 void ControlInterface::m_controlLoop() {
     int fileIdx = 0;
+    int failedTicks = 0;
 
     const auto period = std::chrono::milliseconds(static_cast<int>(1000.0 / m_config.hlcFrequency));
     auto next = std::chrono::steady_clock::now();
@@ -208,64 +254,77 @@ void ControlInterface::m_controlLoop() {
             next = now;
         }
 
-        std::map<uint8_t, uavStates> latestStates;
-        {
-            std::lock_guard lock(m_stateMutex);
-            latestStates = m_latestStates;
-        }
-        const double time = std::chrono::duration<double>(std::chrono::steady_clock::now().time_since_epoch()).count();
-
-        // Every tick: adds the offset of systems that connected since (see initializeOffset()).
-        m_navFrameManager.initializeOffset(latestStates, m_config.pixhawk.sitl);
-
-        if (m_navFrameManager.isInitialized()) {
-            std::map<uint8_t, uavCommandsFlags>  cmds;
-
-            auto navStates = m_navFrameManager.toNavigationFrame(latestStates);
-
-            if (m_config.controlMode == ControlMode::MATLAB) {
-                m_sendDataToMatlab(navStates);
-                auto output = m_receiveDataFromMatlab();
-
-                for (size_t i = 0; i < output.size(); i++) {
-                    cmds[i+1].commands = output[i+1];
-                }
-
-            } else if (m_config.controlMode == ControlMode::MPC) {
-                // Commands in physical units.
-                cmds = m_controlStep->tick(navStates, time);
-
-                for (auto& [sysId, states] : cmds) {
-                    states.commands.thrust = static_cast<float>(thrust2rpm(navStates[sysId].airspeedMeterSecond, states.commands.thrust));
-                }
-
-                if (m_nmpcDebugCallback) {
-                    m_nmpcDebugCallback(m_controller->getDebugInfo());
-                }
-
-            } else if (m_config.controlMode == ControlMode::ATTITUDE_FILE) {
-
-                if (fileIdx >= m_commandsList[1].size()) {
-                    LOG_INFO("Reach end of trajectory!");
-                    return;
-                }
-
-                for (size_t i = 0; i < m_commandsList.size(); i++) {
-                    cmds[i+1] = m_commandsList[i+1].at(fileIdx);
-                }
-
-                fileIdx += static_cast<int>(m_fileFrequency / m_config.hlcFrequency);
-
-            } else {
-                LOG_ERROR("Not a valid control mode. Options are Matlab/MPC/AttitudeFile");
+        // A failed tick sends no command (the autopilot's command timeout then
+        // applies); the loop keeps running.
+        try {
+            std::map<uint8_t, uavStates> latestStates;
+            {
+                std::lock_guard lock(m_stateMutex);
+                latestStates = m_latestStates;
             }
+            const double time = std::chrono::duration<double>(std::chrono::steady_clock::now().time_since_epoch()).count();
 
-            if (m_sendCommand) {
-                m_sendCommand(cmds);
+            // Every tick: adds the offset of systems that connected since (see initializeOffset()).
+            m_navFrameManager.initializeOffset(latestStates);
+
+            if (m_navFrameManager.isInitialized()) {
+                std::map<uint8_t, uavCommandsFlags>  cmds;
+
+                auto navStates = m_navFrameManager.toNavigationFrame(latestStates);
+
+                if (m_config.controlMode == ControlMode::MATLAB) {
+                    m_sendDataToMatlab(navStates);
+                    auto output = m_receiveDataFromMatlab();
+
+                    for (size_t i = 0; i < output.size(); i++) {
+                        cmds[i+1].commands = output[i+1];
+                    }
+
+                } else if (m_config.controlMode == ControlMode::MPC) {
+                    // Stale telemetry: no solve and no command, the autopilot's
+                    // command timeout applies until it recovers.
+                    if (!m_checkTelemetry()) continue;
+
+                    // Commands in physical units.
+                    cmds = m_controlStep->tick(navStates, time);
+
+                    for (auto& [sysId, states] : cmds) {
+                        states.commands.thrust = static_cast<float>(thrust2rpm(navStates[sysId].airspeedMeterSecond, states.commands.thrust));
+                    }
+
+                    if (m_nmpcDebugCallback) {
+                        m_nmpcDebugCallback(m_controller->getDebugInfo());
+                    }
+
+                } else if (m_config.controlMode == ControlMode::ATTITUDE_FILE) {
+
+                    if (fileIdx >= m_commandsList[1].size()) {
+                        LOG_INFO("Reach end of trajectory!");
+                        return;
+                    }
+
+                    for (size_t i = 0; i < m_commandsList.size(); i++) {
+                        cmds[i+1] = m_commandsList[i+1].at(fileIdx);
+                    }
+
+                    fileIdx += static_cast<int>(m_fileFrequency / m_config.hlcFrequency);
+
+                } else {
+                    LOG_ERROR("Not a valid control mode. Options are Matlab/MPC/AttitudeFile");
+                }
+
+                if (m_sendCommand) {
+                    m_sendCommand(cmds);
+                }
+
             }
-
+        } catch (const std::exception& e) {
+            if (failedTicks++ % std::max(1, static_cast<int>(m_config.hlcFrequency)) == 0) {
+                LOG_ERROR(std::string("Control tick failed, no command sent: ") + e.what() + " (" + std::to_string(failedTicks) + " ticks)");
+            }
+            continue;
         }
-
+        failedTicks = 0;
     }
 }
 

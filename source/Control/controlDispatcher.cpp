@@ -27,7 +27,15 @@ void ControlDispatcher::stop() {
 
 void ControlDispatcher::pushCommand(const std::map<uint8_t, uavCommandsFlags>& cmds) {
     {
+        // Latest command only: one still waiting is outdated, sending it would
+        // only delay this one.
         std::lock_guard lock(m_queueMutex);
+        if (!m_commandQueue.empty()) {
+            m_commandQueue = {};
+            if (m_droppedCommands++ % 20 == 0) {
+                LOG_WARNING("Command link slower than the control loop: " + std::to_string(m_droppedCommands) + " outdated commands dropped");
+            }
+        }
         m_commandQueue.push(cmds);
     }
     m_cv.notify_one();

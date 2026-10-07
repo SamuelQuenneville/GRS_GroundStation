@@ -47,7 +47,8 @@ private:
 
     std::mutex m_queueMutex;
     std::condition_variable m_cv;
-    std::queue<std::map<uint8_t, uavCommandsFlags>> m_commandQueue;
+    std::queue<std::map<uint8_t, uavCommandsFlags>> m_commandQueue; // at most one, the latest
+    uint64_t m_droppedCommands = 0;
 
     std::mutex m_stateMutex;
     std::map<uint8_t, uavStates> m_latestStates;

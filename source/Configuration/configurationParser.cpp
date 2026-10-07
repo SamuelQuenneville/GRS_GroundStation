@@ -18,6 +18,7 @@ gcsConfig ConfigurationParser::parseGcsConfig(YAML::Node& node, const gcsConfig&
         if (gcsNode["verboseLogging"])      config.verboseLogging = gcsNode["verboseLogging"].as<bool>();
         if (gcsNode["hlcFrequency"])        config.hlcFrequency = gcsNode["hlcFrequency"].as<double>();
         if (gcsNode["nmheFrequency"])       config.nmheFrequency = gcsNode["nmheFrequency"].as<double>();
+        if (gcsNode["telemetryTimeout"])    config.telemetryTimeout = gcsNode["telemetryTimeout"].as<double>();
         if (gcsNode["telemetryPublishHz"])  config.telemetry_publish_hz = gcsNode["telemetryPublishHz"].as<double>();
 
         if (gcsNode["controlMode"]) {

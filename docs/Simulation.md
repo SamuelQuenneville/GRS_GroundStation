@@ -174,9 +174,10 @@ the point. The known differences a MATLAB/C++ comparison will show:
   `--cmd-delay=measured` uses each tick's measured NMPC solve time, which
   depends on machine load, so prefer a fixed value for campaigns run with
   `--jobs`.
-- **Pre-flight gating.** Below 12 m/s (before `inFlight`), `MpcController`
-  replaces the measured UAV position/velocity with the reference's first
-  sample (a catapult safeguard). MATLAB has no such gate.
+- **Launch phases.** The run is launched before the first tick, from the
+  reference's first state (12 m/s, above the 10 m/s `IN_FLIGHT_SPEED`
+  default), so it is in flight from the first tick: measured state and NMHE
+  samples from the start, as in MATLAB (see `docs/Control.md`).
 - **Precision.** Telemetry and commands pass through `float`, as on the
   real link.
 - **Solver statistics.** The generated C API returns only a status flag, so

@@ -40,10 +40,16 @@ never includes Dashboard headers — results flow out through the
 
 One MPC-mode tick, shared by `ControlInterface` and `grs_batchsim` (see
 `docs/Simulation.md`) so both run identical per-tick logic: hand the
-controller the newest finished NMHE estimate (if any), push this tick's
-sample to the estimator, solve the NMPC. It never solves the NMHE itself.
+controller the newest finished NMHE estimate (if any), solve the NMPC, push
+this tick's sample to the estimator. It never solves the NMHE itself.
 Each estimator sample is paired with the control applied over the interval
-that ends at that sample, i.e. the previous tick's command.
+that ends at that sample, i.e. the previous tick's command. The estimator
+only runs in flight (`Controller::inFlight()`): on the launcher and in the
+catapult stroke the model does not hold and the estimate would saturate at
+its bounds. Samples are pushed and estimates applied only in flight, and the
+runner is reset (window empty, estimate zero) at each change, so the first
+estimate arrives once the window holds M+1 in-flight samples; until then the
+controller uses zero wind and disturbance.
 `buildControlStack()` builds the controller and optional estimator from a
 YAML profile, the way `ControlInterface::initialize()` does.
 
@@ -95,6 +101,46 @@ sample for the warm start, and a rejected solve applies the plan's control at
 that sample instead of the new solution. Otherwise the solve starts cold from
 the reference window and a rejected solve applies the reference feedforward
 control. `controls.csv` marks rejected solves with the source used.
+
+Each command also carries the plan's predicted angle of attack
+Launch phases (`m_unpackLatestStates()`):
+
+- **Standby** (before `initLaunch()`): the controller solves every tick, so
+  a valid plan exists at release. The UAV position and attitude are
+  measured; the velocity is the reference's first one (the launch velocity),
+  so the plan is the flight from the launcher. The reference stays at its
+  first sample.
+- **Launching** (from `initLaunch()`): the reference runs; same state as
+  standby until a UAV exceeds `IN_FLIGHT_SPEED` (default 10 m/s). If that
+  has not happened `LAUNCH_TIMEOUT` (default 1 s) after the launch
+  (misfire), back to standby.
+- **In flight**: fully measured state, NMHE on.
+
+`launchReady()` gates `catapultFire` and `initLaunch`: refused without a
+checked frame offset for every UAV (below), without a trajectory, before the first solve, with incomplete telemetry, without a
+valid plan, or while a UAV is more than `LAUNCH_POS_TOL` (default 3 m) from
+its reference start (regenerate the trajectory with the live launch
+positions). The three keys are optional `SolverConfiguration` entries.
+Commands are sent in standby too (motor running on the launcher if armed).
+
+A control tick that throws (e.g. no trajectory) sends no command and is
+logged; the loop keeps running. The NMHE thread logs a failed solve and
+keeps the last estimate.
+
+Stale telemetry: in MPC mode, a tick where a UAV's latest position,
+velocity or attitude message is older than `GcsConfiguration.telemetryTimeout`
+(default 0.3 s, `CommunicationManager::telemetryAge()`) neither solves nor
+sends a command, so the autopilot's command timeout applies; logged on each
+change. Launch is refused meanwhile.
+
+End of the trajectory: once the reference time passes the last full window,
+the controller stops solving and repeats the last applied control every tick
+(no AoA feedforward), in the same flight mode. The trajectory ends with a
+buffer in which the pilot takes over. Logged once (`TRAJECTORY end`).
+
+No plan left in flight (N rejected solves in a row): the command is the
+reference feedforward, open loop, until a solve is accepted again; logged
+as an error on each change (`PLAN exhausted`).
 
 Each command also carries the plan's predicted angle of attack
 `AOA_FF_STAGE` stages after the applied control (optional
@@ -178,7 +224,8 @@ from `CommunicationManager` (consumer, sends them to the vehicles) and vice
 versa for telemetry — `attachCommunicationManager()`/
 `attachControllerInput()` wire the two `std::function` callbacks together.
 Runs its own dispatch thread (`m_dispatchLoop()`) reading off
-`m_commandQueue`.
+`m_commandQueue`, which holds only the latest command: an unsent one is
+replaced, never sent late (drops are logged).
 
 ## `NavigationFrameManager` (`navigationFrameManager.h`/`.cpp`)
 
@@ -189,12 +236,25 @@ distinct states:
 - `hasOrigin()` — an origin has been set (`setOrigin()`), so there's
   something to show on the setup UI.
 - `isInitialized()` — additionally, `initializeOffset()` has computed a
-  per-UAV frame offset from live states. Nothing is converted until this is
-  true.
+  per-UAV frame offset. Nothing is converted until this is true.
+
+A vehicle's position in the GCS frame is its `LOCAL_POSITION_NED` plus its
+offset, the position of its EKF origin in the GCS frame. The EKF origin
+comes from `GPS_GLOBAL_ORIGIN` (`CommunicationManager` requests it every 2 s
+until it arrives, then every 10 s, and passes it on through
+`setEkfOrigin()`), so the offset is exact and does not depend on two
+messages sampled at different times. The same holds in SITL. The tangent
+planes of the two origins differ by less than 0.2 m per km of separation.
 
 `initializeOffset()` is called unconditionally every control-loop tick; it's
-incremental and a no-op for any sysId it's already computed an offset for,
-so calling it before the frame exists is cheap and correct. All public
-methods lock `m_mutex`, since `setOrigin()` can be called from the console
-thread or the dashboard's HTTP handler thread while the control loop is
+incremental: it computes the offset of a sysId once its EKF origin is known
+(refused above 5 km: wrong GCS or EKF origin, logged once), and checks every
+offset while the vehicle is still (< 1 m/s): its `GLOBAL_POSITION_INT`
+must equal the local position plus the offset within 1 m, otherwise an
+error is logged. `frameReady()` requires a checked offset for every UAV and
+gates `catapultFire`/`initLaunch` (see `launchReady()`). `setOrigin()` clears
+every offset, and a changed EKF origin clears that vehicle's offset; both
+are recomputed on the next tick. All public methods lock `m_mutex`, since
+`setOrigin()` can be called from the console or dashboard thread and
+`setEkfOrigin()` from a MAVSDK callback while the control loop is
 concurrently reading/writing state every tick.
