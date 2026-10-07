@@ -186,7 +186,7 @@ void GroundControlStation::initialize(const gcsConfig& config)
     if (!config.catapults.empty()) {
         std::vector<CatapultEndpoint> endpoints;
         for (const auto&[id, port, ip] : config.catapults) {
-            endpoints.push_back({id, port, ip});
+            endpoints.push_back({.id = id, .port = port, .expectedIp = ip});
         }
         m_catapultLauncher->configure(endpoints);
     }

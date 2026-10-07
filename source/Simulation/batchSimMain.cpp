@@ -51,7 +51,7 @@ using namespace grs::sim;
 
 namespace {
 
-const char* kUsage = R"(grs_batchsim: closed-loop batch simulation with the GCS controller core
+auto kUsage = R"(grs_batchsim: closed-loop batch simulation with the GCS controller core
 
 Required:
   --config=<yaml>          GCS YAML profile (SolverConfiguration [+ EstimatorConfiguration])
@@ -101,8 +101,8 @@ Optional:
 
 struct Args {
     std::map<std::string, std::string> kv;
-    bool has(const std::string& k) const { return kv.count(k) > 0; }
-    std::string get(const std::string& k, const std::string& def = "") const {
+    [[nodiscard]] bool has(const std::string& k) const { return kv.contains(k); }
+    [[nodiscard]] std::string get(const std::string& k, const std::string& def = "") const {
         const auto it = kv.find(k);
         return it == kv.end() ? def : it->second;
     }
@@ -244,7 +244,7 @@ YAML::Node applyWeightSet(const YAML::Node& config, const std::string& label, co
     if (!set) throw std::runtime_error("weight set '" + label + "' not found in the profile's WeightSets section");
 
     auto w = out["SolverConfiguration"]["WEIGHT"].as<std::vector<double>>();
-    const size_t nx = static_cast<size_t>(sc.nx), nu = static_cast<size_t>(sc.nu);
+    const auto nx = static_cast<size_t>(sc.nx), nu = static_cast<size_t>(sc.nu);
     if (w.size() != 2 * nx + 3 * nu) {
         throw std::runtime_error("WEIGHT has " + std::to_string(w.size()) + " entries, expected Q|R|Qf|Rdu|Rdu0 = " +
                                  std::to_string(2 * nx + 3 * nu));
@@ -262,7 +262,7 @@ YAML::Node applyWeightSet(const YAML::Node& config, const std::string& label, co
         } else {
             idx = item["idx"].as<std::vector<size_t>>();
         }
-        const double factor = item["factor"].as<double>();
+        const auto factor = item["factor"].as<double>();
         for (const size_t i : idx) {
             if (i < 1 || i > size) {
                 throw std::runtime_error("weight set '" + label + "': index " + std::to_string(i) + " outside block " +
@@ -362,7 +362,7 @@ int main(int argc, char** argv) {
         YAML::Node config = YAML::LoadFile(args.get("config"));
         const solverConfig sc = ConfigurationParser::parseSolverConfig(config);
         const gcsConfig gc = ConfigurationParser::parseGcsConfig(config);
-        const size_t stride = static_cast<size_t>(sc.nx + sc.nu);
+        const size_t stride = sc.nx + sc.nu;
 
         if (std::fabs(gc.hlcFrequency * sc.dt - 1.0) > 1e-9) {
             std::cerr << "warning: GcsConfiguration.hlcFrequency (" << gc.hlcFrequency << " Hz) != 1/DT ("
@@ -477,7 +477,7 @@ int main(int argc, char** argv) {
                         ++already;
                         continue;
                     }
-                    queue.push_back({si, c, ws});
+                    queue.push_back({.sample = si, .controller = c, .weightSet = ws});
                 }
             }
         }

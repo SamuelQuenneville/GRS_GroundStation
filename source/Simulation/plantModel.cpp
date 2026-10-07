@@ -18,16 +18,16 @@ struct V3 {
     double x, y, z;
 };
 
-inline V3 operator+(const V3& a, const V3& b) { return {a.x + b.x, a.y + b.y, a.z + b.z}; }
-inline V3 operator-(const V3& a, const V3& b) { return {a.x - b.x, a.y - b.y, a.z - b.z}; }
-inline V3 operator*(const double s, const V3& a) { return {s * a.x, s * a.y, s * a.z}; }
-inline V3 operator/(const V3& a, const double s) { return {a.x / s, a.y / s, a.z / s}; }
+inline V3 operator+(const V3& a, const V3& b) { return {.x = a.x + b.x, .y = a.y + b.y, .z = a.z + b.z}; }
+inline V3 operator-(const V3& a, const V3& b) { return {.x = a.x - b.x, .y = a.y - b.y, .z = a.z - b.z}; }
+inline V3 operator*(const double s, const V3& a) { return {.x = s * a.x, .y = s * a.y, .z = s * a.z}; }
+inline V3 operator/(const V3& a, const double s) { return {.x = a.x / s, .y = a.y / s, .z = a.z / s}; }
 inline double dot(const V3& a, const V3& b) { return a.x * b.x + a.y * b.y + a.z * b.z; }
 inline double sumsqr(const V3& a) { return dot(a, a); }
 inline V3 cross(const V3& a, const V3& b) {
-    return {a.y * b.z - a.z * b.y, a.z * b.x - a.x * b.z, a.x * b.y - a.y * b.x};
+    return {.x = a.y * b.z - a.z * b.y, .y = a.z * b.x - a.x * b.z, .z = a.x * b.y - a.y * b.x};
 }
-inline V3 load(const double* p) { return {p[0], p[1], p[2]}; }
+inline V3 load(const double* p) { return {.x = p[0], .y = p[1], .z = p[2]}; }
 
 // Thrust + aerodynamic + gravity + disturbance force on one UAV, and its
 // angle of attack. xUav points at that UAV's 8-state block [p(3) v(3) roll
@@ -50,7 +50,7 @@ V3 uavForce(const AirframeParams& a, const RigParams& rig, const double* xUav, c
     const double V = std::sqrt(V2 + kEps);
     const V3 dir = airspeed / V;
 
-    const V3 down{0.0, 0.0, 1.0};
+    constexpr V3 down{.x = 0.0, .y = 0.0, .z = 1.0};
     const V3 eRight0 = cross(down, dir);
     const V3 eRight = eRight0 / std::sqrt(sumsqr(eRight0) + kEps);
     const V3 eUp = cross(eRight, dir);
@@ -63,7 +63,7 @@ V3 uavForce(const AirframeParams& a, const RigParams& rig, const double* xUav, c
     const double L = qs * V2 * CL;
     const double D = qs * V2 * CD;
 
-    const V3 gravity{0.0, 0.0, a.mass * rig.g};
+    const V3 gravity{.x = 0.0, .y = 0.0, .z = a.mass * rig.g};
     return (thrust - D + dFa) * dir + L * eLift + gravity + dF;
 }
 
@@ -99,8 +99,7 @@ TwoUavPayloadPlant::TwoUavPayloadPlant(const AirframeParams& uav1, const Airfram
 {
 }
 
-void TwoUavPayloadPlant::evaluate(const double* x, const double* u, const double* wind, const double* d,
-                                  const double L0, double* xdot, double* alpha) const {
+void TwoUavPayloadPlant::evaluate(const double* x, const double* u, const double* wind, const double* d, const double L0, double* xdot, double* alpha) const {
     const V3 w = load(wind);
     const double* x1 = x;        // UAV1 block
     const double* x2 = x + 8;    // UAV2 block
@@ -109,7 +108,7 @@ void TwoUavPayloadPlant::evaluate(const double* x, const double* u, const double
     const V3 vPay = load(xp + 3);
 
     // d = [dFa1 dCL1 b_roll1 b_pitch1  dFa2 dCL2 b_roll2 b_pitch2  dFz_pay]
-    const V3 none{0.0, 0.0, 0.0};
+    constexpr V3 none{.x = 0.0, .y = 0.0, .z = 0.0};
     double a1 = 0.0, a2 = 0.0;
     V3 f1 = uavForce(m_uav[0], m_rig, x1, u[0], w, d[0], d[1], none, a1);
     V3 f2 = uavForce(m_uav[1], m_rig, x2, u[3], w, d[4], d[5], none, a2);
@@ -126,8 +125,8 @@ void TwoUavPayloadPlant::evaluate(const double* x, const double* u, const double
     const double gateGround = 0.5 * (1.0 + std::tanh(m_rig.kappa_ground * zPay));
     const double raw = m_rig.k_ground * zPay + m_rig.b_ground * vzPay;
     const double softplus = std::max(raw, 0.0) + std::log(1.0 + std::exp(-std::fabs(raw)));
-    const V3 fGround{0.0, 0.0, -(gateGround * softplus)};
-    const V3 fPay = V3{0.0, 0.0, m_rig.m_pay * m_rig.g + d[8]} - ft1 - ft2 + fGround;
+    const V3 fGround{.x = 0.0, .y = 0.0, .z = -(gateGround * softplus)};
+    const V3 fPay = V3{.x = 0.0, .y = 0.0, .z = m_rig.m_pay * m_rig.g + d[8]} - ft1 - ft2 + fGround;
 
     writeUavOde(m_uav[0], x1, f1, u[1], u[2], d[2], d[3], xdot);
     writeUavOde(m_uav[1], x2, f2, u[4], u[5], d[6], d[7], xdot + 8);

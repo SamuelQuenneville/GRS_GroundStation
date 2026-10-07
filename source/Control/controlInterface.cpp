@@ -126,7 +126,7 @@ std::optional<ControlInterface::GpsFix> ControlInterface::getPayloadGpsFix() con
         }
 
         // Highest sysId wins if more than one somehow lands above numUavs
-        fix = GpsFix{state.latitudeDegree, state.longitudeDegree, state.altitudeAmslMeter};
+        fix = GpsFix{.latitudeDegrees = state.latitudeDegree, .longitudeDegrees = state.longitudeDegree, .altitudeMeters = state.altitudeAmslMeter};
     }
     return fix;
 }

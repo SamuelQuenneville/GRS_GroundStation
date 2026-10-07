@@ -750,7 +750,7 @@ void CommunicationManager::m_subscribeControlState(const uint8_t sysId) {
                     LOG_INFO("sysId " + std::to_string(sysId) + ": CONTROL_SYSTEM_STATE at " + std::to_string(rate)
                              + " Hz (requested " + std::to_string(m_config.stateRateHz) + " Hz)");
                 }
-                w = {now, 1, true};
+                w = {.start = now, .count = 1, .reported = true};
             }
         }
 
@@ -803,7 +803,7 @@ void CommunicationManager::m_setMessageInterval(const uint8_t sysId, const uint3
         if (it == m_passthrough.end()) return;
         passthrough = it->second;
     }
-    const float intervalUs = static_cast<float>(1e6 / rateHz);
+    const auto intervalUs = static_cast<float>(1e6 / rateHz);
     passthrough->queue_message([passthrough, messageId, intervalUs](const MavlinkAddress address, const uint8_t channel) {
         mavlink_message_t message;
         mavlink_msg_command_long_pack_chan(address.system_id, address.component_id, channel, &message,
@@ -883,7 +883,7 @@ void CommunicationManager::m_sendAttitudeTarget() {
     }
 }
 
-void CommunicationManager::m_setParameter(const uint8_t sysId, const MAV_PARAM_TYPE type, std::string name, const float value) {
+void CommunicationManager::m_setParameter(const uint8_t sysId, const MAV_PARAM_TYPE type, const std::string &name, const float value) {
     const auto result = m_passthrough[sysId]->queue_message(
         [&](MavlinkAddress mavlink_address, uint8_t channel) {
             mavlink_message_t message;

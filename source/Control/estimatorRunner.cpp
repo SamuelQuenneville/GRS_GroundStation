@@ -173,7 +173,7 @@ void DeferredEstimatorRunner::endTick() {
         if (ok) {
             const double ms = m_latencyMs >= 0.0 ? m_latencyMs : dbg.lastSolveMs;
             const auto ticks = static_cast<uint64_t>(std::max(1.0, std::ceil(ms / m_tickMs - 1e-9)));
-            m_inFlight.emplace_back(m_tick + ticks, Estimate{m_estimator.windEstimate(), m_estimator.dEstimate()});
+            m_inFlight.emplace_back(m_tick + ticks, Estimate{.wind = m_estimator.windEstimate(), .d = m_estimator.dEstimate()});
             ++m_stats.published;
         }
     }

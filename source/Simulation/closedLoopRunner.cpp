@@ -40,10 +40,10 @@ std::map<uint8_t, uavStates> toTelemetry(const std::vector<double>& x, const int
         return s;
     };
     for (int i = 0; i < numUavs; ++i) {
-        out[static_cast<uint8_t>(i + 1)] = fill(static_cast<size_t>(i * kUavBlock), true);
+        out[static_cast<uint8_t>(i + 1)] = fill(i * kUavBlock, true);
     }
     if (hasPayload) {
-        out[static_cast<uint8_t>(numUavs + 1)] = fill(static_cast<size_t>(numUavs * kUavBlock), false);
+        out[static_cast<uint8_t>(numUavs + 1)] = fill(numUavs * kUavBlock, false);
     }
     return out;
 }
@@ -70,9 +70,9 @@ double maxOmitNan(const std::vector<double>& v) {
 
 // Nearest-rank percentile, NaNs dropped (mc_metrics_twoUav.m's pct()).
 double pct(std::vector<double> v, const double p) {
-    v.erase(std::remove_if(v.begin(), v.end(), [](const double x) { return std::isnan(x); }), v.end());
+    std::erase_if(v, [](const double x) { return std::isnan(x); });
     if (v.empty()) return kNaN;
-    std::sort(v.begin(), v.end());
+    std::ranges::sort(v);
     const auto k = static_cast<size_t>(std::max(1.0, std::ceil(p / 100.0 * static_cast<double>(v.size()))));
     return v[k - 1];
 }
@@ -126,7 +126,7 @@ std::vector<std::pair<std::string, double>> computeMetrics(
     const History& h, const std::vector<double>& ref, const solverConfig& sc, const TruthSpec& truth,
     const bool hasPayload, const bool useEst) {
     const int nx = sc.nx, nu = sc.nu, numUavs = sc.numUavs;
-    const size_t stride = static_cast<size_t>(nx + nu);
+    const size_t stride = nx + nu;
     const size_t n = h.controls.size();
     std::vector<std::pair<std::string, double>> m;
     auto put = [&](const std::string& k, const double v) { m.emplace_back(k, v); };
@@ -134,7 +134,7 @@ std::vector<std::pair<std::string, double>> computeMetrics(
     auto X = [&](const size_t k) -> const std::vector<double>& { return h.states[k + 1]; }; // after control k
     auto R = [&](const size_t k) { return ref.data() + (k + 1) * stride; };
 
-    const size_t payOff = static_cast<size_t>(numUavs * kUavBlock);
+    const size_t payOff = numUavs * kUavBlock;
 
     // --- Tracking
     if (hasPayload && n > 0) {
@@ -153,7 +153,7 @@ std::vector<std::pair<std::string, double>> computeMetrics(
             return std::sqrt(s / static_cast<double>(v.size() - from));
         };
         put("pay_rms_3d", rms(en, 0));
-        put("pay_peak_3d", *std::max_element(en.begin(), en.end()));
+        put("pay_peak_3d", *std::ranges::max_element(en));
         put("pay_rms_alt", rms(ealt, 0));
         put("pay_rms_horiz", rms(ehor, 0));
         const size_t q = std::max<size_t>(1, static_cast<size_t>(std::floor(0.75 * static_cast<double>(n)))) - 1;
@@ -195,7 +195,7 @@ std::vector<std::pair<std::string, double>> computeMetrics(
     if (n > 0) {
         double stretchMax = -std::numeric_limits<double>::infinity();
         size_t lifted = 0, slackLifted = 0;
-        const double origin[3] = {0.0, 0.0, 0.0};
+        constexpr double origin[3] = {0.0, 0.0, 0.0};
         for (size_t k = 0; k < n; ++k) {
             const double* anchor = hasPayload ? X(k).data() + payOff : origin;
             bool slack = false;
@@ -291,7 +291,7 @@ std::vector<std::pair<std::string, double>> computeMetrics(
             sd.lift += e.lift;
             sd.bias += e.bias;
         }
-        const double c = static_cast<double>(cnt);
+        const auto c = static_cast<double>(cnt);
         put("wind_err_rms", std::sqrt(sw / c));
         put("dF_err_rms", std::sqrt(sd.force / c));
         put("btrim_err_rms_deg", grs::radToDeg(std::sqrt(sd.bias / c)));
@@ -309,10 +309,10 @@ std::vector<std::pair<std::string, double>> computeMetrics(
 void fillTimeSeries(const History& h, const std::vector<double>& ref, const solverConfig& sc, const TruthSpec& truth,
                     const bool hasPayload, const bool useEst, const int decim, RunResult& r) {
     const int nu = sc.nu, numUavs = sc.numUavs, perUavNu = nu / numUavs;
-    const size_t stride = static_cast<size_t>(sc.nx + nu);
-    const size_t payOff = static_cast<size_t>(numUavs * kUavBlock);
+    const size_t stride = sc.nx + nu;
+    const size_t payOff = numUavs * kUavBlock;
     const size_t trackOff = hasPayload ? payOff : 0;
-    const double origin[3] = {0.0, 0.0, 0.0};
+    constexpr double origin[3] = {0.0, 0.0, 0.0};
 
     r.tsHeader = {"t", "e_n", "e_e", "e_d", "e_uav1", "e_uav2", "alpha1_deg", "alpha2_deg", "stretch1", "stretch2",
                   "pay_h", "sat_count", "thrust_sat", "du_norm", "ok", "ctrl_ms", "wind_err", "dF_err", "btrim_err_deg",
@@ -372,8 +372,8 @@ void fillTimeSeries(const History& h, const std::vector<double>& ref, const solv
 
 ControllerVariant parseController(const std::string& controller) {
     for (const char* family : {"nmpc", "lmpc"}) {
-        if (controller == std::string(family) + "_naive") return {family, false};
-        if (controller == std::string(family) + "_of") return {family, true};
+        if (controller == std::string(family) + "_naive") return {.family = family, .useEstimator = false};
+        if (controller == std::string(family) + "_of") return {.family = family, .useEstimator = true};
     }
     throw std::runtime_error("unknown controller '" + controller + "' (nmpc_naive | nmpc_of | lmpc_naive | lmpc_of)");
 }
@@ -394,7 +394,7 @@ RunResult runClosedLoop(YAML::Node config, const std::string& controller, const 
     const solverConfig& sc = stack.solver;
     const int nx = sc.nx, nu = sc.nu, N = sc.N, numUavs = sc.numUavs;
     const double dt = sc.dt;
-    const size_t stride = static_cast<size_t>(nx + nu);
+    const size_t stride = nx + nu;
 
     if (reference.size() % stride != 0) {
         throw std::runtime_error("reference size is not a multiple of nx+nu=" + std::to_string(stride));
@@ -465,7 +465,7 @@ RunResult runClosedLoop(YAML::Node config, const std::string& controller, const 
                 u[i * perUavNu + 1] = grs::degToRad(static_cast<double>(c.rollDegree));
                 u[i * perUavNu + 2] = grs::degToRad(static_cast<double>(c.pitchDegree));
             }
-            if (std::any_of(u.begin(), u.end(), [](const double v) { return !std::isfinite(v); })) {
+            if (std::ranges::any_of(u, [](const double v) { return !std::isfinite(v); })) {
                 abortReason = "nonfinite_control";
                 break;
             }
@@ -516,7 +516,7 @@ RunResult runClosedLoop(YAML::Node config, const std::string& controller, const 
         h.alpha.push_back(alpha);
 
         // Divergence checks (mc_run_one_twoUav.m)
-        if (std::any_of(xTrue.begin(), xTrue.end(), [](const double v) { return !std::isfinite(v); })) {
+        if (std::ranges::any_of(xTrue, [](const double v) { return !std::isfinite(v); })) {
             abortReason = "nonfinite_state";
             break;
         }
@@ -566,7 +566,7 @@ RunResult runClosedLoop(YAML::Node config, const std::string& controller, const 
                 row.push_back(h.ctrlMs[k]);
                 row.push_back(h.ok[k] ? 1.0 : 0.0);
             } else {
-                row.insert(row.end(), static_cast<size_t>(nu + numUavs + sc.np + sc.nd + 2), kNaN);
+                row.insert(row.end(), nu + numUavs + sc.np + sc.nd + 2, kNaN);
             }
             r.trajRows.push_back(std::move(row));
         }

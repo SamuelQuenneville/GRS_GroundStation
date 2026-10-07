@@ -17,7 +17,7 @@ ControlStep::ControlStep(Controller& controller, std::unique_ptr<EstimatorRunner
 {
     if (m_runner) {
         m_appliedControl.assign(static_cast<size_t>(estimatorNu), 0.0);
-        m_layout = {m_controller.numUavs(), m_controller.hasPayload()};
+        m_layout = {.numUavs = m_controller.numUavs(), .hasPayload = m_controller.hasPayload()};
         m_measuredState.assign(m_layout.size(), 0.0);
     }
 }

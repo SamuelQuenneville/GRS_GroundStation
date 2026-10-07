@@ -39,7 +39,7 @@ struct StateLayout {
     [[nodiscard]] size_t size() const {
         return static_cast<size_t>(kUavBlockSize) * numUavs + (hasPayload ? kPayloadBlockSize : 0);
     }
-    [[nodiscard]] size_t uavOffset(const int uavIndex) const { return static_cast<size_t>(kUavBlockSize) * uavIndex; }
+    [[nodiscard]] static size_t uavOffset(const int uavIndex) { return static_cast<size_t>(kUavBlockSize) * uavIndex; }
     [[nodiscard]] size_t payloadOffset() const { return static_cast<size_t>(kUavBlockSize) * numUavs; }
 };
 

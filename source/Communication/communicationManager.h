@@ -215,7 +215,7 @@ private:
 
     void m_sendAttitudeTarget();
 
-    void m_setParameter(uint8_t sysId, MAV_PARAM_TYPE type, std::string name, float value);
+    void m_setParameter(uint8_t sysId, MAV_PARAM_TYPE type, const std::string &name, float value);
 
     std::map<uint8_t, uavHealth> m_uavHealths;
     std::map<uint8_t, uavCommandsFlags> m_uavCommands;

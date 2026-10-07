@@ -8,6 +8,8 @@
 
 #include "logger.h"
 
+#include <ranges>
+
 #include "programLogger.h"
 
 Logger& Logger::instance() {
@@ -45,7 +47,7 @@ void Logger::start(const bool enabled, const std::string& logDirectory) {
     // readable and useful even on a run where the heavy dumps are off.
     m_files[LogType::NMPC_EVENT].open(logDirectory + "/nmpc_events.log");
 
-    for (auto& [_, file] : m_files) {
+    for (auto &file: m_files | std::views::values) {
         file.setf(std::ios::unitbuf);
     }
 
@@ -68,7 +70,7 @@ void Logger::stop() {
 
     m_queue.clear();
 
-    for (auto& [_, file] : m_files) {
+    for (auto &file: m_files | std::views::values) {
         if (file.is_open()) {
             file.close();
         }
@@ -78,7 +80,7 @@ void Logger::stop() {
 void Logger::log(const LogType type, const std::string& line) {
     if (!m_running) return;
     if (type != LogType::NMPC_EVENT && !m_enabled) return;
-    m_queue.push(LogItem{type, line});
+    m_queue.push(LogItem{.type = type, .line = line});
 }
 
 uint64_t Logger::nowMilliseconds() const {

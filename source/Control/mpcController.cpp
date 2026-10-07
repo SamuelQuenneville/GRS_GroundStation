@@ -33,21 +33,21 @@ MpcController::MpcController(const solverConfig& config)
 
     // Layout of m_packParameters(). A mismatch means SolverConfiguration does
     // not describe the generated solver.
-    size_t expected = 2 * m_config.nx + m_config.N * m_refStride + m_config.np + m_config.nd
-        + m_config.weight.size() + m_config.nu + m_config.nL0;
+    size_t expected = 2 * m_config.nx + m_config.N * m_refStride + m_config.np + m_config.nd + m_config.weight.size() + m_config.nu + m_config.nL0;
+
     if (m_config.controller == solverConfig::Controller::Lmpc) {
         m_linearization.emplace(GeneratedFunction::Id::LmpcLinearization, m_config.numUavs);
+
         if (m_linearization->inputSize(0) != m_config.N * m_refStride) {
             throw std::runtime_error(std::string(m_linearization->name()) + " was generated for another N, nx or nu");
         }
         expected += m_linearization->outputSize(0);
     }
     if (m_solver.p.size() != expected) {
-        throw std::runtime_error(std::string(m_solver.name()) + " takes " + std::to_string(m_solver.p.size())
-            + " parameters, SolverConfiguration describes " + std::to_string(expected));
+        throw std::runtime_error(std::string(m_solver.name()) + " takes " + std::to_string(m_solver.p.size()) + " parameters, SolverConfiguration describes " + std::to_string(expected));
     }
 
-    m_layout = {m_config.numUavs, hasPayload()};
+    m_layout = {.numUavs = m_config.numUavs, .hasPayload = hasPayload()};
     assert(m_layout.size() == static_cast<size_t>(m_config.nx));
 
     m_initialStates.assign(m_config.nx, 0.0);
@@ -227,12 +227,23 @@ std::map<uint8_t, uavCommandsFlags> MpcController::solve(const std::map<uint8_t,
 
     if (!m_violation) {
         m_plan = m_solver.x;
-        // g: nz initial rows, then per stage nz dynamics rows and numUavs alpha rows
-        const auto numUavs = static_cast<size_t>(m_config.numUavs);
+
+        // g layout: nz initial rows, then per stage [nz dynamics | numUavs alpha]
+        assert(m_config.numUavs >= 0);
+        const auto   numUavs = static_cast<size_t>(m_config.numUavs);
+        const size_t gStride = m_nz + numUavs;
+
+        const std::span<const double> g{m_solver.g};
+        assert(g.size() >= m_nz + N * gStride);
+
         m_planAlpha.resize(N * numUavs);
+        const std::span<double> alpha{m_planAlpha};
+
         for (size_t k = 0; k < N; ++k) {
-            std::copy_n(m_solver.g.begin() + m_nz + k * (m_nz + numUavs) + m_nz, numUavs, m_planAlpha.begin() + k * numUavs);
+            const size_t src = m_nz + k * gStride + m_nz;  // initial rows, stage offset, skip dynamics
+            std::ranges::copy(g.subspan(src, numUavs), alpha.subspan(k * numUavs, numUavs).begin());
         }
+
         m_planIdx = m_lastIdxTraj;
         m_planAge = 0;
     }
@@ -398,18 +409,28 @@ void MpcController::m_updateReference(const double time) {
 }
 
 void MpcController::m_shiftSolution(const size_t shift) {
-    const size_t N = m_config.N;
+    const size_t N      = m_config.N;
+    const size_t nz     = m_nz;
+    const size_t nu     = m_config.nu;
     const size_t stride = m_solStride;
+    const size_t len    = N * stride + nz;  // N (z,u) stages + terminal z
 
-    // Stage k takes the plan's stage k + shift: z up to the terminal one,
-    // u up to the last one (shift_primal.m). The terminal z stays.
+    const std::span<const double> plan{m_plan};
+    const std::span<double>       x0{m_solver.x0};
+    assert(N > 0);
+    assert(plan.size() >= len && x0.size() >= len);
+
+    auto copyBlock = [&](const size_t src, const size_t dst, const size_t count) {
+        std::ranges::copy(plan.subspan(src, count), x0.subspan(dst, count).begin());
+    };
+
     for (size_t k = 0; k < N; ++k) {
-        const size_t zSrc = std::min(k + shift, N) * stride;
-        const size_t uSrc = std::min(k + shift, N - 1) * stride + m_nz;
-        std::copy_n(m_plan.begin() + zSrc, m_nz, m_solver.x0.begin() + k * stride);
-        std::copy_n(m_plan.begin() + uSrc, m_config.nu, m_solver.x0.begin() + k * stride + m_nz);
+        const size_t kz = std::min(k + shift, N);      // state: clamp to terminal
+        const size_t ku = std::min(k + shift, N - 1);  // input: hold last input
+        copyBlock(kz * stride,      k * stride,      nz);
+        copyBlock(ku * stride + nz, k * stride + nz, nu);
     }
-    std::copy_n(m_plan.begin() + N * stride, m_nz, m_solver.x0.begin() + N * stride);
+    copyBlock(N * stride, N * stride, nz);             // terminal state
 
     m_packFirstStage();
 }

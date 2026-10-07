@@ -38,9 +38,9 @@ NmheEstimator::NmheEstimator(const estimatorConfig& config)
     require(c.nxi == c.nx + c.np + c.nd, "NXI != NX + NP + ND");
     require(c.wMeas.size() == static_cast<size_t>(c.nx) && c.wWindPrior.size() == static_cast<size_t>(c.np)
             && c.wDPrior.size() == static_cast<size_t>(c.nd), "W_MEAS/W_WINDP/W_DP sizes");
-    require(m_solver.x0.size() == static_cast<size_t>((c.M + 1) * c.nxi),
+    require(m_solver.x0.size() == (c.M + 1) * c.nxi,
             "takes " + std::to_string(m_solver.x0.size()) + " decision variables, expected (M+1)*NXI = " + std::to_string((c.M + 1) * c.nxi));
-    const size_t np = static_cast<size_t>((c.M + 1) * c.nx + c.M * c.nu + 2 * (c.np + c.nd) + c.nx + c.nL0);
+    const size_t np = (c.M + 1) * c.nx + c.M * c.nu + 2 * (c.np + c.nd) + c.nx + c.nL0;
     require(m_solver.p.size() == np,
             "takes " + std::to_string(m_solver.p.size()) + " parameters, expected " + std::to_string(np));
 
@@ -98,7 +98,7 @@ bool NmheEstimator::estimate() {
     if (valid) {
         // Wind and d are constant over the window (identity dynamics), so
         // any stage holds the estimate; read the last one.
-        const size_t nxi = static_cast<size_t>(m_config.nxi);
+        const auto nxi = static_cast<size_t>(m_config.nxi);
         const size_t lastStageOffset = static_cast<size_t>(m_config.M) * nxi;
         const size_t windOffset = lastStageOffset + m_config.nx;
         const size_t dOffset = windOffset + m_config.np;
@@ -153,8 +153,8 @@ Estimator::DebugInfo NmheEstimator::getDebugInfo() const {
 }
 
 void NmheEstimator::m_packInitialGuess() {
-    const size_t nxi = static_cast<size_t>(m_config.nxi);
-    const size_t M = static_cast<size_t>(m_config.M);
+    const auto nxi = static_cast<size_t>(m_config.nxi);
+    const auto M = static_cast<size_t>(m_config.M);
     const size_t shift = m_samplesSinceSolve;
     const bool warm = !m_prevSolution.empty() && shift <= M;
 

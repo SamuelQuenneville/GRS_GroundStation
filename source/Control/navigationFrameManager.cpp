@@ -41,7 +41,7 @@ void NavigationFrameManager::setEkfOrigin(const uint8_t sysId, const double lati
     }
     LOG_INFO("sysId " + std::to_string(sysId) + ": EKF origin lat=" + std::to_string(latitudeDegrees) + ", lon="
              + std::to_string(longitudeDegrees) + ", alt=" + std::to_string(altitude));
-    m_ekfOrigins[sysId] = {latitudeDegrees, longitudeDegrees, altitude};
+    m_ekfOrigins[sysId] = {.latitudeDegrees = latitudeDegrees, .longitudeDegrees = longitudeDegrees, .altitude = altitude};
     m_uavFrameOffsets.erase(sysId);
     m_offsetResidual.erase(sysId);
 }

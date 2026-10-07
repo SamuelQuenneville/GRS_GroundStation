@@ -16,7 +16,7 @@
 namespace grs::control {
 
 bool StateFill::complete(const StateLayout& layout) const {
-    const bool allUavs = std::all_of(uav.begin(), uav.end(), [](const bool b) { return b; });
+    const bool allUavs = std::ranges::all_of(uav, [](const bool b) { return b; });
     return allUavs && (!layout.hasPayload || payload);
 }
 
