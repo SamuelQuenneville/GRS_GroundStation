@@ -22,20 +22,10 @@
  */
 
 #include <string>
+#include <vector>
 
 #include "jsonReader.h"
 #include "jsonWriter.h"
-
-enum class HealthStatus { Ok, Warn, Fail };
-
-inline std::string toString(const HealthStatus s) {
-    switch (s) {
-        case HealthStatus::Ok:   return "ok";
-        case HealthStatus::Warn: return "warn";
-        case HealthStatus::Fail: return "fail";
-    }
-    return "fail";
-}
 
 /// Frontend renders launcher/catapult state as literal "yes"/"no" text
 /// (see setStatus() in app.js), not true/false -- so serialize it that way.
@@ -56,24 +46,20 @@ inline std::string jsonArray(const std::vector<std::string>& items) {
     return oss.str();
 }
 
-struct UavHealth {
-    HealthStatus imu     = HealthStatus::Ok;
-    HealthStatus baro    = HealthStatus::Ok;
-    HealthStatus compass = HealthStatus::Ok;
-    HealthStatus gps     = HealthStatus::Ok;
-    HealthStatus battery = HealthStatus::Ok;
-    HealthStatus rc      = HealthStatus::Ok;
+/// One row of a vehicle panel's Link card (CommunicationManager::linkRates()).
+struct MessageRate {
+    std::string name;
+    double hz = 0.0;
+    double requestedHz = 0.0; // 0: nothing requested, no color
 };
 
-/// Payload has no RC link, so no `rc` field. Matches the payload
-/// template's System Health card (IMU/Barometer/Compass/GPS/Battery only).
-struct PayloadHealth {
-    HealthStatus imu     = HealthStatus::Ok;
-    HealthStatus baro    = HealthStatus::Ok;
-    HealthStatus compass = HealthStatus::Ok;
-    HealthStatus gps     = HealthStatus::Ok;
-    HealthStatus battery = HealthStatus::Ok;
-};
+inline std::string linkRatesJson(const std::vector<MessageRate>& rates) {
+    std::vector<std::string> rows;
+    for (const auto& [name, hz, requestedHz] : rates) {
+        rows.push_back(JsonWriter().add("name", name).add("hz", hz).add("requestedHz", requestedHz).str());
+    }
+    return jsonArray(rows);
+}
 
 struct UavTelemetrySnapshot {
     std::string id;                 // e.g. "UAV-01" -- stable key, used to match/create dashboard panels
@@ -93,20 +79,10 @@ struct UavTelemetrySnapshot {
 
     std::string gpsFix;              // e.g. "3D Fix (10)"
     int satellites = 0;
-    double rcSignal = 0.0;           // %
-    std::string linkQuality;         // e.g. "Excellent", "Good", "Poor"
-
-    UavHealth health;
+    double stateAgeMs = 0.0;         // age of the last CONTROL_SYSTEM_STATE, NaN if none
+    std::vector<MessageRate> linkRates;
 
     [[nodiscard]] std::string toJson() const {
-        JsonWriter healthJson;
-        healthJson.add("imu", toString(health.imu))
-                  .add("baro", toString(health.baro))
-                  .add("compass", toString(health.compass))
-                  .add("gps", toString(health.gps))
-                  .add("battery", toString(health.battery))
-                  .add("rc", toString(health.rc));
-
         JsonWriter root;
         root.add("type", "uav")
             .add("id", id)
@@ -124,9 +100,8 @@ struct UavTelemetrySnapshot {
             .add("gpsHdop", gpsHdop)
             .add("gpsFix", gpsFix)
             .add("satellites", satellites)
-            .add("rcSignal", rcSignal)
-            .add("linkQuality", linkQuality)
-            .addRaw("health", healthJson.str());
+            .add("stateAgeMs", stateAgeMs)
+            .addRaw("linkRates", linkRatesJson(linkRates));
         return root.str();
     }
 };
@@ -145,18 +120,10 @@ struct PayloadTelemetrySnapshot {
 
     std::string gpsFix;
     int satellites = 0;
-    std::string linkQuality;
-
-    PayloadHealth health;
+    double stateAgeMs = 0.0;         // NaN if none
+    std::vector<MessageRate> linkRates;
 
     [[nodiscard]] std::string toJson() const {
-        JsonWriter healthJson;
-        healthJson.add("imu", toString(health.imu))
-                  .add("baro", toString(health.baro))
-                  .add("compass", toString(health.compass))
-                  .add("gps", toString(health.gps))
-                  .add("battery", toString(health.battery));
-
         JsonWriter root;
         root.add("type", "payload")
             .add("connected", connected)
@@ -168,8 +135,8 @@ struct PayloadTelemetrySnapshot {
             .add("gpsHdop", gpsHdop)
             .add("gpsFix", gpsFix)
             .add("satellites", satellites)
-            .add("linkQuality", linkQuality)
-            .addRaw("health", healthJson.str());
+            .add("stateAgeMs", stateAgeMs)
+            .addRaw("linkRates", linkRatesJson(linkRates));
         return root.str();
     }
 };

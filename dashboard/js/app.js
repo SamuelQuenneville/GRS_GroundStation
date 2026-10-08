@@ -20,9 +20,8 @@
  *   "gpsHdop": 0.8,
  *   "gpsFix": "3D Fix (10)",
  *   "satellites": 18,
- *   "rcSignal": 92,
- *   "linkQuality": "Excellent",
- *   "health": {"imu": "ok", "baro": "ok", "compass": "ok", "gps": "ok", "battery": "warn", "rc": "ok"}
+ *   "stateAgeMs": 12,                      // last CONTROL_SYSTEM_STATE, null if none
+ *   "linkRates": [{"name": "CONTROL_SYSTEM_STATE", "hz": 48.7, "requestedHz": 50}, ...]
  * }
  *
  * Payload ("type": "payload") -- fewer fields, no mode/armed/attitude:
@@ -37,7 +36,8 @@
  *   "wind": 3.1,          // estimator output, omit if not available yet
  *   "gpsFix": "3D Fix (9)",
  *   "satellites": 15,
- *   "health": { "imu": "ok", "gps": "ok", "battery": "ok" }
+ *   "stateAgeMs": 15,
+ *   "linkRates": [...]   // as for a UAV, without the commands sent
  * }
  *
  * Launcher ("type": "launcher") -- one per catapult, decoupled from any UAV:
@@ -129,18 +129,53 @@ function setInfo(panel, field, value) {
     if (el) el.textContent = value;
 }
 
-function setHealth(panel, field, status) {
-    const el = panel.querySelector(`[data-field="health-${field}"]`);
-    if (!el) return;
-    el.textContent = status === "ok" ? "OK" : status === "warn" ? "Check" : "Fail";
-    el.className = status === "ok" ? "health-ok" : status === "warn" ? "health-warn" : "health-fail";
-}
-
 function setStatus(panel, field, status, prefix = "launcher-") {
     const el = panel.querySelector(`[data-field="${prefix}${field}"]`);
     if (!el) return;
     el.textContent = status === "yes" ? "YES" : "NO";
     el.className = status === "yes" ? "status-yes" : "status-no";
+}
+
+function setStateAge(panel, ms) {
+    setInfo(panel, "stateAge", typeof ms === "number" ? `${ms.toFixed(0)} ms` : "--");
+}
+
+// Link card rows, colored against the requested rate (70 % is the GCS log threshold).
+// Demo rows: the state stream sometimes below its request to show the colors.
+function demoLinkRates() {
+    const jitter = (hz) => hz * (0.95 + Math.random() * 0.1);
+    return [
+        { name: "CONTROL_SYSTEM_STATE", hz: 50 * (0.6 + Math.random() * 0.45), requestedHz: 50 },
+        { name: "GLOBAL_POSITION_INT", hz: jitter(5), requestedHz: 5 },
+        { name: "HEARTBEAT", hz: jitter(1), requestedHz: 1 },
+        { name: "SYS_STATUS", hz: jitter(1), requestedHz: 1 },
+        { name: "GPS_RAW_INT", hz: jitter(1), requestedHz: 1 },
+        { name: "BATTERY_STATUS", hz: jitter(1), requestedHz: 1 },
+        { name: "SET_ATTITUDE_TARGET sent", hz: jitter(20), requestedHz: 20 },
+        { name: "ATTITUDE (30)", hz: jitter(4), requestedHz: 0 },
+        { name: "VFR_HUD (74)", hz: jitter(2), requestedHz: 0 },
+
+    ];
+}
+
+function setLinkRates(panel, rates) {
+    const list = panel.querySelector('[data-field="linkRates"]');
+    if (!list || !Array.isArray(rates)) return;
+    list.replaceChildren(...rates.map(({ name, hz, requestedHz }) => {
+        const li = document.createElement("li");
+        const label = document.createElement("span");
+        const value = document.createElement("span");
+        label.textContent = name;
+        if (!(requestedHz > 0)) li.className = "unrequested";
+        const rate = typeof hz === "number" ? hz.toFixed(1) : "--";
+        value.textContent = requestedHz > 0 ? `${rate} / ${requestedHz}` : rate;
+        if (requestedHz > 0 && typeof hz === "number") {
+            const ratio = hz / requestedHz;
+            value.className = ratio >= 0.9 ? "health-ok" : ratio >= 0.7 ? "health-warn" : "health-fail";
+        }
+        li.append(label, value);
+        return li;
+    }));
 }
 
 function applyUpdate(data) {
@@ -169,15 +204,8 @@ function applyUpdate(data) {
     setInfo(panel, "mode", data.mode ?? "--");
     setInfo(panel, "gpsFix", data.gpsFix ?? "--");
     setInfo(panel, "satellites", data.satellites ?? "--");
-    setInfo(panel, "rcSignal", data.rcSignal !== undefined ? `${data.rcSignal}%` : "--");
-    setInfo(panel, "linkQuality", data.linkQuality ?? "--");
-    setInfo(panel, "lastUpdate", "just now");
-
-    if (data.health) {
-        for (const [key, status] of Object.entries(data.health)) {
-            setHealth(panel, key, status);
-        }
-    }
+    setStateAge(panel, data.stateAgeMs);
+    setLinkRates(panel, data.linkRates);
 
     updateTopbar();
 }
@@ -227,14 +255,8 @@ function updatePayload(data) {
     setInfo(panel, "mode", data.mode ?? "--");
     setInfo(panel, "gpsFix", data.gpsFix ?? "--");
     setInfo(panel, "satellites", data.satellites ?? "--");
-    setInfo(panel, "linkQuality", data.linkQuality ?? "--");
-    setInfo(panel, "lastUpdate", "just now");
-
-    if (data.health) {
-        for (const [key, status] of Object.entries(data.health)) {
-            setHealth(panel, key, status);
-        }
-    }
+    setStateAge(panel, data.stateAgeMs);
+    setLinkRates(panel, data.linkRates);
 }
 
 /* ---------- Launcher panels (one per catapult, own section) ---------- */
@@ -505,9 +527,8 @@ function runDemo() {
             mode: "AUTO",
             gpsFix: "3D Fix (10)",
             satellites: 18,
-            rcSignal: 90,
-            linkQuality: "Excellent",
-            health: { imu: "ok", baro: "warn", compass: "ok", gps: "ok", battery: "ok", rc: "ok" },
+            stateAgeMs: 10 + Math.random() * 30,
+            linkRates: demoLinkRates().filter(r => r.name !== "SET_ATTITUDE_TARGET sent"),
         })
 
         ids.forEach((id) => {
@@ -536,8 +557,8 @@ function runDemo() {
                 gpsHdop: 0.8 + Math.random() * 0.5,
                 gpsFix: "3D Fix (10)",
                 satellites: 18,
-                linkQuality: "Excellent",
-                health: { imu: "ok", baro: "warn", compass: "ok", gps: "ok", battery: "ok", rc: "ok" },
+                stateAgeMs: 10 + Math.random() * 30,
+                linkRates: demoLinkRates(),
             });
 
 

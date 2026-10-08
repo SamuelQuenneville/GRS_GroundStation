@@ -14,6 +14,7 @@
 #include <algorithm>
 #include <chrono>
 #include <filesystem>
+#include <limits>
 #include <ranges>
 #include <stdexcept>
 
@@ -50,7 +51,7 @@ GroundControlStation::GroundControlStation()
         m_controlInterface->setEkfOrigin(sysId, lat, lon, alt);
     });
 
-    // Non-numeric status (health, battery, GPS, RC, armed, mode, connection)
+    // Non-numeric status (battery, GPS, armed, mode, connection)
     // arrives separately and at a much lower rate -- merge it with whatever
     // numeric state we already have and re-push the full snapshot.
     m_communicationManager->setStatusCallback([this](const std::map<uint8_t, uavHealth>& healthMap) {
@@ -792,14 +793,41 @@ void GroundControlStation::m_pushDashboardSnapshot(const uint8_t sysId) {
 
     if (!haveState && !haveHealth) return;
 
+    const auto age = m_communicationManager->telemetryAge(sysId);
+    const double stateAgeMs = age ? *age * 1000.0 : std::numeric_limits<double>::quiet_NaN();
+    // The payload is the vehicle above the UAVs (stateVector.h); no command is sent to it.
+    const bool isPayload = sysId > m_gcsConfig.numUavs;
+    std::vector<MessageRate> linkRates;
+    for (const auto& [name, hz, requestedHz] : m_communicationManager->linkRates(sysId, !isPayload)) {
+        linkRates.push_back({.name = name, .hz = hz, .requestedHz = requestedHz});
+    }
+    const std::string mode = health.customModeReceived ? flightModeToString(health.customMode) : "UNKNOWN";
+    const double groundspeed = std::hypot(state.northMeterSecond, state.eastMeterSecond);
+
+    if (isPayload) {
+        PayloadTelemetrySnapshot snap;
+        snap.connected   = health.isConnected;
+        snap.armed       = health.isArmed;
+        snap.mode        = mode;
+        snap.groundspeed = groundspeed;
+        snap.altitude    = state.altitudeAmslMeter;
+        snap.battery     = health.batteryRemainingPercent;
+        snap.gpsFix      = m_gpsFixToString(health.gpsFixType);
+        snap.satellites  = health.gpsNumSatellites;
+        snap.stateAgeMs  = stateAgeMs;
+        snap.linkRates   = std::move(linkRates);
+        m_dashboardServer->updatePayloadTelemetry(snap);
+        return;
+    }
+
     UavTelemetrySnapshot snap;
     snap.id          = "UAV-" + std::to_string(sysId);
     snap.connected   = health.isConnected;
     snap.armed       = health.isArmed;
-    snap.mode        = health.customModeReceived ? flightModeToString(health.customMode) : "UNKNOWN";
+    snap.mode        = mode;
 
     snap.airspeed    = state.airspeedMeterSecond;
-    snap.groundspeed = std::hypot(state.northMeterSecond, state.eastMeterSecond);
+    snap.groundspeed = groundspeed;
     snap.altitude    = state.altitudeAmslMeter;
     snap.roll        = state.rollDegree;
     snap.pitch       = state.pitchDegree;
@@ -812,25 +840,8 @@ void GroundControlStation::m_pushDashboardSnapshot(const uint8_t sysId) {
     // GPS_RAW_INT mavlink subscription instead.
     snap.gpsFix   = m_gpsFixToString(health.gpsFixType);
     snap.satellites = health.gpsNumSatellites;
-    snap.rcSignal = health.rcAvailable ? health.rcSignalPercent : 0.0;
-    snap.linkQuality = !health.isConnected ? "Offline"
-                      : health.rcAvailable && health.rcSignalPercent >= 80.0f ? "Excellent"
-                      : health.rcAvailable && health.rcSignalPercent >= 50.0f ? "Good"
-                      : "Poor";
-
-    // MAVSDK's Telemetry::Health doesn't break out barometer/battery/RC
-    // individually, so those three are best-effort derived here rather than
-    // read straight off the struct -- adjust the thresholds/mapping to
-    // taste.
-    snap.health.imu     = (health.health.is_gyrometer_calibration_ok && health.health.is_accelerometer_calibration_ok)
-                           ? HealthStatus::Ok : HealthStatus::Fail;
-    snap.health.compass = health.health.is_magnetometer_calibration_ok ? HealthStatus::Ok : HealthStatus::Fail;
-    snap.health.gps     = health.health.is_global_position_ok ? HealthStatus::Ok : HealthStatus::Warn;
-    snap.health.baro    = health.health.is_local_position_ok ? HealthStatus::Ok : HealthStatus::Warn;
-    snap.health.battery = health.batteryRemainingPercent <= 10.0f ? HealthStatus::Fail
-                         : !(health.batteryRemainingPercent > 25.0f) ? HealthStatus::Warn // also NaN
-                         : HealthStatus::Ok;
-    snap.health.rc      = health.rcAvailable ? HealthStatus::Ok : HealthStatus::Warn;
+    snap.stateAgeMs = stateAgeMs;
+    snap.linkRates  = std::move(linkRates);
 
     m_dashboardServer->updateTelemetry(snap);
 }
@@ -848,7 +859,7 @@ std::string GroundControlStation::m_gpsFixToString(const mavsdk::Telemetry::FixT
     }
 }
 
-void GroundControlStation::m_supervisorLoop() const {
+void GroundControlStation::m_supervisorLoop() {
 
     LOG_INFO("GroundControlStation main loop started");
 
@@ -862,6 +873,15 @@ void GroundControlStation::m_supervisorLoop() const {
 
     while (m_running) {
         std::this_thread::sleep_for(std::chrono::seconds(1));
+        // Refreshes the link rates and state age, also of a vehicle gone quiet.
+        if (m_dashboardServer) {
+            std::vector<uint8_t> ids;
+            {
+                std::lock_guard lock(m_dashboardMutex);
+                for (const auto id : m_latestUavHealth | std::views::keys) ids.push_back(id);
+            }
+            for (const auto id : ids) m_pushDashboardSnapshot(id);
+        }
     }
 
     LOG_INFO("Supervisor loop stopping...");

@@ -15,7 +15,12 @@
 #include <mavsdk/plugins/mavlink_passthrough/mavlink_passthrough.h>
 #include <mavsdk/plugins/rtk/rtk.h>
 
+#include <map>
+#include <mutex>
+#include <optional>
+#include <string>
 #include <thread>
+#include <vector>
 
 #include "gcsConfig.h"
 #include "statesAggregator.h"
@@ -43,8 +48,7 @@ public:
     void stop();
 
     void setTelemetryCallback(std::function<void(const std::map<uint8_t, uavStates>&)> cb);
-    // Non-numeric status (health, battery, GPS fix, RC, armed, mode,
-    // connection), event-driven, for the dashboard.
+    // Non-numeric status (battery, GPS fix, armed, mode, connection), event-driven, for the dashboard.
     void setStatusCallback(std::function<void(const std::map<uint8_t, uavHealth>&)> cb);
     // Each vehicle's EKF origin (GPS_GLOBAL_ORIGIN: lat, lon [deg], altitude
     // AMSL [m]), requested until it arrives, then every 10 s to see a change.
@@ -52,6 +56,15 @@ public:
 
     // Age [s] of a vehicle's last CONTROL_SYSTEM_STATE; nullopt if none yet.
     [[nodiscard]] std::optional<double> telemetryAge(uint8_t sysId);
+
+    // Estimated rate of each message received from a vehicle, and of the
+    // commands sent to it (withCommands), smoothed over 1 s windows. For the dashboard.
+    struct LinkRate {
+        std::string name;
+        double hz = 0.0;
+        double requestedHz = 0.0; // 0: nothing requested
+    };
+    [[nodiscard]] std::vector<LinkRate> linkRates(uint8_t sysId, bool withCommands);
 
     // Opens the links; vehicles register whenever they connect (no time
     // limit). discoveryTimeoutMs only bounds how long this waits to print a
@@ -171,6 +184,17 @@ private:
     std::map<uint8_t, RateWindow> m_stateRate;
 
     void m_sendAttitudeTarget(const std::map<uint8_t, uavCommandsFlags>& commands);
+
+    // Message counts of the current window and smoothed rates, m_rateMutex.
+    struct RateCounter {
+        std::map<uint32_t, int> received; // by message id
+        int sent = 0;                     // SET_ATTITUDE_TARGET
+        std::map<uint32_t, double> receivedHz;
+        double sentHz = 0.0;
+        std::optional<std::chrono::steady_clock::time_point> windowStart;
+    };
+    std::mutex m_rateMutex;
+    std::map<uint8_t, RateCounter> m_rates;
 };
 
 

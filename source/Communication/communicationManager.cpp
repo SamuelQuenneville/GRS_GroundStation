@@ -12,13 +12,49 @@
 #include "mavlinkMessageBuilder.h"
 
 #include <algorithm>
+#include <array>
 #include <fstream>
+#include <functional>
 #include <ranges>
 #include <mavsdk/base64.h>
+
+namespace {
+// Rates requested by m_requestStatusRates() [Hz].
+constexpr double kPositionRateHz = 5.0;
+constexpr double kStatusRateHz = 1.0;
+}
+
+// "NAME (id)" of a message: the common dialect's names, plus the ArduPilot
+// messages a vehicle streams through its SRx_* parameters.
+static std::string messageName(const uint32_t id) {
+    static const std::map<uint32_t, std::string> names = [] {
+        struct Entry { const char* name; uint32_t id; };
+        constexpr Entry common[] = MAVLINK_MESSAGE_NAMES;
+        constexpr Entry ardupilot[] = {
+                {.name = "SENSOR_OFFSETS", .id = 150}, {.name = "MEMINFO", .id = 152}, {.name = "AHRS", .id = 163}, {.name = "SIMSTATE", .id = 164}, {.name = "HWSTATUS", .id = 165},
+                {.name = "WIND", .id = 168}, {.name = "BATTERY2", .id = 181}, {.name = "RANGEFINDER", .id = 173}, {.name = "AHRS2", .id = 178}, {.name = "AHRS3", .id = 182},
+                {.name = "EKF_STATUS_REPORT", .id = 193}, {.name = "PID_TUNING", .id = 194}, {.name = "RPM", .id = 226}, {.name = "AOA_SSA", .id = 11020},
+                {.name = "ESC_TELEMETRY_1_TO_4", .id = 11030}, {.name = "MCU_STATUS", .id = 11039},
+            };
+        std::map<uint32_t, std::string> map;
+        for (const auto& [name, msgId] : common) map.emplace(msgId, name);
+        for (const auto& [name, msgId] : ardupilot) map.emplace(msgId, name);
+        return map;
+    }();
+    const auto it = names.find(id);
+    return (it == names.end() ? std::string("MSG") : it->second) + " (" + std::to_string(id) + ")";
+}
 
 CommunicationManager::CommunicationManager()
     : m_mavsdk(GROUND_STATION)
 {
+    // Counts every incoming message for linkRates(), then lets it through.
+    m_mavsdk.intercept_incoming_messages_async([this](const mavlink_message_t& message) {
+        std::lock_guard lock(m_rateMutex);
+        ++m_rates[message.sysid].received[message.msgid];
+        return true;
+    });
+
     // For the lifetime of this object: fires whenever MAVSDK sees a new system on any link, at any time (see m_watchSystem).
     m_newSystemHandle = m_mavsdk.subscribe_on_new_system([this] {
         for (const auto& system : m_mavsdk.systems()) {
@@ -28,6 +64,7 @@ CommunicationManager::CommunicationManager()
 }
 
 CommunicationManager::~CommunicationManager() {
+    m_mavsdk.intercept_incoming_messages_async(nullptr);
     m_mavsdk.unsubscribe_on_new_system(m_newSystemHandle);
     stop();
 }
@@ -468,12 +505,6 @@ void CommunicationManager::m_subscribeMavlink(const uint8_t sysId) {
     }
 
     subscriptionHandles h;
-    h.healthHandle = telemetry->subscribe_health([this, sysId](const mavsdk::Telemetry::Health& health) {
-        m_updateHealth(sysId, [&](uavHealth& u) { u.health = health; });
-    });
-    h.healthAllOkHandle = telemetry->subscribe_health_all_ok([this, sysId](const bool ok) {
-        m_updateHealth(sysId, [&](uavHealth& u) { u.isHealthy = ok; });
-    });
     h.armedHandle = telemetry->subscribe_armed([this, sysId](const bool armed) {
         m_updateHealth(sysId, [&](uavHealth& u) { u.isArmed = armed; });
     });
@@ -487,12 +518,6 @@ void CommunicationManager::m_subscribeMavlink(const uint8_t sysId) {
         m_updateHealth(sysId, [&](uavHealth& u) {
             u.gpsNumSatellites = gps.num_satellites;
             u.gpsFixType = gps.fix_type;
-        });
-    });
-    h.rcStatusHandle = telemetry->subscribe_rc_status([this, sysId](const mavsdk::Telemetry::RcStatus& rc) {
-        m_updateHealth(sysId, [&](uavHealth& u) {
-            u.rcAvailable = rc.is_available;
-            u.rcSignalPercent = rc.signal_strength_percent;
         });
     });
     h.homeHandle = telemetry->subscribe_home([](const mavsdk::Telemetry::Position& home) {
@@ -532,12 +557,9 @@ void CommunicationManager::m_subscribeMavlink(const uint8_t sysId) {
 void CommunicationManager::m_unsubscribeMavlink(Vehicle& vehicle) {
     auto& t = *vehicle.telemetry;
     const auto& h = vehicle.handles;
-    t.unsubscribe_health(h.healthHandle);
-    t.unsubscribe_health_all_ok(h.healthAllOkHandle);
     t.unsubscribe_armed(h.armedHandle);
     t.unsubscribe_battery(h.batteryHandle);
     t.unsubscribe_gps_info(h.gpsInfoHandle);
-    t.unsubscribe_rc_status(h.rcStatusHandle);
     t.unsubscribe_home(h.homeHandle);
     t.unsubscribe_position(h.positionHandle);
     for (const auto& [id, handle] : h.messageHandles) {
@@ -673,10 +695,9 @@ void CommunicationManager::m_requestGpsGlobalOrigin(const uint8_t sysId) {
 void CommunicationManager::m_requestStatusRates(const uint8_t sysId) {
     // Dashboard and frame offset only. Set every SRx_* of this port to 0 on the
     // vehicle: then only what is requested here is sent.
-    m_sendCommandLong(sysId, MAV_CMD_SET_MESSAGE_INTERVAL, MAVLINK_MSG_ID_GLOBAL_POSITION_INT, 1e6f / 5.0f);
-    for (const uint32_t id : {MAVLINK_MSG_ID_SYS_STATUS, MAVLINK_MSG_ID_GPS_RAW_INT, MAVLINK_MSG_ID_BATTERY_STATUS,
-                              MAVLINK_MSG_ID_RC_CHANNELS}) {
-        m_sendCommandLong(sysId, MAV_CMD_SET_MESSAGE_INTERVAL, static_cast<float>(id), 1e6f);
+    m_sendCommandLong(sysId, MAV_CMD_SET_MESSAGE_INTERVAL, MAVLINK_MSG_ID_GLOBAL_POSITION_INT, 1e6 / kPositionRateHz);
+    for (const uint32_t id : {MAVLINK_MSG_ID_SYS_STATUS, MAVLINK_MSG_ID_GPS_RAW_INT, MAVLINK_MSG_ID_BATTERY_STATUS}) {
+        m_sendCommandLong(sysId, MAV_CMD_SET_MESSAGE_INTERVAL, static_cast<float>(id), 1e6 / kStatusRateHz);
     }
 }
 
@@ -707,6 +728,73 @@ void CommunicationManager::m_sendAttitudeTarget(const std::map<uint8_t, uavComma
         });
         if (result != mavsdk::MavlinkPassthrough::Result::Success) {
             LOG_WARNING("Failed to queue SET_ATTITUDE_TARGET for sysId " + std::to_string(sysId));
+        } else {
+            std::lock_guard lock(m_rateMutex);
+            ++m_rates[sysId].sent;
         }
     }
+}
+
+std::vector<CommunicationManager::LinkRate> CommunicationManager::linkRates(const uint8_t sysId, const bool withCommands) {
+    struct Listed { uint32_t id; const char* name; double requestedHz; };
+    const std::array<Listed, 6> listed{{
+        {.id = MAVLINK_MSG_ID_CONTROL_SYSTEM_STATE, .name = "CONTROL_SYSTEM_STATE", .requestedHz = m_config.stateRateHz},
+        {.id = MAVLINK_MSG_ID_GLOBAL_POSITION_INT, .name = "GLOBAL_POSITION_INT", .requestedHz = kPositionRateHz},
+        {.id = MAVLINK_MSG_ID_HEARTBEAT, .name = "HEARTBEAT", .requestedHz = 1.0},
+        {.id = MAVLINK_MSG_ID_SYS_STATUS, .name = "SYS_STATUS", .requestedHz = kStatusRateHz},
+        {.id = MAVLINK_MSG_ID_GPS_RAW_INT, .name = "GPS_RAW_INT", .requestedHz = kStatusRateHz},
+        {.id = MAVLINK_MSG_ID_BATTERY_STATUS, .name = "BATTERY_STATUS", .requestedHz = kStatusRateHz},
+    }};
+
+    std::lock_guard lock(m_rateMutex);
+    auto& r = m_rates[sysId];
+    const auto now = std::chrono::steady_clock::now();
+    if (!r.windowStart) {
+        r.received.clear();
+        r.sent = 0;
+        r.windowStart = now;
+    }
+    const double elapsed = std::chrono::duration<double>(now - *r.windowStart).count();
+    if (elapsed >= 1.0) {
+        // Average of this window and the previous estimate: an estimate only.
+        for (auto& [id, hz] : r.receivedHz) {
+            const auto it = r.received.find(id);
+            hz = 0.5 * hz + 0.5 * (it == r.received.end() ? 0 : it->second) / elapsed;
+        }
+        for (const auto& [id, count] : r.received) {
+            if (!r.receivedHz.contains(id)) r.receivedHz[id] = count / elapsed;
+        }
+        std::erase_if(r.receivedHz, [](const auto& entry) { return entry.second < 0.01; }); // stopped
+        r.sentHz = 0.5 * r.sentHz + 0.5 * r.sent / elapsed;
+        r.received.clear();
+        r.sent = 0;
+        r.windowStart = now;
+    }
+
+    std::vector<LinkRate> rates;
+    for (const auto& l : listed) {
+        const auto it = r.receivedHz.find(l.id);
+        rates.push_back({.name = l.name, .hz = it == r.receivedHz.end() ? 0.0 : it->second, .requestedHz = l.requestedHz});
+    }
+    if (withCommands) rates.push_back({.name = "SET_ATTITUDE_TARGET sent", .hz = r.sentHz, .requestedHz = m_config.hlcFrequency});
+
+    // Messages not requested here, fastest first; beyond kShown, one summed row.
+    constexpr size_t kShown = 5;
+    std::vector<std::pair<double, uint32_t>> others;
+    for (const auto& [id, hz] : r.receivedHz) {
+        if (hz >= 0.1 && std::ranges::none_of(listed, [id](const Listed& l) { return l.id == id; })) {
+            others.emplace_back(hz, id);
+        }
+    }
+    std::ranges::sort(others, std::greater{});
+    double restHz = 0.0;
+    for (size_t i = 0; i < others.size(); ++i) {
+        if (i < kShown) rates.push_back({.name = messageName(others[i].second), .hz = others[i].first, .requestedHz = 0.0});
+        else restHz += others[i].first;
+    }
+    if (others.size() > kShown) {
+        rates.push_back({.name = "Other (" + std::to_string(others.size() - kShown) + " more)", .hz = restHz, .requestedHz = 0.0});
+    }
+
+    return rates;
 }

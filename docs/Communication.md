@@ -35,9 +35,9 @@ raw MAVLink ones included, is released.
 - Numeric, high-rate state (`setTelemetryCallback`) — position, velocity,
   attitude, airspeed — assembled per-UAV by a `StatesAggregator` (see
   below) and consumed by the control loop.
-- Non-numeric, low-rate status (`setStatusCallback`) — health, battery, GPS
-  fix, RC link, armed state, flight mode, connection — what the dashboard's
-  Status/Health cards are built from. `uavHealth::customMode` is read
+- Non-numeric, low-rate status (`setStatusCallback`) — battery, GPS fix,
+  armed state, flight mode, connection — what the dashboard's Status card is
+  built from. `uavHealth::customMode` is read
   directly off the raw HEARTBEAT message rather than through MAVSDK's own
   flight-mode translation, because the project's ArduPlane fork
   ("GrsPlane") has custom mode numbering that MAVSDK's stock-ArduPilot/PX4
@@ -56,7 +56,7 @@ on the vehicle so nothing else is streamed:
 |---|---|---|
 | `CONTROL_SYSTEM_STATE` (146) | `stateRateHz` (50) | controller and NMHE state, GRS convention (`grsMavlinkConventions.h`) |
 | `GLOBAL_POSITION_INT` | 5 Hz | GCS origin, frame-offset check, dashboard |
-| `SYS_STATUS`, `GPS_RAW_INT`, `BATTERY_STATUS`, `RC_CHANNELS` | 1 Hz | dashboard |
+| `SYS_STATUS`, `GPS_RAW_INT`, `BATTERY_STATUS` | 1 Hz | dashboard |
 | `HEARTBEAT` | 1 Hz (always) | mode, armed, link |
 | `GPS_GLOBAL_ORIGIN` | on request (2 s until known, then 10 s) | frame offset |
 
@@ -64,6 +64,13 @@ on the vehicle so nothing else is streamed:
 warning) while it is missing or older than 1 s, so a vehicle without the GRS
 firmware is reported and a rebooted one resumes. Its measured rate is logged
 after the first 5 s and whenever it drops below 70 % of the request.
+
+`linkRates(sysId)` estimates the received rate of each message (every
+incoming message is counted by one `intercept_incoming_messages_async`
+callback) and of the `SET_ATTITUDE_TARGET` sent, over 1 s windows averaged
+with the previous estimate. The dashboard's Link card shows them against the
+requested rates. Messages not requested here (SRx_* left on) follow, by name
++and fastest first, the five fastest each on its own row and the rest summed.
 
 ## `StatesAggregator` (`statesAggregator.h`/`.cpp`)
 

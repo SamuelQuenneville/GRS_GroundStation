@@ -116,22 +116,13 @@
                     <li><span>Mode</span><span data-field="mode">--</span></li>
                     <li><span>GPS Fix</span><span data-field="gpsFix">--</span></li>
                     <li><span>Satellites</span><span data-field="satellites">--</span></li>
-                    <li><span>RC Signal</span><span data-field="rcSignal">--</span></li>
-                    <li><span>Link Quality</span><span data-field="linkQuality">--</span></li>
-                    <li><span>Last Update</span><span data-field="lastUpdate">--</span></li>
+                    <li><span>State age</span><span data-field="stateAge">--</span></li>
                 </ul>
             </div>
 
-            <div class="info-card">
-                <h3>System Health</h3>
-                <ul class="info-list">
-                    <li><span>IMU</span><span class="health-ok" data-field="health-imu">OK</span></li>
-                    <li><span>Barometer</span><span class="health-ok" data-field="health-baro">OK</span></li>
-                    <li><span>Compass</span><span class="health-ok" data-field="health-compass">OK</span></li>
-                    <li><span>GPS</span><span class="health-ok" data-field="health-gps">OK</span></li>
-                    <li><span>Battery</span><span class="health-ok" data-field="health-battery">OK</span></li>
-                    <li><span>RC</span><span class="health-ok" data-field="health-rc">OK</span></li>
-                </ul>
+            <div class="info-card link-card">
+                <h3 title="Estimated rate received (sent for commands) / requested">Link <span class="stat-unit">Hz</span></h3>
+                <ul class="info-list" data-field="linkRates"></ul>
             </div>
         </div>
     </section>
@@ -252,20 +243,13 @@
                     <li><span>Mode</span><span data-field="mode">--</span></li>
                     <li><span>GPS Fix</span><span data-field="gpsFix">--</span></li>
                     <li><span>Satellites</span><span data-field="satellites">--</span></li>
-                    <li><span>Link Quality</span><span data-field="linkQuality">--</span></li>
-                    <li><span>Last Update</span><span data-field="lastUpdate">--</span></li>
+                    <li><span>State age</span><span data-field="stateAge">--</span></li>
                 </ul>
             </div>
 
-            <div class="info-card">
-                <h3>System Health</h3>
-                <ul class="info-list health-list">
-                    <li><span>IMU</span><span class="health-ok" data-field="health-imu">OK</span></li>
-                    <li><span>Barometer</span><span class="health-ok" data-field="health-baro">OK</span></li>
-                    <li><span>Compass</span><span class="health-ok" data-field="health-compass">OK</span></li>
-                    <li><span>GPS</span><span class="health-ok" data-field="health-gps">OK</span></li>
-                    <li><span>Battery</span><span class="health-ok" data-field="health-battery">OK</span></li>
-                </ul>
+            <div class="info-card link-card">
+                <h3 title="Estimated rate received (sent for commands) / requested">Link <span class="stat-unit">Hz</span></h3>
+                <ul class="info-list" data-field="linkRates"></ul>
             </div>
         </div>
     </section>

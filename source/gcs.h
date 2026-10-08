@@ -138,7 +138,7 @@ private:
     void m_parseCommandFile(const std::string& file) const;
     static bool m_parseUavCommandsLine(const std::string& line, uavCommandsFlags& commands);
 
-    void m_supervisorLoop() const;
+    void m_supervisorLoop();
     std::thread m_supervisorThread;
     std::atomic<bool> m_running;
 };
