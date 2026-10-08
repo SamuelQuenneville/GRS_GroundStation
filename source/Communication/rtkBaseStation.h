@@ -32,7 +32,7 @@
 class RtkSerialPort {
 public:
     bool init(const std::string& device);
-    bool setBaudrate(unsigned baudrate) const;
+    [[nodiscard]] bool setBaudrate(unsigned baudrate) const;
     ssize_t read(uint8_t* bytes, unsigned len) const;
     ssize_t write(const uint8_t* bytes, unsigned len) const;
     ~RtkSerialPort();
@@ -60,7 +60,6 @@ public:
 
     void stop();
 
-    [[nodiscard]] bool isRunning() const { return m_running.load(); }
 
     // Scans /sys/class/tty for USB serial devices (ttyACM*/ttyUSB*) whose
     // USB vendor ID matches vendorIdHex (default: "1546", u-blox AG's

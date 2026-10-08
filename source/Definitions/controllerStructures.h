@@ -18,7 +18,8 @@
 // the constraint structure.
 struct solverConfig {
     // Lmpc: the NMPC problem with the dynamics and angle-of-attack
-    // constraints linearized about the reference window at every solve.
+    // constraints linearized at every solve, about the shifted plan when
+    // there is one, else the reference window.
     enum class Controller { Nmpc, Lmpc };
     Controller controller = Controller::Nmpc;
 

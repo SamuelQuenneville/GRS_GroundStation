@@ -9,27 +9,22 @@
 #include "communicationManager.h"
 
 #include <algorithm>
+#include <fstream>
+#include <ranges>
 
 CommunicationManager::CommunicationManager()
     : m_mavsdk(GROUND_STATION)
 {
-    // mavsdk::log::subscribe([](const mavsdk::log::Level level, const std::string& message, const std::string& file, int line) {
-    //     // Returning true from the callback disables printing the message to stdout
-    //     return level < mavsdk::log::Level::Warn;
-    // });
-
-    // Registered once for the lifetime of this object (not per connect/stop
-    // cycle). Fires whenever MAVSDK adds a new system to m_mavsdk.systems(),
-    // for any connection, at any time -- see m_watchSystem for why this
-    // replaces a bounded discovery-polling loop.
+    // For the lifetime of this object: fires whenever MAVSDK sees a new system on any link, at any time (see m_watchSystem).
     m_newSystemHandle = m_mavsdk.subscribe_on_new_system([this]() {
-        for (auto& system : m_mavsdk.systems()) {
+        for (const auto& system : m_mavsdk.systems()) {
             m_watchSystem(system);
         }
     });
 }
 
 CommunicationManager::~CommunicationManager() {
+    m_mavsdk.unsubscribe_on_new_system(m_newSystemHandle);
     stop();
 }
 
@@ -42,27 +37,12 @@ void CommunicationManager::start() {
     if (!m_running.compare_exchange_strong(expected, true)) return;
 
     if (m_config.telemetry_publish_hz > 0.0) {
-        // start a small publisher thread that will send consolidated snapshots at fixed rate
+        // Consolidated snapshots at a fixed rate, only when something changed.
         const auto period = std::chrono::microseconds(static_cast<int64_t>(1e6 / m_config.telemetry_publish_hz));
         m_publishThread = std::thread([this, period]() {
             while (m_running.load()) {
                 std::this_thread::sleep_for(period);
-
-                // only publish if some aggregator changed since last publish
-                if (!m_snapshotDirty.load()) continue;
-
-                std::map<uint8_t, uavStates> snapshot;
-                {
-                    std::lock_guard lock(m_statesMutex);
-                    for (const auto& [id, agg] : m_aggregators) {
-                        if (agg) snapshot[id] = agg->getSnapshot();
-                    }
-                    m_snapshotDirty.store(false);
-                }
-
-                if (m_telemetryCallback) {
-                    m_telemetryCallback(snapshot);
-                }
+                if (m_snapshotDirty.exchange(false)) m_onTelemetryUpdate();
             }
         });
     }
@@ -74,33 +54,48 @@ void CommunicationManager::stop() {
     m_running = false;
     if (m_publishThread.joinable()) m_publishThread.join();
 
-    // unsubscribe from every registered vehicle, then close every connection
-    // ever opened (including any that never got as far as producing a
-    // system -- e.g. a Pixhawk that was configured but never showed up).
+    // Everything is moved out under the lock and released outside it: the
+    // MAVSDK callbacks take the same locks while running.
+    std::map<uint8_t, Watcher> watchers;
     {
         std::lock_guard lock(m_linkMutex);
-        for (const auto& sysId : m_links | std::views::keys) {
-            try {
-                m_unsubscribeMavlink(sysId);
-            } catch ([[maybe_unused]] const std::exception& e) {
-                LOG_WARNING("Exception unsubscribing sysId = " + std::to_string(sysId));
-            }
-        }
+        watchers.swap(m_watchers);
+    }
+    for (auto& watcher : watchers | std::views::values) {
+        if (watcher.handle) watcher.system->unsubscribe_is_connected(*watcher.handle);
+    }
 
-        for (const auto& handle : m_connectionHandles) {
-            try {
-                m_mavsdk.remove_connection(handle);
-            } catch ([[maybe_unused]] const std::exception& e) {
-                LOG_WARNING("Exception removing connection handle");
-            }
-        }
+    // Registrations in progress finish before their vehicle is released.
+    std::vector<std::thread> registrations;
+    {
+        std::lock_guard lock(m_linkMutex);
+        registrations.swap(m_registrationThreads);
+    }
+    for (auto& t : registrations) {
+        if (t.joinable()) t.join();
+    }
 
-        m_messageHandles.clear();
-        m_connectionHandles.clear();
-        m_links.clear();
-        m_watchedSystems.clear();
+    std::map<uint8_t, Vehicle> vehicles;
+    std::vector<mavsdk::Mavsdk::ConnectionHandle> connections;
+    {
+        std::lock_guard lock(m_linkMutex);
+        vehicles.swap(m_vehicles);
+        connections.swap(m_connectionHandles);
         m_expectedSysIds.clear();
     }
+    for (auto& vehicle : vehicles | std::views::values) {
+        m_unsubscribeMavlink(vehicle);
+    }
+    for (const auto& handle : connections) {
+        m_mavsdk.remove_connection(handle);
+    }
+
+    {
+        std::lock_guard lock(m_statesMutex);
+        m_aggregators.clear();
+        for (auto& health : m_uavHealths | std::views::values) health.isConnected = false;
+    }
+    m_onStatusUpdate();
 
     LOG_INFO("CommunicationManager stopped");
 }
@@ -113,35 +108,26 @@ void CommunicationManager::setStatusCallback(std::function<void(const std::map<u
     m_statusCallback = std::move(cb);
 }
 
+void CommunicationManager::setEkfOriginCallback(std::function<void(uint8_t, double, double, double)> cb) {
+    m_ekfOriginCallback = std::move(cb);
+}
+
 std::optional<double> CommunicationManager::telemetryAge(const uint8_t sysId) {
-    std::shared_ptr<StatesAggregator> aggregator;
-    {
-        std::lock_guard lock(m_statesMutex);
-        const auto it = m_aggregators.find(sysId);
-        if (it == m_aggregators.end() || !it->second) return std::nullopt;
-        aggregator = it->second;
-    }
+    const auto aggregator = m_aggregatorOf(sysId);
+    if (!aggregator) return std::nullopt;
     const auto last = aggregator->lastStateTime();
     if (!last) return std::nullopt;
     return std::chrono::duration<double>(std::chrono::steady_clock::now() - *last).count();
 }
 
-void CommunicationManager::setEkfOriginCallback(std::function<void(uint8_t, double, double, double)> cb) {
-    m_ekfOriginCallback = std::move(cb);
-}
-
 void CommunicationManager::connectAll(const std::string& baseIp, const uint16_t basePort, const int numUavs, const int increment, const int discoveryTimeoutMs) {
-
     LOG_INFO("Connecting to UAV(s)...");
-
-    // Open every link back-to-back -- each addLink() call is just a socket
-    // add, not a wait, so N vehicles no longer cost N sequential timeouts.
     for (int i = 0; i < numUavs; ++i) {
         const uint16_t port = basePort + i * increment;
-        const std::string uri = "tcpout://" + baseIp + ":" + std::to_string(port);
-        LOG_INFO("Adding link");
-        addLink(uri);
+        addLink("tcpout://" + baseIp + ":" + std::to_string(port));
     }
+    // Systems MAVSDK already knows (a connect after stop()) get no new-system event.
+    for (const auto& system : m_mavsdk.systems()) m_watchSystem(system);
 
     LOG_INFO("All UAV links opened -- vehicles will register automatically as they connect.");
     m_waitAndSummarize(numUavs, discoveryTimeoutMs);
@@ -149,68 +135,56 @@ void CommunicationManager::connectAll(const std::string& baseIp, const uint16_t 
 
 void CommunicationManager::connectAll(const std::vector<pixhawkEndpointConfig>& endpoints, const int discoveryTimeoutMs) {
     LOG_INFO("Connecting to UAV(s) via explicit endpoints...");
-
     {
         std::lock_guard lock(m_linkMutex);
-        for (const auto& endpoint : endpoints) {
-            m_expectedSysIds.insert(endpoint.id);
-        }
+        for (const auto& endpoint : endpoints) m_expectedSysIds.push_back(endpoint.id);
     }
-
-    // Same reasoning as the SITL overload above: open every endpoint first,
-    // let discovery happen in the background for all of them concurrently,
-    // and only wait once at the end for a status summary.
-    for (const auto&[id, ip, port] : endpoints) {
+    for (const auto& [id, ip, port] : endpoints) {
         const std::string uri = "udpin://0.0.0.0:" + std::to_string(port);
         LOG_INFO("Adding link for UAV " + std::to_string(id) + " -> " + uri);
         addLink(uri);
     }
+    for (const auto& system : m_mavsdk.systems()) m_watchSystem(system);
 
     LOG_INFO("All UAV links opened -- vehicles will register automatically as they connect.");
     m_waitAndSummarize(static_cast<int>(endpoints.size()), discoveryTimeoutMs);
 }
 
-void CommunicationManager::armAll() {
-
-    if (m_passthrough.empty()) {
+void CommunicationManager::armAll(const bool force) {
+    const auto passthroughs = m_passthroughs();
+    if (passthroughs.empty()) {
         LOG_WARNING("Arm command ignored: no UAV connected");
         return;
     }
 
-    for (const auto& [sysId, passthrough]: m_passthrough) {
-
-        LOG_INFO("Arming UAV sysId = " + std::to_string(sysId) + " ...");
+    for (const auto& [sysId, passthrough] : passthroughs) {
+        LOG_INFO(std::string(force ? "Force arming" : "Arming") + " UAV sysId = " + std::to_string(sysId) + " ...");
 
         mavsdk::MavlinkPassthrough::CommandLong command{};
         command.command = MAV_CMD_COMPONENT_ARM_DISARM;
         command.param1 = 1;
-        command.param2 = 2989;
+        command.param2 = force ? 2989.0f : 0.0f; // 2989: ArduPilot force arm, skips the pre-arm checks
         command.target_sysid = passthrough->get_target_sysid();
         command.target_compid = MAV_COMP_ID_AUTOPILOT1;
 
         const auto result = passthrough->send_command_long(command);
-
         if (result != mavsdk::MavlinkPassthrough::Result::Success) {
             LOG_WARNING("Arming failed for sysId = " + std::to_string(sysId) + ", result = " + std::to_string(static_cast<int>(result)));
             continue;
         }
-
         LOG_INFO("Arm command sent successfully to sysId = " + std::to_string(sysId));
     }
 }
 
 void CommunicationManager::setMode(const uint8_t sysId, const std::string& mode) {
-
-    const auto it = m_passthrough.find(sysId);
-
-    if (it == m_passthrough.end() || !it->second) {
+    const auto passthrough = m_passthroughOf(sysId);
+    if (!passthrough) {
         LOG_WARNING("Cannot set mode: UAV sysId = " + std::to_string(sysId) + " is not connected");
         return;
     }
 
     const auto modes = flightModeMap();
     const auto modeIt = modes.find(mode);
-
     if (modeIt == modes.end()) {
         LOG_WARNING("Cannot set mode for sysId = " + std::to_string(sysId) + ": unknown mode '" + mode + "'");
         return;
@@ -222,42 +196,43 @@ void CommunicationManager::setMode(const uint8_t sysId, const std::string& mode)
     command.command = MAV_CMD_DO_SET_MODE;
     command.param1 = MAV_MODE_FLAG_CUSTOM_MODE_ENABLED;
     command.param2 = modeIt->second;
-    command.target_sysid = it->second->get_target_sysid();
+    command.target_sysid = passthrough->get_target_sysid();
     command.target_compid = MAV_COMP_ID_AUTOPILOT1;
 
-    const auto result = it->second->send_command_long(command);
-
+    const auto result = passthrough->send_command_long(command);
     if (result != mavsdk::MavlinkPassthrough::Result::Success) {
         LOG_WARNING("Failed to set mode for sysId = " + std::to_string(sysId) + ", mode = " + mode + ", result = " + std::to_string(static_cast<int>(result)));
         return;
     }
-
     LOG_INFO("Mode command sent successfully to sysId = " + std::to_string(sysId) + ": " + mode);
 }
 
 void CommunicationManager::setModeAll(const std::string& mode) {
-
-    if (m_passthrough.empty()) {
+    const auto passthroughs = m_passthroughs();
+    if (passthroughs.empty()) {
         LOG_WARNING("Set mode ignored: no UAV connected");
         return;
     }
 
-    setHomeToCurrentPosition();
-
-    LOG_INFO("Setting mode '" + mode + "' for " + std::to_string(m_passthrough.size()) + " UAV(s) ...");
-
-    for (const auto& sysId : m_passthrough | std::views::keys) {
+    LOG_INFO("Setting mode '" + mode + "' for " + std::to_string(passthroughs.size()) + " UAV(s) ...");
+    for (const auto& sysId : passthroughs | std::views::keys) {
         setMode(sysId, mode);
     }
 }
 
 void CommunicationManager::fetchParam(const int sysId) {
-    if (!m_param.contains(sysId)) {
+    std::shared_ptr<mavsdk::Param> param;
+    {
+        std::lock_guard lock(m_linkMutex);
+        const auto it = m_vehicles.find(static_cast<uint8_t>(sysId));
+        if (it != m_vehicles.end()) param = it->second.param;
+    }
+    if (!param) {
         LOG_INFO("UAV not connected");
         return;
     }
 
-    auto [int_params, float_params, custom_params] = m_param[sysId]->get_all_params();
+    auto [int_params, float_params, custom_params] = param->get_all_params();
 
     std::string fileName = "uav" + std::to_string(sysId) + ".param";
     std::ofstream file(fileName);
@@ -269,11 +244,9 @@ void CommunicationManager::fetchParam(const int sysId) {
     for (const auto&[name, value] : int_params) {
         file << name << "," << value << "\n";
     }
-
     for (const auto&[name, value] : float_params) {
         file << name << "," << value << "\n";
     }
-
     for (const auto&[name, value] : custom_params) {
         file << name << "," << value << "\n";
     }
@@ -291,101 +264,164 @@ bool CommunicationManager::addLink(const std::string& connection) {
         return false;
     }
 
+    std::lock_guard lock(m_linkMutex);
+    m_connectionHandles.push_back(connectionHandle);
+    return true;
+}
+
+void CommunicationManager::listLinks() {
+    std::lock_guard lock(m_linkMutex);
+    if (m_vehicles.empty()) {
+        LOG_WARNING("No links connected");
+        return;
+    }
+    for (const auto& sysId : m_vehicles | std::views::keys) {
+        LOG_INFO("Connected to sysId = " + std::to_string(sysId));
+    }
+}
+
+void CommunicationManager::setHomeToCurrentPosition() {
+    for (const auto& [sysId, passthrough] : m_passthroughs()) {
+        mavsdk::MavlinkPassthrough::CommandLong command{};
+        command.command = MAV_CMD_DO_SET_HOME;
+        command.param1 = 1; // current position
+        command.target_sysid = passthrough->get_target_sysid();
+        command.target_compid = MAV_COMP_ID_AUTOPILOT1;
+
+        const auto result = passthrough->send_command_long(command);
+        if (result == mavsdk::MavlinkPassthrough::Result::Success) {
+            LOG_INFO("sysId " + std::to_string(sysId) + ": home set to the current position");
+        } else {
+            LOG_WARNING("sysId " + std::to_string(sysId) + ": failed to set home, result = " + std::to_string(static_cast<int>(result)));
+        }
+    }
+}
+
+void CommunicationManager::setUavCommands(const std::map<uint8_t, uavCommandsFlags>& uavCommands) {
+    m_sendAttitudeTarget(uavCommands);
+}
+
+void CommunicationManager::sendRtcmData(const std::vector<uint8_t>& data) {
+    std::vector<std::pair<uint8_t, std::shared_ptr<mavsdk::Rtk>>> rtks;
     {
         std::lock_guard lock(m_linkMutex);
-        m_connectionHandles.push_back(connectionHandle);
+        for (const auto& [sysId, vehicle] : m_vehicles) rtks.emplace_back(sysId, vehicle.rtk);
+    }
+    if (rtks.empty()) {
+        LOG_DEBUG("sendRtcmData called but no UAV is connected yet");
+        return;
     }
 
-    // No discovery wait here: the constructor's subscribe_on_new_system
-    // callback (via m_watchSystem) picks up whatever vehicle eventually
-    // shows up on this connection, whenever that happens.
-    return true;
+    // mavsdk::base64_encode() takes a non-const reference.
+    std::vector<uint8_t> encodableData = data;
+    mavsdk::Rtk::RtcmData rtcmData;
+    rtcmData.data_base64 = mavsdk::base64_encode(encodableData);
+
+    for (const auto& [sysId, rtk] : rtks) {
+        if (rtk->send_rtcm_data(rtcmData) != mavsdk::Rtk::Result::Success) {
+            LOG_WARNING("Failed to send RTCM data to sysId = " + std::to_string(sysId));
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Registration
+// ---------------------------------------------------------------------------
+
+std::shared_ptr<mavsdk::MavlinkPassthrough> CommunicationManager::m_passthroughOf(const uint8_t sysId) {
+    std::lock_guard lock(m_linkMutex);
+    const auto it = m_vehicles.find(sysId);
+    return it == m_vehicles.end() ? nullptr : it->second.passthrough;
+}
+
+std::vector<std::pair<uint8_t, std::shared_ptr<mavsdk::MavlinkPassthrough>>> CommunicationManager::m_passthroughs() {
+    std::lock_guard lock(m_linkMutex);
+    std::vector<std::pair<uint8_t, std::shared_ptr<mavsdk::MavlinkPassthrough>>> out;
+    for (const auto& [sysId, vehicle] : m_vehicles) out.emplace_back(sysId, vehicle.passthrough);
+    return out;
+}
+
+std::shared_ptr<StatesAggregator> CommunicationManager::m_aggregatorOf(const uint8_t sysId) {
+    std::lock_guard lock(m_statesMutex);
+    const auto it = m_aggregators.find(sysId);
+    return it == m_aggregators.end() ? nullptr : it->second;
 }
 
 void CommunicationManager::m_watchSystem(const std::shared_ptr<mavsdk::System>& system) {
     const uint8_t sysId = system->get_system_id();
-
     {
         std::lock_guard lock(m_linkMutex);
-        if (m_links.contains(sysId) || m_watchedSystems.contains(sysId)) {
-            return; // already registered, or already being watched
-        }
-        m_watchedSystems.insert(sysId);
+        if (!m_watchers.try_emplace(sysId, Watcher{system, std::nullopt}).second) return; // already watched
     }
 
-    if (system->has_autopilot() && system->is_connected()) {
-        std::thread([this, system]() { m_registerSystem(system); }).detach();
-        return;
+    // Subscribed outside the lock: the callback takes it.
+    const auto handle = system->subscribe_is_connected([this, system](const bool connected) {
+        m_onConnectionChanged(system, connected);
+    });
+    {
+        std::lock_guard lock(m_linkMutex);
+        const auto it = m_watchers.find(sysId);
+        if (it != m_watchers.end()) it->second.handle = handle;
     }
 
-    // The heartbeat arrived (that's how MAVSDK created this System object at
-    // all), but is_connected()/has_autopilot() haven't settled yet --
-    // component discovery and vehicle-type resolution are still in flight.
-    // Watch this specific system and register it the instant MAVSDK marks
-    // it connected, instead of checking once and giving up if it's not
-    // ready in that exact instant (that race is what dropped vehicles
-    // before). This also means a vehicle that briefly drops its link later
-    // gets its health flagged and re-registers automatically on reconnect.
-    system->subscribe_is_connected([this, system](const bool connected) {
-        const uint8_t id = system->get_system_id();
+    // Already connected when first seen (common over TCP): no change event will come.
+    if (system->is_connected()) m_onConnectionChanged(system, true);
+}
 
-        if (connected && system->has_autopilot()) {
-            std::thread([this, system]() { m_registerSystem(system); }).detach();
+void CommunicationManager::m_onConnectionChanged(const std::shared_ptr<mavsdk::System>& system, const bool connected) {
+    const uint8_t sysId = system->get_system_id();
+    bool registered;
+    {
+        std::lock_guard lock(m_linkMutex);
+        registered = m_vehicles.contains(sysId);
+        if (connected && !registered && system->has_autopilot()) {
+            // Plugin construction off the MAVSDK callback thread.
+            m_registrationThreads.emplace_back([this, system]() { m_registerSystem(system); });
             return;
         }
+    }
+    if (!registered) return;
 
-        if (!connected) {
-            bool wasRegistered;
-            {
-                std::lock_guard lock(m_linkMutex);
-                wasRegistered = m_links.contains(id);
-            }
-            if (wasRegistered) {
-                {
-                    std::lock_guard statesLock(m_statesMutex);
-                    m_uavHealths[id].isConnected = false;
-                }
-                LOG_WARNING("UAV sysId = " + std::to_string(id) + " lost connection");
-                m_onStatusUpdate();
-            }
-        }
-    });
+    m_updateHealth(sysId, [connected](uavHealth& h) { h.isConnected = connected; });
+    if (connected) {
+        // A reconnection after a reboot: the vehicle lost every requested rate.
+        LOG_INFO("UAV sysId = " + std::to_string(sysId) + " reconnected");
+        m_requestStatusRates(sysId);
+        m_requestControlState(sysId);
+    } else {
+        LOG_WARNING("UAV sysId = " + std::to_string(sysId) + " lost connection");
+    }
 }
 
 void CommunicationManager::m_registerSystem(const std::shared_ptr<mavsdk::System>& system) {
     const uint8_t sysId = system->get_system_id();
 
+    Vehicle vehicle;
+    vehicle.system      = system;
+    vehicle.telemetry   = std::make_shared<mavsdk::Telemetry>(system);
+    vehicle.param       = std::make_shared<mavsdk::Param>(system);
+    vehicle.passthrough = std::make_shared<mavsdk::MavlinkPassthrough>(system);
+    vehicle.rtk         = std::make_shared<mavsdk::Rtk>(system);
+
     {
         std::lock_guard lock(m_linkMutex);
-        if (m_links.contains(sysId)) {
-            return; // e.g. is_connected toggled true a second time -- no-op
-        }
-
-        if (!m_expectedSysIds.empty() && !m_expectedSysIds.contains(sysId)) {
+        if (m_vehicles.contains(sysId)) return;
+        if (!m_expectedSysIds.empty() && std::ranges::find(m_expectedSysIds, sysId) == m_expectedSysIds.end()) {
             LOG_WARNING("UAV connected with sysId = " + std::to_string(sysId)
                         + ", which isn't one of the ids configured under Pixhawk.endpoints -- check for "
                         "a MAVLink SYSID collision between vehicles (e.g. two boards both left on the "
                         "default SYSID_THISMAV) or unexpected traffic on the listening port.");
         }
-
-        m_vehicleType[sysId] = system->vehicle_type();
+        m_vehicles.emplace(sysId, std::move(vehicle));
+    }
+    {
+        std::lock_guard lock(m_statesMutex);
         m_aggregators[sysId] = std::make_shared<StatesAggregator>();
-        m_links[sysId]       = system;
-        m_telemetry[sysId]   = std::make_shared<mavsdk::Telemetry>(system);
-        m_action[sysId]      = std::make_shared<mavsdk::Action>(system);
-        m_param[sysId]       = std::make_shared<mavsdk::Param>(system);
-        m_passthrough[sysId] = std::make_shared<mavsdk::MavlinkPassthrough>(system);
-        m_rtk[sysId]         = std::make_shared<mavsdk::Rtk>(system);
-
-        {
-            std::lock_guard statesLock(m_statesMutex);
-            m_uavHealths[sysId].isConnected = true;
-        }
+        m_uavHealths[sysId].isConnected = true;
     }
 
     m_subscribeMavlink(sysId);
     m_onStatusUpdate();
-
     LOG_INFO("Connected: sysID = " + std::to_string(sysId));
 }
 
@@ -396,7 +432,7 @@ void CommunicationManager::m_waitAndSummarize(const int expectedCount, const int
     do {
         {
             std::lock_guard lock(m_linkMutex);
-            connected = static_cast<int>(m_links.size());
+            connected = static_cast<int>(m_vehicles.size());
         }
         if (connected >= expectedCount) break;
         std::this_thread::sleep_for(std::chrono::milliseconds(100));
@@ -412,159 +448,98 @@ void CommunicationManager::m_waitAndSummarize(const int expectedCount, const int
     }
 }
 
-void CommunicationManager::listLinks() {
-    std::lock_guard lock(m_linkMutex);
-    if (m_links.empty()) {
-        LOG_WARNING("No links connected");
-    } else {
-        for (const auto& sysId : m_links | std::views::keys) {
-            LOG_INFO("Connected to sysId = " + std::to_string(sysId));
-        }
-    }
-}
-
-std::shared_ptr<mavsdk::Telemetry> CommunicationManager::getTelemetry(const uint8_t sysId) {
-    std::lock_guard lock(m_linkMutex);
-    if (m_telemetry.contains(sysId)) {
-        return m_telemetry[sysId];
-    }
-    return nullptr;
-}
-
-std::shared_ptr<mavsdk::Action> CommunicationManager::getAction(const uint8_t sysId) {
-    std::lock_guard lock(m_linkMutex);
-    if (m_links.contains(sysId)) {
-        return m_action[sysId];
-    }
-    return nullptr;
-}
-
-void CommunicationManager::setHomeToCurrentPosition() {
-
-    for (const auto& [sysId, system]: m_links) {
-        mavsdk::MavlinkPassthrough mavlink_passthrough{system};
-        auto telemetry = m_telemetry[sysId];
-
-        // Create MAV_CMD_DO_SET_HOME command
-        mavsdk::MavlinkPassthrough::CommandLong commandLong{};
-        commandLong.command = MAV_CMD_DO_SET_HOME;
-        commandLong.param1 = 1;  // 1 = Set home at current position
-        commandLong.target_sysid = sysId;
-        commandLong.target_compid = MAV_COMP_ID_AUTOPILOT1;
-
-        // Send the command
-        auto result = mavlink_passthrough.send_command_long(commandLong);
-        if (result == mavsdk::MavlinkPassthrough::Result::Success) {
-            LOG_INFO("Home position set to current location");
-        } else {
-            LOG_WARNING("Failed to set home position set to current location, result = " + std::to_string(static_cast<int>(result)));
-        }
-    }
-}
-
-void CommunicationManager::setUavCommands(const std::map<uint8_t, uavCommandsFlags>& uavCommands) {
-    {
-        std::lock_guard lock(m_statesMutex);
-        m_uavCommands = uavCommands;
-    }
-
-    m_sendAttitudeTarget();
-}
-
-void CommunicationManager::sendRtcmData(const std::vector<uint8_t>& data) {
-    std::lock_guard lock(m_linkMutex);
-
-    if (m_rtk.empty()) {
-        LOG_DEBUG("sendRtcmData called but no UAV is connected yet");
-        return;
-    }
-
-    // mavsdk::base64_encode() takes a non-const std::vector<uint8_t>&, so we
-    // need a mutable copy even though sendRtcmData() itself takes const&.
-    std::vector<uint8_t> encodableData = data;
-
-    mavsdk::Rtk::RtcmData rtcmData;
-    rtcmData.data_base64 = mavsdk::base64_encode(encodableData);
-
-    for (const auto& [sysId, rtk] : m_rtk) {
-        const auto result = rtk->send_rtcm_data(rtcmData);
-        if (result != mavsdk::Rtk::Result::Success) {
-            LOG_WARNING("Failed to send RTCM data to sysId = " + std::to_string(sysId));
-        }
-    }
-}
+// ---------------------------------------------------------------------------
+// Subscriptions
+// ---------------------------------------------------------------------------
 
 void CommunicationManager::m_subscribeMavlink(const uint8_t sysId) {
-    const auto telemetryIterator = m_telemetry.find(sysId);
-
-    if (telemetryIterator == m_telemetry.end()) {
-        LOG_ERROR("Telemetry not found for sysId = " + std::to_string(sysId));
-        return;
+    std::shared_ptr<mavsdk::Telemetry> telemetry;
+    std::shared_ptr<mavsdk::MavlinkPassthrough> passthrough;
+    {
+        std::lock_guard lock(m_linkMutex);
+        const auto it = m_vehicles.find(sysId);
+        if (it == m_vehicles.end()) return;
+        telemetry = it->second.telemetry;
+        passthrough = it->second.passthrough;
     }
 
-    const auto telemetry = telemetryIterator->second;
-    subscriptionHandles handles;
+    subscriptionHandles h;
+    h.healthHandle = telemetry->subscribe_health([this, sysId](const mavsdk::Telemetry::Health& health) {
+        m_updateHealth(sysId, [&](uavHealth& u) { u.health = health; });
+    });
+    h.healthAllOkHandle = telemetry->subscribe_health_all_ok([this, sysId](const bool ok) {
+        m_updateHealth(sysId, [&](uavHealth& u) { u.isHealthy = ok; });
+    });
+    h.armedHandle = telemetry->subscribe_armed([this, sysId](const bool armed) {
+        m_updateHealth(sysId, [&](uavHealth& u) { u.isArmed = armed; });
+    });
+    h.batteryHandle = telemetry->subscribe_battery([this, sysId](const mavsdk::Telemetry::Battery& battery) {
+        m_updateHealth(sysId, [&](uavHealth& u) {
+            u.batteryRemainingPercent = battery.remaining_percent;
+            u.batteryVoltageVolt = battery.voltage_v;
+        });
+    });
+    h.gpsInfoHandle = telemetry->subscribe_gps_info([this, sysId](const mavsdk::Telemetry::GpsInfo& gps) {
+        m_updateHealth(sysId, [&](uavHealth& u) {
+            u.gpsNumSatellites = gps.num_satellites;
+            u.gpsFixType = gps.fix_type;
+        });
+    });
+    h.rcStatusHandle = telemetry->subscribe_rc_status([this, sysId](const mavsdk::Telemetry::RcStatus& rc) {
+        m_updateHealth(sysId, [&](uavHealth& u) {
+            u.rcAvailable = rc.is_available;
+            u.rcSignalPercent = rc.signal_strength_percent;
+        });
+    });
+    h.homeHandle = telemetry->subscribe_home([](const mavsdk::Telemetry::Position& home) {
+        LOG_INFO("Home position: Lat = " + std::to_string(home.latitude_deg) + ", Lon = " + std::to_string(home.longitude_deg) + ", Alt = " + std::to_string(home.absolute_altitude_m) + "m");
+    });
 
-    // HEARTBEAT
-    m_subscribeHealth(telemetry, sysId, handles);
-    m_subscribeHealthAllOk(telemetry, sysId, handles);
-    m_subscribeArmed(telemetry, sysId, handles);
-    m_subscribeBattery(telemetry, sysId, handles);
-    m_subscribeGpsInfo(telemetry, sysId, handles);
-    m_subscribeRcStatus(telemetry, sysId, handles);
+    // GLOBAL_POSITION_INT: GCS origin, frame-offset check, dashboard. Also
+    // the cadence of the GPS_GLOBAL_ORIGIN and control-state requests.
+    h.positionHandle = telemetry->subscribe_position([this, sysId](const mavsdk::Telemetry::Position& position) {
+        if (const auto aggregator = m_aggregatorOf(sysId)) {
+            aggregator->updateGlobalPosition(position.latitude_deg, position.longitude_deg, position.absolute_altitude_m);
+        }
+        m_requestGpsGlobalOrigin(sysId);
+        m_requestControlState(sysId);
+        m_telemetryChanged();
+    });
 
-    // CONTROL_SYSTEM_STATE: the controller state, the only high-rate message
-    m_subscribeControlState(sysId);
-    m_requestControlState(sysId);
-
-    // GLOBAL_POSITION_INT (origin, offset check, dashboard)
-    m_subscribePosition(telemetry, sysId, handles);
-
-    // GPS_GLOBAL_ORIGIN (requested from the position callback)
-    m_subscribeGpsGlobalOrigin(sysId);
-
-    m_subscribeHome(telemetry, sysId, handles);
-    m_subscribeCommandAck(sysId);
-    m_subscribeToHeartbeat(sysId);
-
-    m_requestStatusRates(sysId);
-
-    m_messageHandles[sysId] = handles;
-}
-
-void CommunicationManager::m_unsubscribeMavlink(const uint8_t sysId) {
-    const auto handleIterator = m_messageHandles.find(sysId);
-    const auto telemetryIterator = m_telemetry.find(sysId);
-
-    if (telemetryIterator == m_telemetry.end()) {
-        LOG_ERROR("Telemetry not found for sysId = " + std::to_string(sysId));
-        return;
-    }
-
-    const auto telemetry = telemetryIterator->second;
-
-    //const auto telemetry = telemetryIterator->second;
-    const auto handles = handleIterator->second;
-
-    // HEARTBEAT
-    telemetry->unsubscribe_health(handles.healthHandle);
-    telemetry->unsubscribe_health_all_ok(handles.healthAllOkHandle);
-    telemetry->unsubscribe_armed(handles.armedHandle);
-    telemetry->unsubscribe_battery(handles.batteryHandle);
-    telemetry->unsubscribe_gps_info(handles.gpsInfoHandle);
-    telemetry->unsubscribe_rc_status(handles.rcStatusHandle);
+    const auto raw = [&](const uint16_t id, void (CommunicationManager::*handler)(uint8_t, const mavlink_message_t&)) {
+        h.messageHandles.emplace_back(id, passthrough->subscribe_message(id, [this, sysId, handler](const mavlink_message_t& m) {
+            (this->*handler)(sysId, m);
+        }));
+    };
+    raw(MAVLINK_MSG_ID_HEARTBEAT, &CommunicationManager::m_onHeartbeat);
+    raw(MAVLINK_MSG_ID_CONTROL_SYSTEM_STATE, &CommunicationManager::m_onControlState);
+    raw(MAVLINK_MSG_ID_GPS_GLOBAL_ORIGIN, &CommunicationManager::m_onGpsGlobalOrigin);
 
     {
-        std::lock_guard statesLock(m_statesMutex);
-        m_uavHealths[sysId].isConnected = false;
+        std::lock_guard lock(m_linkMutex);
+        const auto it = m_vehicles.find(sysId);
+        if (it != m_vehicles.end()) it->second.handles = std::move(h);
     }
-    m_onStatusUpdate();
 
-    // GLOBAL_POSITION_INT
-    telemetry->unsubscribe_position(handles.positionHandle);
+    m_requestControlState(sysId);
+    m_requestStatusRates(sysId);
+}
 
-    // Remove from map
-    m_messageHandles.erase(sysId);
+void CommunicationManager::m_unsubscribeMavlink(Vehicle& vehicle) {
+    auto& t = *vehicle.telemetry;
+    const auto& h = vehicle.handles;
+    t.unsubscribe_health(h.healthHandle);
+    t.unsubscribe_health_all_ok(h.healthAllOkHandle);
+    t.unsubscribe_armed(h.armedHandle);
+    t.unsubscribe_battery(h.batteryHandle);
+    t.unsubscribe_gps_info(h.gpsInfoHandle);
+    t.unsubscribe_rc_status(h.rcStatusHandle);
+    t.unsubscribe_home(h.homeHandle);
+    t.unsubscribe_position(h.positionHandle);
+    for (const auto& [id, handle] : h.messageHandles) {
+        vehicle.passthrough->unsubscribe_message(id, handle);
+    }
+    vehicle.handles = {};
 }
 
 void CommunicationManager::m_onTelemetryUpdate() {
@@ -575,9 +550,16 @@ void CommunicationManager::m_onTelemetryUpdate() {
             snapshot[id] = agg->getSnapshot();
         }
     }
-
     if (m_telemetryCallback) {
         m_telemetryCallback(snapshot);
+    }
+}
+
+void CommunicationManager::m_telemetryChanged() {
+    if (m_config.telemetry_publish_hz <= 0.0) {
+        m_onTelemetryUpdate();
+    } else {
+        m_snapshotDirty.store(true);
     }
 }
 
@@ -587,194 +569,80 @@ void CommunicationManager::m_onStatusUpdate() {
         std::lock_guard lock(m_statesMutex);
         snapshot = m_uavHealths;
     }
-
     if (m_statusCallback) {
         m_statusCallback(snapshot);
     }
 }
 
-void CommunicationManager::m_handleCommandAck(const mavlink_message_t& message) {
-    std::thread([this, message]() {
-        mavlink_command_ack_t ack;
-        mavlink_msg_command_ack_decode(&message, &ack);
-
-        std::lock_guard lock(m_commandAckMutex);
-        m_lastAck = ack;
-
-        m_cvCommandAck.notify_all();
-    }).detach();
-}
-
-void CommunicationManager::m_subscribeCommandAck(const uint8_t sysId) {
-    m_passthrough[sysId]->subscribe_message(MAVLINK_MSG_ID_COMMAND_ACK,
-        [this](const mavlink_message_t& message) { m_handleCommandAck(message); });
-}
-
-void CommunicationManager::m_handleHeartbeat(const uint8_t sysId, const mavlink_message_t& message) {
-    std::thread([this, sysId, message]() {
-        mavlink_heartbeat_t heartbeat;
-        mavlink_msg_heartbeat_decode(&message, &heartbeat);
-
-        {
-            std::lock_guard lock(m_statesMutex);
-            m_uavHealths[sysId].customMode = heartbeat.custom_mode;
-            m_uavHealths[sysId].customModeReceived = true;
-        }
-        m_onStatusUpdate();
-    }).detach();
-}
-
-void CommunicationManager::m_subscribeToHeartbeat(const uint8_t sysId) {
-    m_passthrough[sysId]->subscribe_message(MAVLINK_MSG_ID_HEARTBEAT,
-        [this, sysId](const mavlink_message_t& message) { m_handleHeartbeat(sysId, message); });
-}
-
-void CommunicationManager::m_subscribeHealth(const std::shared_ptr<mavsdk::Telemetry> &telemetry, uint8_t sysId, subscriptionHandles &handles) {
-
-    handles.healthHandle = telemetry->subscribe_health([this, sysId](const mavsdk::Telemetry::Health& health) {
-        {
-            std::lock_guard lock(m_statesMutex);
-            m_uavHealths[sysId].health = health;
-        }
-        m_onStatusUpdate();
-    });
-}
-
-void CommunicationManager::m_subscribeHealthAllOk(const std::shared_ptr<mavsdk::Telemetry> &telemetry, uint8_t sysId, subscriptionHandles &handles) {
-
-    handles.healthAllOkHandle = telemetry->subscribe_health_all_ok([this, sysId](const bool isHealthy) {
-        {
-            std::lock_guard lock(m_statesMutex);
-            m_uavHealths[sysId].isHealthy = isHealthy;
-        }
-        m_onStatusUpdate();
-    });
-}
-
-void CommunicationManager::m_subscribeArmed(const std::shared_ptr<mavsdk::Telemetry> &telemetry, uint8_t sysId, subscriptionHandles &handles) {
-
-    handles.armedHandle = telemetry->subscribe_armed([this, sysId](const bool isArmed) {
-        {
-            std::lock_guard lock(m_statesMutex);
-            m_uavHealths[sysId].isArmed = isArmed;
-        }
-        m_onStatusUpdate();
-    });
-}
-
-void CommunicationManager::m_subscribeBattery(const std::shared_ptr<mavsdk::Telemetry>& telemetry, uint8_t sysId, subscriptionHandles& handles) {
-
-    handles.batteryHandle = telemetry->subscribe_battery([this, sysId](const mavsdk::Telemetry::Battery& battery) {
-        {
-            std::lock_guard lock(m_statesMutex);
-            m_uavHealths[sysId].batteryRemainingPercent = battery.remaining_percent;
-            m_uavHealths[sysId].batteryVoltageVolt = battery.voltage_v;
-        }
-        m_onStatusUpdate();
-    });
-}
-
-void CommunicationManager::m_subscribeGpsInfo(const std::shared_ptr<mavsdk::Telemetry>& telemetry, uint8_t sysId, subscriptionHandles& handles) {
-
-    handles.gpsInfoHandle = telemetry->subscribe_gps_info([this, sysId](const mavsdk::Telemetry::GpsInfo& gpsInfo) {
-        {
-            std::lock_guard lock(m_statesMutex);
-            m_uavHealths[sysId].gpsNumSatellites = gpsInfo.num_satellites;
-            m_uavHealths[sysId].gpsFixType = gpsInfo.fix_type;
-        }
-        m_onStatusUpdate();
-    });
-}
-
-void CommunicationManager::m_subscribeRcStatus(const std::shared_ptr<mavsdk::Telemetry>& telemetry, uint8_t sysId, subscriptionHandles& handles) {
-
-    handles.rcStatusHandle = telemetry->subscribe_rc_status([this, sysId](const mavsdk::Telemetry::RcStatus& rcStatus) {
-        {
-            std::lock_guard lock(m_statesMutex);
-            m_uavHealths[sysId].rcAvailable = rcStatus.is_available;
-            m_uavHealths[sysId].rcSignalPercent = rcStatus.signal_strength_percent;
-        }
-        m_onStatusUpdate();
-    });
-}
-
-void CommunicationManager::m_subscribeHome(const std::shared_ptr<mavsdk::Telemetry> &telemetry, uint8_t sysId, subscriptionHandles &handles) {
-
-    handles.homeHandle = telemetry->subscribe_home([](const mavsdk::Telemetry::Position &home) {
-        LOG_INFO("Home position: Lat = " + std::to_string(home.latitude_deg) + ", Lon = " + std::to_string(home.longitude_deg) + ", Alt = " + std::to_string(home.absolute_altitude_m) + "m");
-    });
-}
-
-
-void CommunicationManager::m_subscribePosition(const std::shared_ptr<mavsdk::Telemetry>& telemetry, uint8_t sysId, subscriptionHandles& handles) {
-
-    handles.positionHandle = telemetry->subscribe_position([this, sysId](const mavsdk::Telemetry::Position& position) {
-        m_aggregators[sysId]->updateGlobalPosition(position.latitude_deg, position.longitude_deg, position.absolute_altitude_m);
-        m_requestGpsGlobalOrigin(sysId);
-        m_requestControlState(sysId);
-
-        if (m_config.telemetry_publish_hz <= 0.0) {
-            // immediate publish
-            m_onTelemetryUpdate();
-        } else {
-            m_snapshotDirty.store(true);
-        }
-    });
-}
-
-void CommunicationManager::m_subscribeControlState(const uint8_t sysId) {
-        m_passthrough[sysId]->subscribe_message(MAVLINK_MSG_ID_CONTROL_SYSTEM_STATE, [this, sysId](const mavlink_message_t& message) {
-        mavlink_control_system_state_t state;
-        mavlink_msg_control_system_state_decode(&message, &state);
-        const float pos[3] = {state.x_pos, state.y_pos, state.z_pos};
-        const float vel[3] = {state.x_vel, state.y_vel, state.z_vel};
-
-        std::shared_ptr<StatesAggregator> aggregator;
-        {
-            std::lock_guard lock(m_statesMutex);
-            const auto it = m_aggregators.find(sysId);
-            if (it == m_aggregators.end() || !it->second) return;
-            aggregator = it->second;
-        }
-        if (!aggregator->updateControlState(state.time_usec, pos, vel, state.airspeed, state.q)) return;
-
-        {
-            std::lock_guard lock(m_ekfOriginMutex);
-            auto& w = m_stateRate[sysId];
-            const auto now = std::chrono::steady_clock::now();
-            if (w.count++ == 0 && !w.reported) w.start = now;
-            const double elapsed = std::chrono::duration<double>(now - w.start).count();
-            if (elapsed >= 5.0) {
-                const double rate = (w.count - 1) / elapsed;
-                if (!w.reported || rate < 0.7 * m_config.stateRateHz) {
-                    LOG_INFO("sysId " + std::to_string(sysId) + ": CONTROL_SYSTEM_STATE at " + std::to_string(rate)
-                             + " Hz (requested " + std::to_string(m_config.stateRateHz) + " Hz)");
-                }
-                w = {.start = now, .count = 1, .reported = true};
-            }
-        }
-
-        if (m_config.telemetry_publish_hz <= 0.0) {
-            m_onTelemetryUpdate();
-        } else {
-            m_snapshotDirty.store(true);
-        }
-    });
-}
-
-void CommunicationManager::m_requestControlState(const uint8_t sysId) {
-    std::shared_ptr<StatesAggregator> aggregator;
+void CommunicationManager::m_updateHealth(const uint8_t sysId, const std::function<void(uavHealth&)>& update) {
     {
         std::lock_guard lock(m_statesMutex);
-        const auto it = m_aggregators.find(sysId);
-        if (it == m_aggregators.end() || !it->second) return;
-        aggregator = it->second;
+        update(m_uavHealths[sysId]);
     }
+    m_onStatusUpdate();
+}
+
+void CommunicationManager::m_onHeartbeat(const uint8_t sysId, const mavlink_message_t& message) {
+    mavlink_heartbeat_t heartbeat;
+    mavlink_msg_heartbeat_decode(&message, &heartbeat);
+    m_updateHealth(sysId, [&](uavHealth& h) {
+        h.customMode = heartbeat.custom_mode;
+        h.customModeReceived = true;
+    });
+}
+
+void CommunicationManager::m_onControlState(const uint8_t sysId, const mavlink_message_t& message) {
+    mavlink_control_system_state_t state;
+    mavlink_msg_control_system_state_decode(&message, &state);
+    const float pos[3] = {state.x_pos, state.y_pos, state.z_pos};
+    const float vel[3] = {state.x_vel, state.y_vel, state.z_vel};
+
+    const auto aggregator = m_aggregatorOf(sysId);
+    if (!aggregator || !aggregator->updateControlState(state.time_usec, pos, vel, state.airspeed, state.q)) return;
+
+    {
+        std::lock_guard lock(m_requestMutex);
+        auto& w = m_stateRate[sysId];
+        const auto now = std::chrono::steady_clock::now();
+        if (w.count++ == 0 && !w.reported) w.start = now;
+        const double elapsed = std::chrono::duration<double>(now - w.start).count();
+        if (elapsed >= 5.0) {
+            const double rate = (w.count - 1) / elapsed;
+            if (!w.reported || rate < 0.7 * m_config.stateRateHz) {
+                LOG_INFO("sysId " + std::to_string(sysId) + ": CONTROL_SYSTEM_STATE at " + std::to_string(rate)
+                         + " Hz (requested " + std::to_string(m_config.stateRateHz) + " Hz)");
+            }
+            w = {.start = now, .count = 1, .reported = true};
+        }
+    }
+
+    m_telemetryChanged();
+}
+
+void CommunicationManager::m_onGpsGlobalOrigin(const uint8_t sysId, const mavlink_message_t& message) {
+    mavlink_gps_global_origin_t origin;
+    mavlink_msg_gps_global_origin_decode(&message, &origin);
+    {
+        std::lock_guard lock(m_requestMutex);
+        m_ekfOriginKnown[sysId] = true;
+    }
+    if (m_ekfOriginCallback) {
+        m_ekfOriginCallback(sysId, origin.latitude * 1e-7, origin.longitude * 1e-7, origin.altitude * 1e-3);
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Requests
+// ---------------------------------------------------------------------------
+
+void CommunicationManager::m_requestControlState(const uint8_t sysId) {
+    const auto aggregator = m_aggregatorOf(sysId);
+    if (!aggregator) return;
     const auto now = std::chrono::steady_clock::now();
     const auto last = aggregator->lastStateTime();
     if (last && now - *last < std::chrono::seconds(1)) return;
     {
-        std::lock_guard lock(m_ekfOriginMutex);
+        std::lock_guard lock(m_requestMutex);
         const auto requested = m_stateRequestedAt.find(sysId);
         if (requested != m_stateRequestedAt.end() && now - requested->second < std::chrono::seconds(2)) return;
         if (requested != m_stateRequestedAt.end()) {
@@ -782,127 +650,59 @@ void CommunicationManager::m_requestControlState(const uint8_t sysId) {
         }
         m_stateRequestedAt[sysId] = now;
     }
-    m_setMessageInterval(sysId, MAVLINK_MSG_ID_CONTROL_SYSTEM_STATE, m_config.stateRateHz);
-}
-
-void CommunicationManager::m_requestStatusRates(const uint8_t sysId) {
-    // Dashboard and frame offset only. Set every SRx_* of this port to 0 on the
-    // vehicle: then only what is requested here is sent.
-    m_setMessageInterval(sysId, MAVLINK_MSG_ID_GLOBAL_POSITION_INT, 5.0);
-    for (const uint32_t id : {MAVLINK_MSG_ID_SYS_STATUS, MAVLINK_MSG_ID_GPS_RAW_INT, MAVLINK_MSG_ID_BATTERY_STATUS,
-                              MAVLINK_MSG_ID_RC_CHANNELS}) {
-        m_setMessageInterval(sysId, id, 1.0);
-    }
-}
-
-void CommunicationManager::m_setMessageInterval(const uint8_t sysId, const uint32_t messageId, const double rateHz) {
-    std::shared_ptr<mavsdk::MavlinkPassthrough> passthrough;
-    {
-        std::lock_guard lock(m_linkMutex);
-        const auto it = m_passthrough.find(sysId);
-        if (it == m_passthrough.end()) return;
-        passthrough = it->second;
-    }
-    const auto intervalUs = static_cast<float>(1e6 / rateHz);
-    passthrough->queue_message([passthrough, messageId, intervalUs](const MavlinkAddress address, const uint8_t channel) {
-        mavlink_message_t message;
-        mavlink_msg_command_long_pack_chan(address.system_id, address.component_id, channel, &message,
-                                           passthrough->get_target_sysid(), passthrough->get_target_compid(),
-                                           MAV_CMD_SET_MESSAGE_INTERVAL, 0, static_cast<float>(messageId), intervalUs,
-                                           0, 0, 0, 0, 0);
-        return message;
-    });
-}
-
-void CommunicationManager::m_subscribeGpsGlobalOrigin(const uint8_t sysId) {
-    m_passthrough[sysId]->subscribe_message(MAVLINK_MSG_ID_GPS_GLOBAL_ORIGIN, [this, sysId](const mavlink_message_t& message) {
-        mavlink_gps_global_origin_t origin;
-        mavlink_msg_gps_global_origin_decode(&message, &origin);
-        {
-            std::lock_guard lock(m_ekfOriginMutex);
-            m_ekfOriginKnown[sysId] = true;
-        }
-        if (m_ekfOriginCallback) {
-            m_ekfOriginCallback(sysId, origin.latitude * 1e-7, origin.longitude * 1e-7, origin.altitude * 1e-3);
-        }
-    });
+    m_sendCommandLong(sysId, MAV_CMD_SET_MESSAGE_INTERVAL, MAVLINK_MSG_ID_CONTROL_SYSTEM_STATE,
+                      static_cast<float>(1e6 / m_config.stateRateHz));
 }
 
 void CommunicationManager::m_requestGpsGlobalOrigin(const uint8_t sysId) {
     const auto now = std::chrono::steady_clock::now();
     {
-        std::lock_guard lock(m_ekfOriginMutex);
+        std::lock_guard lock(m_requestMutex);
         const auto period = std::chrono::seconds(m_ekfOriginKnown[sysId] ? 10 : 2);
         const auto last = m_ekfOriginRequestedAt.find(sysId);
         if (last != m_ekfOriginRequestedAt.end() && now - last->second < period) return;
         m_ekfOriginRequestedAt[sysId] = now;
     }
+    m_sendCommandLong(sysId, MAV_CMD_REQUEST_MESSAGE, MAVLINK_MSG_ID_GPS_GLOBAL_ORIGIN, 0.0f);
+}
 
-    std::shared_ptr<mavsdk::MavlinkPassthrough> passthrough;
-    {
-        std::lock_guard lock(m_linkMutex);
-        const auto it = m_passthrough.find(sysId);
-        if (it == m_passthrough.end()) return;
-        passthrough = it->second;
+void CommunicationManager::m_requestStatusRates(const uint8_t sysId) {
+    // Dashboard and frame offset only. Set every SRx_* of this port to 0 on the
+    // vehicle: then only what is requested here is sent.
+    m_sendCommandLong(sysId, MAV_CMD_SET_MESSAGE_INTERVAL, MAVLINK_MSG_ID_GLOBAL_POSITION_INT, 1e6f / 5.0f);
+    for (const uint32_t id : {MAVLINK_MSG_ID_SYS_STATUS, MAVLINK_MSG_ID_GPS_RAW_INT, MAVLINK_MSG_ID_BATTERY_STATUS,
+                              MAVLINK_MSG_ID_RC_CHANNELS}) {
+        m_sendCommandLong(sysId, MAV_CMD_SET_MESSAGE_INTERVAL, static_cast<float>(id), 1e6f);
     }
-    passthrough->queue_message([passthrough](const MavlinkAddress address, const uint8_t channel) {
+}
+
+void CommunicationManager::m_sendCommandLong(const uint8_t sysId, const uint16_t command, const float param1, const float param2) {
+    const auto passthrough = m_passthroughOf(sysId);
+    if (!passthrough) return;
+    passthrough->queue_message([passthrough, command, param1, param2](const MavlinkAddress address, const uint8_t channel) {
         mavlink_message_t message;
         mavlink_msg_command_long_pack_chan(address.system_id, address.component_id, channel, &message,
                                            passthrough->get_target_sysid(), passthrough->get_target_compid(),
-                                           MAV_CMD_REQUEST_MESSAGE, 0, MAVLINK_MSG_ID_GPS_GLOBAL_ORIGIN, 0, 0, 0, 0, 0, 0);
+                                           command, 0, param1, param2, 0, 0, 0, 0, 0);
         return message;
     });
 }
 
-void CommunicationManager::m_sendAttitudeTarget() {
-    // Snapshot commands under lock
-    std::map<uint8_t, uavCommandsFlags> commandsCopy;
-    {
-        std::lock_guard lock(m_statesMutex);
-        commandsCopy = m_uavCommands;
-    }
-
-    // Iterate over each UAV command
-    for (const auto& [sysId, cmd] : commandsCopy) {
-        if (!m_passthrough.contains(sysId)) {
-            LOG_WARNING("Skipping sysId " + std::to_string(sysId) + ": no passthrough instance");
+void CommunicationManager::m_sendAttitudeTarget(const std::map<uint8_t, uavCommandsFlags>& commands) {
+    for (const auto& [sysId, cmd] : commands) {
+        const auto passthrough = m_passthroughOf(sysId);
+        if (!passthrough) {
+            LOG_WARNING("Skipping sysId " + std::to_string(sysId) + ": not connected");
             continue;
         }
 
-        // Send via MavlinkPassthrough (non-blocking)
-        const auto targetSysId  = m_passthrough[sysId]->get_target_sysid();
-        const auto targetCompId = m_passthrough[sysId]->get_target_compid();
-
-        const auto result = m_passthrough[sysId]->queue_message([cmd, targetSysId, targetCompId](const MavlinkAddress address, const uint8_t channel) {
+        const auto targetSysId  = passthrough->get_target_sysid();
+        const auto targetCompId = passthrough->get_target_compid();
+        const auto result = passthrough->queue_message([cmd, targetSysId, targetCompId](const MavlinkAddress address, const uint8_t channel) {
             return MavlinkMessageBuilder::buildSetAttitudeTarget(address, channel, targetSysId, targetCompId, cmd);
         });
-
         if (result != mavsdk::MavlinkPassthrough::Result::Success) {
             LOG_WARNING("Failed to queue SET_ATTITUDE_TARGET for sysId " + std::to_string(sysId));
         }
     }
 }
-
-void CommunicationManager::m_setParameter(const uint8_t sysId, const MAV_PARAM_TYPE type, const std::string &name, const float value) {
-    const auto result = m_passthrough[sysId]->queue_message(
-        [&](MavlinkAddress mavlink_address, uint8_t channel) {
-            mavlink_message_t message;
-            mavlink_msg_param_set_pack(
-                m_passthrough[sysId]->get_our_sysid(),
-                m_passthrough[sysId]->get_our_compid(),
-                &message,
-                m_passthrough[sysId]->get_target_sysid(),
-                MAV_COMP_ID_AUTOPILOT1,
-                name.c_str(),
-                value,
-                type
-            );
-            return message;
-        });
-
-    if (result != mavsdk::MavlinkPassthrough::Result::Success) {
-        LOG_ERROR("Failed to set " + name + ", result = " + std::to_string(static_cast<int>(result)));
-    } else {
-        LOG_INFO("Successfully sent command to set " + name + " to " + std::to_string(value));
-    }
-};

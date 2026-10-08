@@ -20,6 +20,7 @@ mavlink_message_t MavlinkMessageBuilder::buildSetAttitudeTarget(const MavlinkAdd
         address.component_id,
         channel,
         &msg,
+        // time_boot_ms: Unix time in ms truncated to 32 bits (the vehicle does not use it)
         static_cast<uint32_t>(std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count()),
         targetSysid,
         targetCompid,

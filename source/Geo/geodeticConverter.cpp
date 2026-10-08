@@ -8,19 +8,6 @@
 
 #include "geodeticConverter.h"
 
-GeodeticConverter::GeodeticConverter()
-    : m_haveReference(false)
-{
-    // Could be a real coordinate, but here it required an initialization
-    m_latitudeRadiansRef  = 0.0;
-    m_longitudeRadiansRef = 0.0;
-    m_altitudeRef         = 0.0;
-
-    m_ecefRefX = 0.0;
-    m_ecefRefY = 0.0;
-    m_ecefRefZ = 0.0;
-}
-
 bool GeodeticConverter::isInitialized() const {
     return m_haveReference;
 }
@@ -41,11 +28,8 @@ void GeodeticConverter::initializeReference(const double latitudeDegrees, const 
     // Compute ECEF of NED origin
     geodeticToEcef(latitudeDegrees, longitudeDegrees, altitude, m_ecefRefX, m_ecefRefY, m_ecefRefZ);
 
-    // Compute ECEF to NED and NED to ECEF matrices
-    const double phiP = std::atan2(m_ecefRefZ, std::sqrt(m_ecefRefX * m_ecefRefX + m_ecefRefY * m_ecefRefY));
-
-    m_ecefToNed = m_nedToEcefRotation(phiP, m_longitudeRadiansRef);
-    m_nedToEcef = m_nedToEcefRotation(m_latitudeRadiansRef, m_longitudeRadiansRef).transpose();
+    // The tangent plane is normal to the ellipsoid: geodetic latitude, not geocentric.
+    m_ecefToNeu = m_ecefToNeuRotation(m_latitudeRadiansRef, m_longitudeRadiansRef);
 
     m_haveReference = true;
 }
@@ -77,7 +61,7 @@ void GeodeticConverter::ecefToNed(const double x, const double y, const double z
     vec[1] = y - m_ecefRefY;
     vec[2] = z - m_ecefRefZ;
 
-    grs::Vec3d res = m_ecefToNed * vec;
+    grs::Vec3d res = m_ecefToNeu * vec;
     north = res[0];
     east  = res[1];
     down  = -res[2];
@@ -88,6 +72,7 @@ void GeodeticConverter::geodeticToNed(const double latitudeDegrees, const double
     // Geodetic position to local NED frame
     if (!isInitialized()) {
         LOG_ERROR("GeodeticConverter is not initialized");
+        north = east = down = 0.0;
         return;
     }
 
@@ -96,7 +81,7 @@ void GeodeticConverter::geodeticToNed(const double latitudeDegrees, const double
     ecefToNed(x, y, z, north, east, down);
 }
 
-grs::Matrix3d GeodeticConverter::m_nedToEcefRotation(const double latitudeRadians, const double longitudeRadians) {
+grs::Matrix3d GeodeticConverter::m_ecefToNeuRotation(const double latitudeRadians, const double longitudeRadians) {
 
     const double sLat = std::sin(latitudeRadians);
     const double cLat = std::cos(latitudeRadians);

@@ -45,8 +45,11 @@ private:
     bool m_print;
 };
 
-#define PROFILE_SCOPE(name) ProfilingTimer timer##__LINE__(name)
-#define PROFILE_SCOPE_OUT(name, outptr, print) ProfilingTimer timer##__LINE__(name, outptr, print)
+// Two levels so __LINE__ expands: one timer name per line.
+#define PROFILE_CONCAT_(a, b) a##b
+#define PROFILE_CONCAT(a, b) PROFILE_CONCAT_(a, b)
+#define PROFILE_SCOPE(name) ProfilingTimer PROFILE_CONCAT(profilingTimer_, __LINE__)(name)
+#define PROFILE_SCOPE_OUT(name, outptr, print) ProfilingTimer PROFILE_CONCAT(profilingTimer_, __LINE__)(name, outptr, print)
 
 
 #endif //PROFILINGTIMER_H

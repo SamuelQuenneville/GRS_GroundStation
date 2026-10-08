@@ -138,13 +138,13 @@ GroundControlStation::GroundControlStation()
 
     m_catapultLauncher = std::make_unique<CatapultLauncher>();
     m_catapultLauncher->setStatusCallback([this](const uint8_t id, CatapultState state, const uint32_t bits) {
-        LOG_DEBUG("Catapult " + std::to_string(id) + " -> state=" + std::to_string(static_cast<int>(state)) + " bits=0x" + std::to_string(bits));
+        LOG_DEBUG("Catapult " + std::to_string(id) + " -> state=" + std::to_string(static_cast<int>(state)) + " status=" + describeStatusBits(bits));
 
         if (!m_dashboardServer) return;
 
         LauncherTelemetrySnapshot snap;
         snap.id          = std::to_string(id);
-        snap.state       = m_catapultStateToString(state);
+        snap.state       = catapultStateName(state);
         snap.connected   = state != CatapultState::Disconnected;
         snap.cocked      = bits & STATUS_COCKED;
         snap.armed       = bits & STATUS_ARMED;
@@ -160,6 +160,8 @@ GroundControlStation::GroundControlStation()
 
 GroundControlStation::~GroundControlStation() {
     stop();
+    // First: MAVSDK callbacks call into the dispatcher and the control interface.
+    m_communicationManager.reset();
 }
 
 void GroundControlStation::initialize(const gcsConfig& config)
@@ -314,14 +316,15 @@ void GroundControlStation::connectAll() {
         return;
     }
 
-    if (!m_running) {
-        m_running = true;
-        m_supervisorThread = std::thread(&GroundControlStation::m_supervisorLoop, this);
-    }
+    if (!m_running) start();
 }
 
-void GroundControlStation::armAll() const {
-    m_communicationManager->armAll();
+void GroundControlStation::armAll(const bool force) const {
+    m_communicationManager->armAll(force);
+}
+
+void GroundControlStation::setHomeAll() const {
+    m_communicationManager->setHomeToCurrentPosition();
 }
 
 void GroundControlStation::setModeAll(const std::string& mode) const {
@@ -716,7 +719,7 @@ bool GroundControlStation::m_parseUavCommandsLine(const std::string& line, uavCo
     std::string token;
 
     // Line definition:
-    // time (sec), sysId, roll (deg), pitch (deg), yaw (deg), thrust (N), aoa (deg), tension (N), flags (commandFlag bits)
+    // time (sec), sysId, roll (deg), pitch (deg), yaw (deg), throttle [0, 1], aoa (deg), tension (N), flags (commandFlag bits)
 
     if (!std::getline(lineStream, token, ',')) {
         return false;
@@ -802,7 +805,7 @@ void GroundControlStation::m_pushDashboardSnapshot(const uint8_t sysId) {
     // rpm / cl: not currently published over MAVSDK telemetry (no
     // subscription wired for them yet) -- left at 0 until that's added.
 
-    snap.battery  = health.batteryRemainingPercent * 100.0;
+    snap.battery  = health.batteryRemainingPercent; // [%], NaN (null in JSON) if unknown
     // gpsHdop: mavsdk::Telemetry::GpsInfo doesn't expose HDOP, only fix type
     // and satellite count -- left at 0 until/unless you pull it from a raw
     // GPS_RAW_INT mavlink subscription instead.
@@ -823,8 +826,8 @@ void GroundControlStation::m_pushDashboardSnapshot(const uint8_t sysId) {
     snap.health.compass = health.health.is_magnetometer_calibration_ok ? HealthStatus::Ok : HealthStatus::Fail;
     snap.health.gps     = health.health.is_global_position_ok ? HealthStatus::Ok : HealthStatus::Warn;
     snap.health.baro    = health.health.is_local_position_ok ? HealthStatus::Ok : HealthStatus::Warn;
-    snap.health.battery = health.batteryRemainingPercent <= 0.10f ? HealthStatus::Fail
-                         : health.batteryRemainingPercent <= 0.25f ? HealthStatus::Warn
+    snap.health.battery = health.batteryRemainingPercent <= 10.0f ? HealthStatus::Fail
+                         : !(health.batteryRemainingPercent > 25.0f) ? HealthStatus::Warn // also NaN
                          : HealthStatus::Ok;
     snap.health.rc      = health.rcAvailable ? HealthStatus::Ok : HealthStatus::Warn;
 
@@ -844,20 +847,6 @@ std::string GroundControlStation::m_gpsFixToString(const mavsdk::Telemetry::FixT
     }
 }
 
-std::string GroundControlStation::m_catapultStateToString(const CatapultState state) {
-    switch (state) {
-        case CatapultState::Disconnected: return "Disconnected";
-        case CatapultState::Connecting:   return "Connecting";
-        case CatapultState::Connected:    return "Connected";
-        case CatapultState::Arming:       return "Arming";
-        case CatapultState::Armed:        return "Armed";
-        case CatapultState::Countdown:    return "Countdown";
-        case CatapultState::Launched:     return "Launched";
-        case CatapultState::Fault:        return "Fault";
-        default:                          return "Unknown";
-    }
-}
-
 void GroundControlStation::m_supervisorLoop() const {
 
     LOG_INFO("GroundControlStation main loop started");
@@ -871,9 +860,6 @@ void GroundControlStation::m_supervisorLoop() const {
     m_controlDispatcher->start();
 
     while (m_running) {
-        // Monitor system state / heartbeat / stats
-        //m_communicationManager.pollStatus();
-
         std::this_thread::sleep_for(std::chrono::seconds(1));
     }
 

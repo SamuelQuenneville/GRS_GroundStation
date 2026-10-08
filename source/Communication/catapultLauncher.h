@@ -46,6 +46,10 @@ enum class CatapultState {
     Fault
 };
 
+std::string catapultStateName(CatapultState state);
+// Human-readable status bitmask (catapultProtocol.h STATUS_*).
+std::string describeStatusBits(uint32_t bits);
+
 struct CatapultEndpoint {
     uint8_t id;
     uint16_t port = CATAPULT_PORT;
@@ -113,7 +117,6 @@ public:
     // Cancels a pending countdown and disarms. Safe to call in any state.
     void abortAll() const;
 
-    [[nodiscard]] CatapultState getState(uint8_t id) const;
     [[nodiscard]] bool allArmed() const;
     void setStatusCallback(StatusCallback cb);
 

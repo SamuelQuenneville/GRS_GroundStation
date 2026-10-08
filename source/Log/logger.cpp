@@ -10,7 +10,6 @@
 
 #include <ranges>
 
-#include "programLogger.h"
 
 Logger& Logger::instance() {
     static Logger inst;
@@ -50,8 +49,6 @@ void Logger::start(const bool enabled, const std::string& logDirectory) {
     for (auto &file: m_files | std::views::values) {
         file.setf(std::ios::unitbuf);
     }
-
-    //m_writeHeaders();
 
     m_running = true;
     m_startTime = std::chrono::steady_clock::now();
@@ -103,12 +100,6 @@ std::string Logger::getDateString() {
     strftime(buffer,sizeof(buffer),"/%Y-%m-%d_%H-%M-%S",timeInfo);
     const std::string date(buffer);
     return date;
-}
-
-void Logger::m_writeHeaders() {
-    m_files[LogType::MPC_ARG_X0] << "time,\n";
-    m_files[LogType::MPC_ARG_P]  << "time,\n";
-    m_files[LogType::MPC_RES_X]  << "time,\n";
 }
 
 void Logger::m_writerLoop() {

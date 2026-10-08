@@ -11,8 +11,14 @@
 
 #pragma once
 
+#include <limits>
+
 #include <mavsdk/mavsdk.h>
 #include <mavsdk/plugins/telemetry/telemetry.h>
+#include <mavsdk/plugins/mavlink_passthrough/mavlink_passthrough.h>
+
+#include <utility>
+#include <vector>
 
 // uavStates/uavCommands/uavCommandsFlags live in vehicleStructures.h (no
 // MAVSDK dependency) so the controller core and grs_batchsim can use them
@@ -28,6 +34,8 @@ struct subscriptionHandles {
     mavsdk::Telemetry::BatteryHandle                     batteryHandle;
     mavsdk::Telemetry::GpsInfoHandle                     gpsInfoHandle;
     mavsdk::Telemetry::RcStatusHandle                    rcStatusHandle;
+    // Raw MAVLink subscriptions (message id, handle).
+    std::vector<std::pair<uint16_t, mavsdk::MavlinkPassthrough::MessageHandle>> messageHandles;
 };
 
 // Non-numeric / low-rate UAV status, kept separate from uavStates (which is
@@ -50,7 +58,7 @@ struct uavHealth {
     bool isArmed = false;
     bool isConnected = false;
 
-    float batteryRemainingPercent = 0.0f;  // [0,1], see mavsdk::Telemetry::Battery
+    float batteryRemainingPercent = std::numeric_limits<float>::quiet_NaN(); // [0, 100], NaN if unknown (mavsdk::Telemetry::Battery)
     float batteryVoltageVolt = 0.0f;
 
     int gpsNumSatellites = 0;

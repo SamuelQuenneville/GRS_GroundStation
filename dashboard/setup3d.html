@@ -1511,7 +1511,7 @@
             // average across whichever UAVs have a live fix -- with one UAV
             // (the reduced ground-tethered case) this is exact, not an
             // approximation.
-            const z0Vals = liveUavs.map(u => u.down - reference.down);
+            const z0Vals = liveUavs.map(u => reference.down - u.down); // height above the reference, positive up
             const l0Vals = liveUavs.map(u => distance3D(reference, u));
             const meanZ0 = z0Vals.reduce((a, b) => a + b, 0) / z0Vals.length;
             const meanL0 = l0Vals.reduce((a, b) => a + b, 0) / l0Vals.length;

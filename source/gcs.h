@@ -32,7 +32,9 @@ public:
     void stop();
 
     void connectAll();
-    void armAll() const;
+    void armAll(bool force = false) const;
+    // HOME of every vehicle at its current position (RTL and failsafe target).
+    void setHomeAll() const;
     void setModeAll(const std::string& mode) const;
     void startController() const;
     void initLaunch() const;
@@ -99,7 +101,6 @@ private:
     std::map<uint8_t, uavHealth> m_latestUavHealth;
     void m_pushDashboardSnapshot(uint8_t sysId);
     static std::string m_gpsFixToString(mavsdk::Telemetry::FixType fix);
-    static std::string m_catapultStateToString(CatapultState state);
 
     // Dashboard snapshots of a reference trajectory:
     // - from the controller: what is actually applied;

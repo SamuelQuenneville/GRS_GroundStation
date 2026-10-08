@@ -162,10 +162,7 @@ set(GRS_POWERTRAIN
         source/Powertrain/powertrain.h
 )
 
-# Phase 0 of ADR-001: C++ port of trajectory_generation (MATLAB) -- payload
-# path, aircraft path/takeoff, tether forces, inverse dynamics. Standalone
-# (only depends on Mathematics/), so it links into the main binary without
-# pulling in MAVSDK/CasADi headers.
+# Standalone (only depends on Mathematics/), part of grs_core without MAVSDK/CasADi headers.
 set(GRS_TRAJECTORY
         source/Trajectory/trajectoryConfig.h
         source/Trajectory/trajectoryGenerator.h
@@ -191,7 +188,6 @@ set(GRS_SIMULATION
 set(GRS_USERINPUTS
         source/Console/consoleInterface.cpp
         source/Console/consoleInterface.h
-        source/Definitions/gpsDefinitions.h
 )
 
 # Copy input files
@@ -352,7 +348,7 @@ target_link_libraries(grs_core PUBLIC
 
 if(GRS_BUILD_GCS)
     # RTK support (u-blox F9P base station) via PX4-GPSDrivers.
-    # Populated the same way as yaml-cpp below, but its own CMakeLists.txt only
+    # Populated the same way as yaml-cpp above, but its own CMakeLists.txt only
     # builds a standalone test executable we don't want, so we pull in the
     # specific source files we need (gps_helper, ubx, rtcm) directly instead of
     # add_subdirectory().

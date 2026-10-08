@@ -39,7 +39,6 @@ private:
 
     std::chrono::steady_clock::time_point m_startTime;
 
-    void m_writeHeaders();
     void m_writerLoop();
 
     std::unordered_map<LogType, std::ofstream> m_files;

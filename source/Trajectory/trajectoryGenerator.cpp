@@ -166,8 +166,7 @@ Profile1D sCurveProfile(double d, double vMax, double aMax, double jMax, double 
         out.v[i] = 0.5 * jMax * tau*tau;
         out.s[i] = (1.0/6.0) * jMax * tau*tau*tau;
     }
-    const double aE1 = e1 > 0 ? out.a[e1-1] : 0, vE1 = e1 > 0 ? out.v[e1-1] : 0, sE1 = e1 > 0 ? out.s[e1-1] : 0;
-    (void)aE1;
+    const double vE1 = e1 > 0 ? out.v[e1-1] : 0, sE1 = e1 > 0 ? out.s[e1-1] : 0;
     // Phase 2: constant acceleration
     for (size_t i = 0; i < t2.size(); ++i) {
         const double tau = t2[i]; const size_t idx = e1 + i;
@@ -456,7 +455,7 @@ TakeoffMission generateAircraftTakeoff(const TrajectoryConfig& config, double ph
     }
 
     // Azimuth
-    std::vector<double> psiDot(n), psiDdotSrc(n);
+    std::vector<double> psiDot(n);
     for (size_t i = 0; i < n; ++i) {
         const double vOverL = v[i] / Lfinal;
         const double under = std::max(vOverL*vOverL - thetaDot[i]*thetaDot[i], 0.0);
@@ -644,7 +643,7 @@ std::array<double, N> solveLinearSystem(std::array<std::array<double, N>, N> A, 
 // Solve Tether Forces Two Aircraft
 // ---------------------------------------------------------------------------
 
-struct TetherForcePair { Vec3d f1 = Vec3d::zeros(), f2 = Vec3d::zeros(); double stabilization = 0.0; };
+struct TetherForcePair { Vec3d f1 = Vec3d::zeros(), f2 = Vec3d::zeros(); };
 
 TetherForcePair solveTetherForcesTwoAircraft(const TrajectoryConfig& config, const TetherStaticForces& staticForces, const Vec3d& fOnPayload, const Vec3d& payloadPos, const Vec3d& payloadAcc, const Vec3d& ac1Pos, const Vec3d& ac2Pos) {
     const Vec3d a1 = ac1Pos - payloadPos;
@@ -702,7 +701,6 @@ TetherForcePair solveTetherForcesTwoAircraft(const TrajectoryConfig& config, con
     TetherForcePair out;
     out.f1 = Vec3d{-x[0], -x[2], -x[4]};
     out.f2 = Vec3d{-x[7], -x[9], -x[11]};
-    out.stabilization = x[14];
     return out;
 }
 

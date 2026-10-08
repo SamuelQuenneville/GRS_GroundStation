@@ -25,8 +25,7 @@ public:
 
     bool isInitialized() const;
 
-    // True once setOrigin() was called; isInitialized() also needs the UAV offsets from initializeOffset().
-    bool hasOrigin() const;
+    // False before setOrigin(); isInitialized() also needs the offsets from initializeOffset().
     bool getOrigin(double& latitudeDegrees, double& longitudeDegrees, double& altitude) const;
 
     // GCS origin (the tether anchor). Clears every offset: they are relative to it.
@@ -62,6 +61,7 @@ private:
     // Last check of each offset: |global position - (local position + offset)| [m].
     std::map<uint8_t, double> m_offsetResidual;
     bool m_initialized{false};
+    bool m_noOriginLogged{false}; // "no GCS origin" logged once until setOrigin()
 
 };
 

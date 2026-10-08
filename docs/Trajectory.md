@@ -29,7 +29,7 @@ constructing a default `TrajectoryConfig` and calling `generate()` produces
 a valid trajectory.
 
 Call `finalize()` once after setting any `tether.*` fields (or after loading
-config from YAML) — it derives `tether.segmentMass`/`segmentLength`/
+config from YAML) — it derives `tether.segmentMass`/
 `segmentLinCoordNorm` from `length`/`linearMass`/`nSegments`, and resolves
 `tether.lengthAtLaunch < 0` ("not set") to `tether.length` (no payout
 modeled). Nothing else in the generator recomputes these, so skipping

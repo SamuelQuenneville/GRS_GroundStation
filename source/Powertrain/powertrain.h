@@ -9,27 +9,17 @@
 #ifndef POWERTRAIN_H
 #define POWERTRAIN_H
 
-#include <algorithm>
-#include <cmath>
+// APC 16x8E propeller, thrust from wind-tunnel fit (powertrain.cpp).
 
-#define MAX_ITER_RPM  100
-
-struct evalResult {
-    float f;
-    float df;
-};
-
-// performance optimization for f and df calculation
-inline evalResult evalThrustModel(float n, float phi, float psi, float thrustTarget);
-
-// function for propeller thrust --> 0 = [coeff_thrust * rho*n^2*D^4] - thrustTarget
-float f(float n, float phi, float psi, float thrustTarget);
-
-// derivative of propeller thrust
-float df(float n, float phi, float psi);
-
+// Throttle in [0, 1] (rpm / 9000) giving thrustTarget [N] at airspeed [m/s].
+// Always finite: 0 for a non-finite target or one of 2 N or less (motor
+// off); a non-finite or negative airspeed is taken as 0.
 double thrust2rpm(float airspeed, float thrustTarget);
+
+// Thrust [N] at rpmTarget and airspeed, the inverse of thrust2rpm.
 double rpm2thrust(float airspeed, float rpmTarget);
+
+// Thrust [N] at 9000 rpm.
 float maxThrust(float airspeed);
 
 #endif //POWERTRAIN_H

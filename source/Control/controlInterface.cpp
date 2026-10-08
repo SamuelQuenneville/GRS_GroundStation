@@ -9,6 +9,7 @@
 #include "controlInterface.h"
 
 #include <algorithm>
+#include <cstring>
 
 #include "mpcController.h"
 #include "nmheEstimator.h"
@@ -21,7 +22,7 @@ ControlInterface::ControlInterface()
 
 ControlInterface::~ControlInterface() {
     stop();
-    close(m_udpSocketMatlab);
+    if (m_udpSocketMatlab >= 0) close(m_udpSocketMatlab);
 }
 
 void ControlInterface::initialize(const gcsConfig& config) {
@@ -63,25 +64,36 @@ void ControlInterface::setTelemetryAgeProvider(std::function<std::optional<doubl
     m_telemetryAge = std::move(provider);
 }
 
-bool ControlInterface::m_checkTelemetry() {
+bool ControlInterface::m_checkTelemetry(const std::map<uint8_t, uavStates>& navStates) {
+    // Every vehicle of the controller's state: the UAVs 1..numUavs and, with a
+    // payload, the highest sysId above them (stateVector.h).
+    std::vector<uint8_t> ids;
+    for (int id = 1; id <= m_controller->numUavs(); ++id) ids.push_back(static_cast<uint8_t>(id));
+    if (m_controller->hasPayload()) {
+        const auto payload = navStates.upper_bound(static_cast<uint8_t>(m_controller->numUavs()));
+        ids.push_back(payload == navStates.end() ? static_cast<uint8_t>(0) : std::prev(navStates.end())->first);
+    }
+
     std::string reason;
-    if (m_telemetryAge) {
-        for (int id = 1; id <= m_controller->numUavs(); ++id) {
-            const auto age = m_telemetryAge(static_cast<uint8_t>(id));
-            if (!age) {
-                reason = "no telemetry from sysId " + std::to_string(id);
-            } else if (!(*age <= m_config.telemetryTimeout)) {
-                reason = "telemetry of sysId " + std::to_string(id) + " is " + std::to_string(*age) + " s old";
-            } else {
-                continue;
-            }
-            break;
+    for (const uint8_t id : ids) {
+        const auto age = m_telemetryAge ? m_telemetryAge(id) : std::optional<double>(0.0);
+        if (id == 0) {
+            reason = "no payload telemetry";
+        } else if (!navStates.contains(id)) {
+            reason = "sysId " + std::to_string(id) + " has no frame offset yet";
+        } else if (!age) {
+            reason = "no telemetry from sysId " + std::to_string(id);
+        } else if (!(*age <= m_config.telemetryTimeout)) {
+            reason = "telemetry of sysId " + std::to_string(id) + " is " + std::to_string(*age) + " s old";
+        } else {
+            continue;
         }
+        break;
     }
     const bool stale = !reason.empty();
     if (stale != m_telemetryStale.exchange(stale)) {
         if (stale) LOG_ERROR("Telemetry stale (" + reason + "): no command sent until it recovers");
-        else LOG_INFO("Telemetry fresh again: commands resumed");
+        else LOG_INFO("Telemetry complete and fresh: commands sent");
     }
     std::lock_guard lock(m_staleMutex);
     m_staleReason = reason;
@@ -283,13 +295,13 @@ void ControlInterface::m_controlLoop() {
                 } else if (m_config.controlMode == ControlMode::MPC) {
                     // Stale telemetry: no solve and no command, the autopilot's
                     // command timeout applies until it recovers.
-                    if (!m_checkTelemetry()) continue;
+                    if (!m_checkTelemetry(navStates)) continue;
 
                     // Commands in physical units.
                     cmds = m_controlStep->tick(navStates, time);
 
-                    for (auto& [sysId, states] : cmds) {
-                        states.commands.thrust = static_cast<float>(thrust2rpm(navStates[sysId].airspeedMeterSecond, states.commands.thrust));
+                    for (auto& [sysId, cmd] : cmds) {
+                        cmd.commands.thrust = static_cast<float>(thrust2rpm(navStates.at(sysId).airspeedMeterSecond, cmd.commands.thrust));
                     }
 
                     if (m_nmpcDebugCallback) {

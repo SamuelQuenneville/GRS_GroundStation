@@ -14,8 +14,8 @@ can log safely. `enableVerbose()` gates `LogLevel::debug` messages.
 ## `Logger` (`logger.h`/`.cpp`)
 
 Structured, per-`LogType` CSV dump (`MPC_ARG_X0`, `STATES`, `CONTROLS`,
-etc. — see `Definitions/logDefinitions.h`) — one file per `LogType`, opened
-lazily. Backed by a `ThreadSafeQueue<LogItem>` (`threadSafeQueue.h`) and a
+etc., see `Definitions/logDefinitions.h`): one file per `LogType`, opened
+in `start()`. Backed by a `ThreadSafeQueue<LogItem>` (`threadSafeQueue.h`) and a
 dedicated writer thread (`m_writerLoop()`), so callers on the control-loop
 thread never block on file I/O — `log()` just pushes onto the queue.
 `start(enabled, logDirectory)` is what actually turns logging on;

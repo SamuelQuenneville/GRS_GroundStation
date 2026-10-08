@@ -20,13 +20,16 @@
  * writer -- only for the dashboard's own telemetry payloads.
  */
 
+#include <cmath>
+#include <iomanip>
 #include <sstream>
 #include <string>
 
 class JsonWriter {
 
 public:
-    JsonWriter() { oss_ << "{"; }
+    // 15 significant digits: lat/lon keep sub-millimetre resolution.
+    JsonWriter() { oss_ << std::setprecision(15) << "{"; }
 
     JsonWriter& add(const std::string& key, const std::string& value) {
         separator();
@@ -40,7 +43,9 @@ public:
 
     JsonWriter& add(const std::string& key, const double value) {
         separator();
-        oss_ << quote(key) << ":" << value;
+        oss_ << quote(key) << ":";
+        if (std::isfinite(value)) oss_ << value;
+        else oss_ << "null"; // NaN/Inf are not JSON
         return *this;
     }
 

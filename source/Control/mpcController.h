@@ -15,8 +15,6 @@
 #include <mutex>
 #include <optional>
 #include <sstream>
-#include <unordered_map>
-#include <cstring>
 #include <cassert>
 
 #include "Definitions/vehicleStructures.h"
@@ -32,12 +30,6 @@
 
 class MpcController final : public Controller {
 public:
-    struct unwrapState {
-        bool initialized = false;
-        double prev = 0.0;
-        double unwrapped = 0.0;
-    };
-
     explicit MpcController(const solverConfig& config);
     ~MpcController() override;
 
@@ -61,7 +53,6 @@ public:
     void setReferenceTrajectory(std::vector<double> referenceTrajectory) override;
 
     std::map<uint8_t, uavCommandsFlags> solve(const std::map<uint8_t, uavStates>& latestStates, double time) override;
-    [[nodiscard]] double lastSolveMs() const override;
 
     [[nodiscard]] DebugInfo getDebugInfo() const override;
 
@@ -76,7 +67,7 @@ public:
 private:
     solverConfig m_config;
     Nlpsol m_solver;
-    // LMPC only: P_lin, the per-stage affine model about the reference window.
+    // LMPC only: computes P_lin, the per-stage affine model about the linearization point (m_packParameters()).
     std::optional<GeneratedFunction> m_linearization;
 
     grs::control::StateLayout m_layout;
@@ -90,7 +81,6 @@ private:
     size_t m_solStride = 0; // nz+nu, one stage [z u]
 
     std::vector<double> m_initialStates;
-    std::unordered_map<uint8_t, unwrapState> m_yawStates;
 
     bool m_launched = false;
     // Largest UAV distance to its reference start, measured before launch.
@@ -100,7 +90,7 @@ private:
     // Past the last full window: no solve, the last applied control is repeated
     // (the trajectory ends with a buffer in which the pilot takes over).
     bool m_holding = false;
-    // In flight with no plan left (N rejected solves): reference feedforward, open loop.
+    // In flight with no plan left (the last accepted one is N or more samples old): reference feedforward, open loop.
     bool m_openLoop = false;
 
     // Previous values, to log transitions only (m_logTransitions()).
@@ -178,7 +168,6 @@ private:
     // angle of attack AOA_FF_STAGE stages later (NaN without a plan).
     std::map<uint8_t, uavCommandsFlags> m_extractControls() const;
 
-    double m_unwrapYaw(uint8_t sysId, double yawRadWrapped);
 
     // Fills m_initialStates from telemetry (stateVector.h) and updates the
     // launch phase: standby until initLaunch(), launching until a UAV
@@ -188,11 +177,17 @@ private:
     // launcher; position and attitude stay measured.
     void m_unpackLatestStates(const std::map<uint8_t, uavStates>& latestStates, double time);
 
-    // Emits a LogType::NMPC_EVENT line for any of m_telemetryComplete/
-    // m_inFlight/m_endedTraj/m_violation that changed since the last call.
+    // Emits a LogType::NMPC_EVENT line for any of m_telemetryComplete,
+    // m_inFlight, m_endedTraj, m_holding, m_openLoop and m_violation that
+    // changed since the last call.
     // Called once per solve(), after all of them have their final value.
     void m_logTransitions();
+    // One LogType::NMPC_EVENT line: trackingNumber, ms, wall ms, event.
+    void m_logEvent(const std::string& event) const;
 
+    // Validates a new reference (layout, longer than N, finite, not launched)
+    // and swaps it in under m_solveMutex; throws and keeps the current one otherwise.
+    void m_setReference(std::vector<double> reference, const std::string& source);
     // Recomputes m_numTrajectoryPoints/m_endIdxTraj after a new reference.
     void m_onReferenceTrajectoryChanged();
 };

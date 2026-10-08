@@ -87,7 +87,7 @@ public:
     void debugConvert(double latitudeDegrees, double longitudeDegrees, double altitude) const;
 
     // Latest telemetry in the NED frame, by sysId (payload = highest sysId). Empty until the frame is initialized
-    // (no origin or no GPS lock).
+    // (no GCS origin, or no EKF origin received yet).
     [[nodiscard]] std::map<uint8_t, uavStates> getLiveNavigationStates() const;
 
 private:
@@ -114,13 +114,14 @@ private:
 
     std::function<void(const std::map<uint8_t, uavCommandsFlags>&)> m_sendCommand;
     std::function<std::optional<double>(uint8_t)> m_telemetryAge;
-    // MPC mode: a UAV's telemetry is older than telemetryTimeout (or missing),
-    // so this tick sends no command. Read by launchReady().
+    // MPC mode: a vehicle of the controller's state has no frame offset yet,
+    // or its telemetry is missing or older than telemetryTimeout, so this
+    // tick neither solves nor sends a command. Read by launchReady().
     std::atomic<bool> m_telemetryStale{true};
     // Empty if every UAV is fresh, else which one and how old.
     std::string m_staleReason;
     mutable std::mutex m_staleMutex;
-    bool m_checkTelemetry();
+    bool m_checkTelemetry(const std::map<uint8_t, uavStates>& navStates);
     std::function<void(const Controller::DebugInfo&)> m_nmpcDebugCallback;
     std::function<void(double, double, double)> m_originCallback;
     std::function<void()> m_trajectoryLoadedCallback;
@@ -129,7 +130,7 @@ private:
 
     std::map<uint8_t, std::vector<uavCommandsFlags>> m_commandsList{};
 
-    int m_udpSocketMatlab = 0;
+    int m_udpSocketMatlab = -1;
     sockaddr_in m_matlabAddress{};
 };
 

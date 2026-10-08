@@ -44,7 +44,6 @@ struct TruthSpec {
     std::vector<double> windTrue;  // np, NED [m/s]
     std::vector<double> dTrue;     // nd, same layout as the model's d
     double L0Plant = 30.0;         // true tether rest length [m]
-    double L0Ctrl = 30.0;          // value the controller/NMHE use (YAML L0)
 };
 
 // Same mapping as mc_apply_sample_twoUav.m:

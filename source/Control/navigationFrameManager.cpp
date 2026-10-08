@@ -27,6 +27,7 @@ void NavigationFrameManager::setOrigin(const double latitudeDegrees, const doubl
     m_offsetDeferred.clear();
     m_offsetResidual.clear();
     m_initialized = false;
+    m_noOriginLogged = false;
 }
 
 void NavigationFrameManager::setEkfOrigin(const uint8_t sysId, const double latitudeDegrees, const double longitudeDegrees, const double altitude) {
@@ -51,11 +52,6 @@ bool NavigationFrameManager::isInitialized() const {
     return m_initialized;
 }
 
-bool NavigationFrameManager::hasOrigin() const {
-    std::lock_guard lock(m_mutex);
-    return m_geodeticConverter.isInitialized();
-}
-
 bool NavigationFrameManager::getOrigin(double& latitudeDegrees, double& longitudeDegrees, double& altitude) const {
     std::lock_guard lock(m_mutex);
     if (!m_geodeticConverter.isInitialized()) return false;
@@ -70,7 +66,9 @@ void NavigationFrameManager::initializeOffset(const std::map<uint8_t, uavStates>
     std::lock_guard lock(m_mutex);
 
     if (!m_geodeticConverter.isInitialized()) {
-        LOG_ERROR("GeodeticConverter is not initialized");
+        if (!std::exchange(m_noOriginLogged, true)) {
+            LOG_WARNING("No GCS origin yet (setOrigin / setOriginFromPayload): no frame offset, no command");
+        }
         return;
     }
 

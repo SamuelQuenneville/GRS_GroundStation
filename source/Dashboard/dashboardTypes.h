@@ -83,7 +83,7 @@ struct UavTelemetrySnapshot {
 
     double airspeed = 0.0;          // m/s, true airspeed -- "TAS" card
     double groundspeed = 0.0;       // m/s -- "GS" card
-    double altitude = 0.0;          // m, relative altitude -- "Alt" card
+    double altitude = 0.0;          // m, AMSL (GLOBAL_POSITION_INT) -- "Alt" card
     double roll = 0.0;              // deg
     double pitch = 0.0;             // deg
     double rpm = 0.0;               // engine/motor RPM
@@ -326,11 +326,9 @@ struct OriginSnapshot {
 /// Operator-adjustable subset of grs::trajgen::TrajectoryConfig, for the
 /// dashboard's trajectory-generation sidebar. Deliberately flat and
 /// self-contained. dashboardTypes.h stays independent of Trajectory/;
-/// gcs.cpp maps this to/from an actual TrajectoryConfig. Defaults mirror
-/// TrajectoryConfig's own defaults, so a client that never calls
-/// GET /api/trajectory/generator-defaults still gets a sane trajectory.
-/// Keep the two in sync if either changes. See docs/Trajectory.md and
-/// docs/Dashboard.md for what each feature below does.
+/// gcs.cpp maps this to/from an actual TrajectoryConfig. Defaults follow
+/// TrajectoryConfig's, so a client that never calls GET /api/trajectory/generator-defaults
+/// still gets a sane trajectory. See docs/Trajectory.md and docs/Dashboard.md for what each feature below does.
 struct TrajectoryGenerationParams {
     double radiusMeters = 26.0;
     double velMeanMetersPerSecond = 28.0;
@@ -377,7 +375,7 @@ struct TrajectoryGenerationParams {
     double tetherPayoutDurationSeconds = 1.5;
     /// @}
 
-    /// Aircraft elevation on the launcher at t=0 (NED down, meters). A wrong
+    /// Aircraft height above the payload on the launcher at t=0 [m], positive up. A wrong
     /// value shifts every takeoff/loiter waypoint even when phase and
     /// tetherLengthAtLaunchMeters are correct -- see docs/Trajectory.md.
     /// "Capture live positions" derives this from the real payload/anchor

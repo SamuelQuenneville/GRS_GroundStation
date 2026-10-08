@@ -46,8 +46,6 @@ public:
     // Returns commands in physical units: thrust in N, attitude in degrees.
     std::map<uint8_t, uavCommandsFlags> tick(const std::map<uint8_t, uavStates>& navStates, double time);
 
-    // True if this tick handed the controller a new estimate.
-    [[nodiscard]] bool estimateAppliedThisTick() const { return m_estimateAppliedThisTick; }
     [[nodiscard]] const EstimatorRunner* estimatorRunner() const { return m_runner.get(); }
     // Estimate the controller is currently using (empty until the first one).
     [[nodiscard]] const EstimatorRunner::Estimate& appliedEstimate() const { return m_appliedEstimate; }
@@ -58,7 +56,6 @@ private:
 
     // Previous tick's command: the control applied up to this tick's sample.
     std::vector<double> m_appliedControl;
-    bool m_estimateAppliedThisTick = false;
     EstimatorRunner::Estimate m_appliedEstimate;
     bool m_wasInFlight = false;
 

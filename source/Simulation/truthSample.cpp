@@ -119,7 +119,6 @@ TruthSpec applySample(const Sample& sample, const int numUavs, const double L0No
     t.rig.k_t *= v("tether_k");
     t.rig.b_t *= v("tether_b");
 
-    t.L0Ctrl = L0Nominal;
     t.L0Plant = L0Nominal + v("tether_L0_err");
 
     const double spd = v("wind_speed");

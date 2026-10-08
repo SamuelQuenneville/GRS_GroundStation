@@ -180,9 +180,9 @@ the point. The known differences a MATLAB/C++ comparison will show:
   samples from the start, as in MATLAB (see `docs/Control.md`).
 - **Precision.** Telemetry and commands pass through `float`, as on the
   real link.
-- **Solver statistics.** The generated C API returns only a status flag, so
-  iteration counts are NaN; `ok` is `flag == 0` and no constraint
-  violation (`MpcController::m_solutionIsValid()`).
+- **Solver statistics.** Fatrop's iteration count and return code come
+  from `fatropStatus.cpp`; `ok` is return code 0 (converged), so a solve
+  stopped at the iteration limit but accepted by the controller is not `ok`.
 - **Noise.** `--meas-noise` uses `std::mt19937_64`, so a noisy run is
   statistically, not sample-by-sample, equivalent to MATLAB's.
 

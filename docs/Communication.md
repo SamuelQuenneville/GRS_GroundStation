@@ -7,20 +7,29 @@ the rest of the system.
 
 ## `CommunicationManager` (`communicationManager.h`/`.cpp`)
 
-Owns one `mavsdk::Mavsdk` instance and, per connected vehicle (keyed by
-MAVLink sysId), a set of MAVSDK plugin instances (`Telemetry`, `Action`,
-`Param`, `MavlinkPassthrough`, `Rtk`).
+Owns one `mavsdk::Mavsdk` instance and, per registered vehicle (keyed by
+MAVLink sysId), a `Vehicle`: its `Telemetry`, `Param`, `MavlinkPassthrough`
+and `Rtk` plugins and its subscription handles.
 
-**Registration is fully event-driven, not connect-and-wait.**
-`subscribe_on_new_system` (`m_watchSystem`) fires whenever MAVSDK sees a
-system on any open connection, at any time — not just during a bounded
-"connect" window — so vehicles can power on in any order, at any pace,
-without racing MAVSDK's post-heartbeat handshake. `m_watchSystem` attaches
-an `is_connected` watcher if a system isn't fully ready yet, and
-`m_registerSystem` (idempotent) creates the plugin instances once it is.
-`connectAll()`'s `discoveryTimeoutMs` only bounds how long the *caller*
-blocks for an initial status summary — registration itself has no timeout
-and keeps happening in the background after `connectAll()` returns.
+**Registration is event-driven.** `subscribe_on_new_system` calls
+`m_watchSystem` whenever MAVSDK sees a system on any link, at any time, so
+vehicles can power on in any order. `m_watchSystem` attaches one
+`is_connected` watcher per sysId (and handles a system already connected
+when first seen). On the first connection a registration thread creates the
+plugins and subscribes (`m_registerSystem`, idempotent); on a later
+reconnection (vehicle reboot) the message rates are requested again and the
+vehicle is marked connected. `connectAll()` also watches the systems MAVSDK
+already knows, so connect works again after `stop()`. `discoveryTimeoutMs`
+only bounds how long `connectAll()` waits to print a summary.
+
+**Threads.** MAVSDK callbacks, registration threads, the publish thread and
+the callers (console, dashboard, dispatcher) share the maps: `m_linkMutex`
+guards the vehicles and watchers, `m_statesMutex` the aggregators and
+healths, `m_requestMutex` the request bookkeeping. Plugins are copied out
+(`shared_ptr`) under the lock and used outside it. `stop()` moves everything
+out under the lock and unsubscribes outside it (the callbacks take the same
+locks), after joining the registration threads; every MAVSDK subscription,
+raw MAVLink ones included, is released.
 
 **Two telemetry paths, deliberately separate:**
 - Numeric, high-rate state (`setTelemetryCallback`) — position, velocity,

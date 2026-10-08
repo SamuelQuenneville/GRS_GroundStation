@@ -92,7 +92,7 @@ struct gcsConfig {
     double hlcFrequency = 20.0;
     // NMHE rate [Hz], independent of hlcFrequency. Used only when the YAML has an EstimatorConfiguration section.
     double nmheFrequency = 5.0;
-    // MPC mode: no command while a UAV's last LOCAL_POSITION_NED is older than this [s].
+    // MPC mode: no command while a vehicle's last CONTROL_SYSTEM_STATE is older than this [s].
     double telemetryTimeout = 0.3;
     // CONTROL_SYSTEM_STATE rate requested from each vehicle [Hz]. ArduPilot
     // sends at most at its main loop rate (SCHED_LOOP_RATE, 50 Hz on Plane).
@@ -101,7 +101,6 @@ struct gcsConfig {
     std::vector<pixhawkEndpointConfig> pixhawkEndpoints; // used when pixhawk.sitl == false
     std::optional<std::pair<std::string, uint16_t>> matlab;
     std::optional<std::string> attitudeFile;
-    std::optional<std::string> rcFile;
     ControlMode controlMode = ControlMode::MPC;
     std::vector<catapultEndpointConfig> catapults;
     std::string configPath = "inputFilesExamples/configuration.yaml";

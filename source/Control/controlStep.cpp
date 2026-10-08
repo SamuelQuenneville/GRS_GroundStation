@@ -23,15 +23,12 @@ ControlStep::ControlStep(Controller& controller, std::unique_ptr<EstimatorRunner
 }
 
 std::map<uint8_t, uavCommandsFlags> ControlStep::tick(const std::map<uint8_t, uavStates>& navStates, const double time) {
-    m_estimateAppliedThisTick = false;
-
     // 1. Newest NMHE estimate, if one finished since the last tick. Only in
     //    flight: the estimator only sees in-flight samples.
     if (m_runner) {
         if (auto est = m_runner->takeEstimate(); est && m_controller.inFlight()) {
             m_controller.setDisturbanceEstimate(est->wind, est->d);
             m_appliedEstimate = std::move(*est);
-            m_estimateAppliedThisTick = true;
         }
     }
 

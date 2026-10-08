@@ -15,6 +15,8 @@
 #include <limits>
 #include <stdexcept>
 
+#include "Util/parseUtils.h"
+
 MpcController::MpcController(const solverConfig& config)
     : m_config(config)
     , m_solver(config.controller == solverConfig::Controller::Lmpc ? GeneratedFunction::Id::Lmpc : GeneratedFunction::Id::Nmpc,
@@ -75,9 +77,12 @@ void MpcController::initLaunch() {
     std::lock_guard lock(m_solveMutex);
     m_launched = true;
 
-    Logger::instance().log(LogType::NMPC_EVENT,
-        std::to_string(m_trackingNumber) + "," + std::to_string(Logger::instance().nowMilliseconds()) + ","
-        + std::to_string(Logger::nowWallTimeMs()) + ",LAUNCH triggered");
+    m_logEvent("LAUNCH triggered");
+}
+
+void MpcController::m_logEvent(const std::string& event) const {
+    Logger::instance().log(LogType::NMPC_EVENT, std::to_string(m_trackingNumber) + "," + std::to_string(Logger::instance().nowMilliseconds())
+        + "," + std::to_string(Logger::nowWallTimeMs()) + "," + event);
 }
 
 bool MpcController::launchReady(std::string& reason) const {
@@ -107,25 +112,32 @@ void MpcController::loadTrajectory(const std::string& file) {
 
     std::ifstream fileStream(file);
     if (!fileStream.is_open())
-        throw std::runtime_error("Cannot open trajectory file");
+        throw std::runtime_error("Cannot open trajectory file " + file);
 
-    m_referenceTrajectory.clear();
-
+    // Parsed in full before anything changes: a bad file leaves the current reference.
+    std::vector<double> reference;
     std::string line;
-    while (std::getline(fileStream, line)) {
-        if (line.empty()) continue;
+    for (size_t row = 1; std::getline(fileStream, line); ++row) {
+        if (grs::trim(line).empty()) continue;
 
         std::stringstream ss(line);
         std::string field;
-
-        for (int i = 0; i < m_refStride; i++) {
-            std::getline(ss, field, ',');
-            m_referenceTrajectory.push_back(std::stod(field));
+        size_t count = 0;
+        while (std::getline(ss, field, ',')) {
+            const auto value = grs::parseDouble(field);
+            if (!value) {
+                throw std::runtime_error(file + " row " + std::to_string(row) + ": '" + field + "' is not a number");
+            }
+            reference.push_back(*value);
+            ++count;
+        }
+        if (count != m_refStride) {
+            throw std::runtime_error(file + " row " + std::to_string(row) + ": " + std::to_string(count)
+                + " values, the solver takes nx+nu = " + std::to_string(m_refStride));
         }
     }
 
-    m_onReferenceTrajectoryChanged();
-    LOG_INFO("Trajectory loaded from file, number of points = " + std::to_string(m_numTrajectoryPoints));
+    m_setReference(std::move(reference), "loaded from " + file);
 }
 
 void MpcController::saveTrajectory(const std::string& file) const {
@@ -157,16 +169,30 @@ void MpcController::saveTrajectory(const std::string& file) const {
 }
 
 void MpcController::setReferenceTrajectory(std::vector<double> referenceTrajectory) {
+    m_setReference(std::move(referenceTrajectory), "generated in-process");
+}
+
+void MpcController::m_setReference(std::vector<double> reference, const std::string& source) {
     std::lock_guard lock(m_solveMutex);
 
-    if (referenceTrajectory.size() % m_refStride != 0) {
-        throw std::runtime_error("setReferenceTrajectory: size (" + std::to_string(referenceTrajectory.size()) +
-            ") is not a multiple of nx+nu (" + std::to_string(m_refStride) + ") -- generator/solver layout mismatch");
+    if (m_launched) {
+        throw std::runtime_error("Reference not replaced: the controller is launched");
+    }
+    if (reference.size() % m_refStride != 0) {
+        throw std::runtime_error("Reference size (" + std::to_string(reference.size()) +
+            ") is not a multiple of nx+nu (" + std::to_string(m_refStride) + "): generator/solver layout mismatch");
+    }
+    if (reference.size() / m_refStride <= static_cast<size_t>(m_config.N)) {
+        throw std::runtime_error("Reference of " + std::to_string(reference.size() / m_refStride)
+            + " points, the horizon needs more than N = " + std::to_string(m_config.N));
+    }
+    if (!std::ranges::all_of(reference, [](const double v) { return std::isfinite(v); })) {
+        throw std::runtime_error("Reference contains NaN or Inf");
     }
 
-    m_referenceTrajectory = std::move(referenceTrajectory);
+    m_referenceTrajectory = std::move(reference);
     m_onReferenceTrajectoryChanged();
-    LOG_INFO("Trajectory generated in-process, number of points = " + std::to_string(m_numTrajectoryPoints));
+    LOG_INFO("Trajectory " + source + ", number of points = " + std::to_string(m_numTrajectoryPoints));
 }
 
 void MpcController::m_onReferenceTrajectoryChanged() {
@@ -174,13 +200,8 @@ void MpcController::m_onReferenceTrajectoryChanged() {
     m_numTrajectoryPoints = m_referenceTrajectory.size() / m_refStride;
     m_endIdxTraj = m_numTrajectoryPoints > m_config.N ? m_numTrajectoryPoints - m_config.N : 0;
 
-    std::ostringstream msg;
-    msg << m_trackingNumber << "," << Logger::instance().nowMilliseconds() << "," << Logger::nowWallTimeMs()
-        << ",TRAJECTORY loaded, points=" << m_numTrajectoryPoints
-        << ", numUavs=" << m_config.numUavs
-        << ", hasPayload=" << (hasPayload() ? "true" : "false")
-        << ", N=" << m_config.N;
-    Logger::instance().log(LogType::NMPC_EVENT, msg.str());
+    m_logEvent("TRAJECTORY loaded, points=" + std::to_string(m_numTrajectoryPoints) + ", numUavs=" + std::to_string(m_config.numUavs)
+        + ", hasPayload=" + (hasPayload() ? "true" : "false") + ", N=" + std::to_string(m_config.N));
 }
 
 std::map<uint8_t, uavCommandsFlags> MpcController::solve(const std::map<uint8_t, uavStates>& latestStates, const double time) {
@@ -269,60 +290,25 @@ std::map<uint8_t, uavCommandsFlags> MpcController::solve(const std::map<uint8_t,
 }
 
 void MpcController::m_logTransitions() {
-    if (m_telemetryComplete != m_prevTelemetryComplete) {
-        Logger::instance().log(LogType::NMPC_EVENT,
-            std::to_string(m_trackingNumber) + "," + std::to_string(Logger::instance().nowMilliseconds()) + ","
-            + std::to_string(Logger::nowWallTimeMs()) + ","
-            + (m_telemetryComplete ? "TELEMETRY complete" : "TELEMETRY incomplete, missing vehicles keep their last state"));
-        m_prevTelemetryComplete = m_telemetryComplete;
-    }
+    // Logs `on` or `off` when `now` differs from `prev`, then updates `prev`.
+    const auto edge = [this](const bool now, bool& prev, const std::string& on, const std::string& off) {
+        if (now == prev) return false;
+        m_logEvent(now ? on : off);
+        prev = now;
+        return true;
+    };
 
-    if (m_inFlight != m_prevInFlight) {
-        Logger::instance().log(LogType::NMPC_EVENT,
-            std::to_string(m_trackingNumber) + "," + std::to_string(Logger::instance().nowMilliseconds()) + ","
-            + std::to_string(Logger::nowWallTimeMs()) + ","
-            + (m_inFlight ? "INFLIGHT detected (speed threshold crossed)" : "INFLIGHT cleared"));
-        m_prevInFlight = m_inFlight;
+    edge(m_telemetryComplete, m_prevTelemetryComplete, "TELEMETRY complete", "TELEMETRY incomplete, missing vehicles keep their last state");
+    edge(m_inFlight, m_prevInFlight, "INFLIGHT detected (speed threshold crossed)", "INFLIGHT cleared");
+    edge(m_endedTraj, m_prevEndedTraj, "TRAJECTORY ended, idx=" + std::to_string(m_lastIdxTraj), "TRAJECTORY resumed");
+    if (edge(m_holding, m_prevHolding, "TRAJECTORY end, repeating the last control", "TRAJECTORY end cleared") && m_holding) {
+        LOG_WARNING("Trajectory end reached: repeating the last control, pilot takeover expected");
     }
-
-    if (m_endedTraj != m_prevEndedTraj) {
-        Logger::instance().log(LogType::NMPC_EVENT,
-            std::to_string(m_trackingNumber) + "," + std::to_string(Logger::instance().nowMilliseconds()) + ","
-            + std::to_string(Logger::nowWallTimeMs()) + ","
-            + (m_endedTraj ? "TRAJECTORY ended, idx=" + std::to_string(m_lastIdxTraj) : "TRAJECTORY resumed"));
-        m_prevEndedTraj = m_endedTraj;
-    }
-
-    if (m_holding != m_prevHolding) {
-        Logger::instance().log(LogType::NMPC_EVENT,
-            std::to_string(m_trackingNumber) + "," + std::to_string(Logger::instance().nowMilliseconds()) + ","
-            + std::to_string(Logger::nowWallTimeMs()) + ","
-            + (m_holding ? "TRAJECTORY end, repeating the last control" : "TRAJECTORY end cleared"));
-        if (m_holding) LOG_WARNING("Trajectory end reached: repeating the last control, pilot takeover expected");
-        m_prevHolding = m_holding;
-    }
-
-    if (m_openLoop != m_prevOpenLoop) {
-        Logger::instance().log(LogType::NMPC_EVENT,
-            std::to_string(m_trackingNumber) + "," + std::to_string(Logger::instance().nowMilliseconds()) + ","
-            + std::to_string(Logger::nowWallTimeMs()) + ","
-            + (m_openLoop ? "PLAN exhausted, reference feedforward (open loop)" : "PLAN recovered"));
+    if (edge(m_openLoop, m_prevOpenLoop, "PLAN exhausted, reference feedforward (open loop)", "PLAN recovered")) {
         if (m_openLoop) LOG_ERROR("No valid solve for N steps: reference feedforward (open loop), take over");
         else LOG_INFO("Valid solve again: closed loop resumed");
-        m_prevOpenLoop = m_openLoop;
     }
-
-    if (m_violation != m_prevViolation) {
-        Logger::instance().log(LogType::NMPC_EVENT,
-            std::to_string(m_trackingNumber) + "," + std::to_string(Logger::instance().nowMilliseconds()) + ","
-            + std::to_string(Logger::nowWallTimeMs()) + ","
-            + (m_violation ? "VIOLATION entered" : "VIOLATION cleared"));
-        m_prevViolation = m_violation;
-    }
-}
-
-double MpcController::lastSolveMs() const {
-    return m_lastSolveMs;
+    edge(m_violation, m_prevViolation, "VIOLATION entered", "VIOLATION cleared");
 }
 
 MpcController::DebugInfo MpcController::getDebugInfo() const {
@@ -591,31 +577,6 @@ std::map<uint8_t, uavCommandsFlags> MpcController::m_extractControls() const {
     return out;
 }
 
-double MpcController::m_unwrapYaw(const uint8_t sysId, const double yawRadWrapped) {
-
-    auto& s = m_yawStates[sysId];
-
-    if (!s.initialized) {
-        s.prev = yawRadWrapped;
-        s.unwrapped = yawRadWrapped;
-        s.initialized = true;
-        return s.unwrapped;
-    }
-
-    double delta = yawRadWrapped - s.prev;
-
-    // Wrap delta to [-pi, pi]
-    if (delta > M_PI)
-        delta -= 2.0 * M_PI;
-    else if (delta < -M_PI)
-        delta += 2.0 * M_PI;
-
-    s.unwrapped += delta;
-    s.prev = yawRadWrapped;
-
-    return s.unwrapped;
-}
-
 void MpcController::m_unpackLatestStates(const std::map<uint8_t, uavStates>& latestStates, const double time) {
     // A vehicle without telemetry this tick keeps its previous values.
     const auto fill = grs::control::fillStateVector(latestStates, m_layout, m_initialStates);
@@ -635,10 +596,7 @@ void MpcController::m_unpackLatestStates(const std::map<uint8_t, uavStates>& lat
             m_launched = false;
             m_launchTime.reset();
             m_planIdx.reset();
-            Logger::instance().log(LogType::NMPC_EVENT,
-                std::to_string(m_trackingNumber) + "," + std::to_string(Logger::instance().nowMilliseconds()) + ","
-                + std::to_string(Logger::nowWallTimeMs()) + ",LAUNCH failed, not in flight after "
-                + std::to_string(m_config.launchTimeout) + " s, back to standby");
+            m_logEvent("LAUNCH failed, not in flight after " + std::to_string(m_config.launchTimeout) + " s, back to standby");
             LOG_ERROR("Launch failed: no UAV above " + std::to_string(m_config.inFlightSpeed) + " m/s within "
                 + std::to_string(m_config.launchTimeout) + " s, controller back to standby");
         }

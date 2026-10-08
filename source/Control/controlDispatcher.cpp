@@ -8,6 +8,8 @@
 
 #include "controlDispatcher.h"
 
+#include <utility>
+
 ControlDispatcher::ControlDispatcher() = default;
 
 ControlDispatcher::~ControlDispatcher() {
@@ -20,7 +22,10 @@ void ControlDispatcher::start() {
 }
 
 void ControlDispatcher::stop() {
-    m_running = false;
+    {
+        std::lock_guard lock(m_queueMutex); // no lost wake-up between the predicate and the wait
+        m_running = false;
+    }
     m_cv.notify_all();
     if (m_thread.joinable()) m_thread.join();
 }
@@ -30,25 +35,17 @@ void ControlDispatcher::pushCommand(const std::map<uint8_t, uavCommandsFlags>& c
         // Latest command only: one still waiting is outdated, sending it would
         // only delay this one.
         std::lock_guard lock(m_queueMutex);
-        if (!m_commandQueue.empty()) {
-            m_commandQueue = {};
-            if (m_droppedCommands++ % 20 == 0) {
-                LOG_WARNING("Command link slower than the control loop: " + std::to_string(m_droppedCommands) + " outdated commands dropped");
-            }
+        if (m_pending && m_droppedCommands++ % 20 == 0) {
+            LOG_WARNING("Command link slower than the control loop: " + std::to_string(m_droppedCommands) + " outdated commands dropped");
         }
-        m_commandQueue.push(cmds);
+        m_pending = cmds;
     }
     m_cv.notify_one();
 }
 
-void ControlDispatcher::updateTelemetry(const std::map<uint8_t, uavStates>& states) {
-    {
-        std::lock_guard lock(m_stateMutex);
-        m_latestStates = states;
-    }
-
+void ControlDispatcher::updateTelemetry(const std::map<uint8_t, uavStates>& states) const {
     if (m_sendToController) {
-        m_sendToController(m_latestStates);
+        m_sendToController(states);
     }
 }
 
@@ -66,12 +63,11 @@ void ControlDispatcher::m_dispatchLoop() {
 
     while (m_running) {
         std::unique_lock lock(m_queueMutex);
-        m_cv.wait(lock, [this]() { return !m_commandQueue.empty() || !m_running; });
+        m_cv.wait(lock, [this]() { return m_pending.has_value() || !m_running; });
 
         if (!m_running) break;
 
-        auto cmds = m_commandQueue.front();
-        m_commandQueue.pop();
+        const auto cmds = std::exchange(m_pending, std::nullopt).value();
         lock.unlock();
 
         if (m_sendToComms) {

@@ -129,13 +129,18 @@ int main(const int argc, const char * argv[]) {
     const auto result = BrowserLauncher::launch("http://localhost:8080");
 
     if (!result.success) {
+        // Not fatal (e.g. a headless field laptop): the dashboard stays at http://localhost:8080.
         std::cerr << "Failed to launch browser: " << result.error.message() << std::endl;
-        return 1;
     }
 
     // ---- Initialize app ----
     GroundControlStation gcs;
     gcs.setDashboard(&dashboard);
+    // Destroyed before gcs on every return: stops the HTTP handlers that call into gcs first.
+    struct StopDashboard {
+        DashboardServer& d;
+        ~StopDashboard() { d.stop(); }
+    } stopDashboard{dashboard};
 
     try {
         gcs.initialize(config);

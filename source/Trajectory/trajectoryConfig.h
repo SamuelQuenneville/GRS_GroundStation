@@ -59,7 +59,6 @@ struct TrajectoryConfig {
 
         /// Derived by finalize() from length/linearMass/nSegments.
         std::vector<double> segmentMass;
-        std::vector<double> segmentLength;
         std::vector<double> segmentLinCoordNorm;
     } tether;
 
@@ -83,11 +82,11 @@ struct TrajectoryConfig {
     } payloadPath;
 
     struct AircraftPath {
-        int direction = -1;                         // +1 = CCW, -1 = CW (top view)
+        int direction = -1;                         // +1 = CW, -1 = CCW seen from above (azimuth from North toward East)
         double velMean = 26;                        // Aircraft mean speed [m/s]
         std::vector<double> phaseRad = {0.0, M_PI}; // Aircraft phase per UAV [rad], from North toward East
         double radius = 25;                         // Aircraft path radius [m]
-        double z0 = 1.382;                          // Aircraft altitude (NED) on launcher [m]
+        double z0 = 1.382;                          // Aircraft height above the payload on the launcher [m], positive up
 
         double takeoffTime = 10;          // Takeoff phase duration [s]
         double takeoffTimeBalistic = 0.5; // Decay time pitch0 -> pitchDecay [s]
@@ -118,7 +117,6 @@ struct TrajectoryConfig {
         if (tether.lengthAtLaunch < 0.0) tether.lengthAtLaunch = tether.length;
 
         tether.segmentMass.assign(tether.nSegments, (tether.length * tether.linearMass) / tether.nSegments);
-        tether.segmentLength.assign(tether.nSegments, tether.length / tether.nSegments);
         tether.segmentLinCoordNorm.resize(tether.nSegments);
         for (int i = 0; i < tether.nSegments; ++i) {
             // MATLAB: linspace(1/n*0.5, 1-(1/n), n)

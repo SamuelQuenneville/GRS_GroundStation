@@ -38,8 +38,10 @@ void ConsoleInterface::printCommands() {
                       << "  start                 --> Start the Ground Station\n"
                       << "  connect               --> Connect to all UAVs\n"
                       << "  listLinks             --> List sysIds actually registered/connected right now\n"
-                      << "  arm                   --> Arm all connected system\n"
-                      << "  mode [MODE]           --> Set mode for all connected system (MANUAL / GUIDED / XNAV)\n"
+                      << "  arm                   --> Arm all connected systems (pre-arm checks apply)\n"
+                      << "  armForce              --> Force arm all connected systems, skipping the pre-arm checks\n"
+                      << "  setHome               --> Set HOME of all connected systems at their current position\n"
+                      << "  mode [MODE]           --> Set mode for all connected systems (INIT / MANUAL / GUIDED / XNAV / ACMD / FBWA)\n"
                       << "  startController       --> Start the controller\n"
                       << "  launch                --> Init launch sequence\n"
                       << "  fetchParams [ID]      --> Retrieve all parameter and create a .param file\n"
@@ -48,6 +50,7 @@ void ConsoleInterface::printCommands() {
                       << "  saveTraj [FILE]       --> Save the currently-loaded reference trajectory to a .csv file (FILE optional, auto-named under ./trajectories/ otherwise)\n"
                       << "  setOrigin [WP]        --> Set the origin for the controller frame\n"
                       << "  setOriginFromPayload  --> Set the origin from the payload's current live GPS fix\n"
+                      << "  convert [WP]          --> Print the NED position of a lat, lon, alt in the current frame\n"
                       << "  listRtkPorts          --> List detected u-blox USB serial devices\n"
                       << "  startRtk [DEV] [BAUD] --> Start RTK base GPS (DEV='auto' to auto-detect), forward corrections to all UAVs (BAUD=0 to auto-detect)\n"
                       << "  stopRtk               --> Stop the RTK base GPS\n"
@@ -71,12 +74,17 @@ void ConsoleInterface::handleCommand(const std::string& command) const {
         m_gcs.listLinks();
     } else if (command == "arm") {
         m_gcs.armAll();
+    } else if (command == "armForce") {
+        LOG_WARNING("Force arming: pre-arm checks skipped");
+        m_gcs.armAll(true);
+    } else if (command == "setHome") {
+        m_gcs.setHomeAll();
     } else if (command.starts_with("mode ")) {
         static const std::map<std::string, FlightMode> validModes = flightModeMap();
         const std::string mode = command.substr(5);
 
         if (!validModes.contains(mode)) {
-            LOG_ERROR("Unknown mode '" + mode + "'. Valid modes: MANUAL, GUIDED, XNAV");
+            LOG_ERROR("Unknown mode '" + mode + "'. Valid modes: INIT, MANUAL, GUIDED, XNAV, ACMD, FBWA");
         } else {
             m_gcs.setModeAll(mode);
         }
@@ -117,7 +125,7 @@ void ConsoleInterface::handleCommand(const std::string& command) const {
         double lat, lon, alt;
 
         if (!parseOrigin(args, lat, lon, alt)) {
-            LOG_ERROR("Usage: setOrigin lat, lon, alt  OR  setOrigin lat lon alt");
+            LOG_ERROR("Usage: convert lat, lon, alt  OR  convert lat lon alt");
         } else {
             m_gcs.debugConvert(lat, lon, alt);
         }
@@ -167,9 +175,6 @@ void ConsoleInterface::handleCommand(const std::string& command) const {
         m_gcs.catapultStatus();
     } else if (command == "stop") {
         LOG_INFO("Stopping main process...");
-        m_gcs.stop();
-    } else if (command == "exit") {
-        LOG_INFO("Exiting program...");
         m_gcs.stop();
     } else {
         LOG_ERROR("Unknown command");

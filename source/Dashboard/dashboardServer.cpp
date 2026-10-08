@@ -8,6 +8,8 @@
 
 #include "dashboardServer.h"
 
+#include "Log/programLogger.h"
+
 DashboardServer::DashboardServer(const uint16_t port, std::string staticRoot, const int broadcastRateHz)
     : m_port(port),
       m_staticRoot(std::move(staticRoot)),
@@ -168,7 +170,11 @@ void DashboardServer::start() {
     // its own thread. Binds to loopback only: this dashboard has no
     // authentication, so it shouldn't be reachable from other machines.
     // Point this at "0.0.0.0" instead if you want LAN access.
-    m_serverThread = std::thread([this]() { m_httpServer->listen("localhost", m_port); });
+    m_serverThread = std::thread([this]() {
+        if (!m_httpServer->listen("localhost", m_port)) {
+            LOG_ERROR("Dashboard: cannot listen on localhost:" + std::to_string(m_port) + " (port in use?)");
+        }
+    });
 
     m_broadcastThread = std::thread(&DashboardServer::m_broadcastLoop, this);
 }
@@ -182,14 +188,11 @@ void DashboardServer::stop() {
 
     // Close any open browser connections before tearing down the listener,
     // so their handler threads unblock from ws.read() promptly.
-    std::vector<httplib::ws::WebSocket*> openClients;
     {
-        std::lock_guard<std::mutex> lock(m_clientsMutex);
-        openClients = m_clients;
-    }
-
-    for (auto* ws : openClients) {
-        ws->close(httplib::ws::CloseStatus::GoingAway, "server shutting down");
+        std::lock_guard<std::mutex> lock(m_clientsMutex); // see m_broadcastLoop()
+        for (auto* ws : m_clients) {
+            ws->close(httplib::ws::CloseStatus::GoingAway, "server shutting down");
+        }
     }
 
     m_httpServer->stop();
@@ -261,11 +264,6 @@ void DashboardServer::setSaveTrajectoryHandler(std::function<std::string()> hand
     m_saveTrajectoryHandler = std::move(handler);
 }
 
-size_t DashboardServer::connectedBrowserCount() const {
-    std::lock_guard<std::mutex> lock(m_clientsMutex);
-    return m_clients.size();
-}
-
 void DashboardServer::m_broadcastLoop() {
     const auto period = std::chrono::milliseconds(1000 / std::max(1, m_broadcastRateHz));
 
@@ -294,13 +292,9 @@ void DashboardServer::m_broadcastLoop() {
         }
 
         if (!payloads.empty()) {
-            std::vector<httplib::ws::WebSocket*> targets;
-            {
-                std::lock_guard<std::mutex> lock(m_clientsMutex);
-                targets = m_clients;
-            }
-
-            for (auto* ws : targets) {
+            // Under the lock: a WebSocket lives on its handler's stack, which erases it under the same lock before returning.
+            std::lock_guard<std::mutex> lock(m_clientsMutex);
+            for (auto* ws : m_clients) {
                 for (const auto& json : payloads) ws->send(json);
             }
         }

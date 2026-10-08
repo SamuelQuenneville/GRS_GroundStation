@@ -14,7 +14,7 @@
 #include <mutex>
 #include <condition_variable>
 #include <map>
-#include <queue>
+#include <optional>
 #include <thread>
 #include <atomic>
 #include <functional>
@@ -34,7 +34,7 @@ public:
     void pushCommand(const std::map<uint8_t, uavCommandsFlags>& cmds);
 
     // From CommunicationManager (telemetry → controller)
-    void updateTelemetry(const std::map<uint8_t, uavStates>& states);
+    void updateTelemetry(const std::map<uint8_t, uavStates>& states) const;
 
     void attachCommunicationManager(std::function<void(const std::map<uint8_t, uavCommandsFlags>&)> sendFn);
     void attachControllerInput(std::function<void(const std::map<uint8_t, uavStates>&)> recvFn);
@@ -47,11 +47,8 @@ private:
 
     std::mutex m_queueMutex;
     std::condition_variable m_cv;
-    std::queue<std::map<uint8_t, uavCommandsFlags>> m_commandQueue; // at most one, the latest
+    std::optional<std::map<uint8_t, uavCommandsFlags>> m_pending; // latest command not sent yet
     uint64_t m_droppedCommands = 0;
-
-    std::mutex m_stateMutex;
-    std::map<uint8_t, uavStates> m_latestStates;
 
     std::function<void(const std::map<uint8_t, uavCommandsFlags>&)> m_sendToComms;
     std::function<void(const std::map<uint8_t, uavStates>&)> m_sendToController;

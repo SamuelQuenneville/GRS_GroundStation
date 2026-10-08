@@ -79,7 +79,6 @@ public:
     /// there's nothing to save or the write fails.
     void setSaveTrajectoryHandler(std::function<std::string()> handler);
 
-    size_t connectedBrowserCount() const;
 
 private:
     void m_broadcastLoop();

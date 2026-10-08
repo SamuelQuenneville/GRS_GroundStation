@@ -8,35 +8,30 @@
 
 #include "catapultLauncher.h"
 
-namespace {
-    std::string stateName(const CatapultState s) {
-        switch (s) {
-            case CatapultState::Disconnected: return "Disconnected";
-            case CatapultState::Connecting:   return "Connecting";
-            case CatapultState::Connected:    return "Connected";
-            case CatapultState::Arming:       return "Arming";
-            case CatapultState::Armed:        return "Armed";
-            case CatapultState::Countdown:    return "Countdown";
-            case CatapultState::Launched:     return "Launched";
-            case CatapultState::Fault:        return "Fault";
-        }
-        return "Unknown";
+std::string catapultStateName(const CatapultState state) {
+    switch (state) {
+        case CatapultState::Disconnected: return "Disconnected";
+        case CatapultState::Connecting:   return "Connecting";
+        case CatapultState::Connected:    return "Connected";
+        case CatapultState::Arming:       return "Arming";
+        case CatapultState::Armed:        return "Armed";
+        case CatapultState::Countdown:    return "Countdown";
+        case CatapultState::Launched:     return "Launched";
+        case CatapultState::Fault:        return "Fault";
     }
+    return "Unknown";
+}
 
-
-
-    std::string describeStatusBits(const uint32_t bits) {
-        std::string s;
-        s += "servoLocked=";        s += (bits & STATUS_COCKED)         ? "YES" : "NO";
-        s += "safetyPinRemoved=";   s += (bits & STATUS_SAFETY_PIN_IN)  ? "YES" : "NO";
-        s += "armed=";              s += (bits & STATUS_ARMED)          ? "YES" : "NO";
-        s += "countdown=";          s += (bits & STATUS_COUNTDOWN)      ? "YES" : "NO";
-        s += " battery=" + std::to_string(catapultUnpackBatteryPct(bits)) + "%";
-        if (bits & STATUS_LOW_BATTERY) s += " [LOW BATTERY]";
-        if (bits & STATUS_GCS_TIMEOUT) s += " [SELF-DISARMED: GCS TIMEOUT]";
-
-        return s;
-    }
+std::string describeStatusBits(const uint32_t bits) {
+    std::string s;
+    s += "servoLocked=";   s += (bits & STATUS_COCKED)         ? "YES" : "NO";
+    s += " safetyPinIn=";  s += (bits & STATUS_SAFETY_PIN_IN)  ? "YES" : "NO";
+    s += " armed=";        s += (bits & STATUS_ARMED)          ? "YES" : "NO";
+    s += " countdown=";    s += (bits & STATUS_COUNTDOWN)      ? "YES" : "NO";
+    s += " battery=" + std::to_string(catapultUnpackBatteryPct(bits)) + "%";
+    if (bits & STATUS_LOW_BATTERY) s += " [LOW BATTERY]";
+    if (bits & STATUS_GCS_TIMEOUT) s += " [SELF-DISARMED: GCS TIMEOUT]";
+    return s;
 }
 
 CatapultLauncher::CatapultLauncher() = default;
@@ -270,7 +265,7 @@ void CatapultLauncher::m_linkLoop(Link& link) const {
 
             case MSG_FAULT:
                 link.lastStatusBits = pkt.param;
-                LOG_ERROR("Catapult " + std::to_string(link.id) + ": reported fault, status=0x" + std::to_string(pkt.param));
+                LOG_ERROR("Catapult " + std::to_string(link.id) + ": reported fault, status=" + describeStatusBits(pkt.param));
                 m_setState(link, CatapultState::Fault);
                 break;
 
@@ -479,13 +474,6 @@ void CatapultLauncher::abortAll() const {
     LOG_WARNING("Catapult launch sequence aborted.");
 }
 
-CatapultState CatapultLauncher::getState(const uint8_t id) const {
-    for (const auto& linkPtr : m_links) {
-        if (linkPtr->id == id) return linkPtr->state.load();
-    }
-    return CatapultState::Disconnected;
-}
-
 bool CatapultLauncher::allArmed() const {
     if (m_links.empty()) return false;
     return std::ranges::all_of(m_links, [](const auto& linkPtr) {
@@ -512,7 +500,7 @@ std::string CatapultLauncher::describeStatus(const uint8_t id) const {
         if (linkPtr->id != id) continue;
 
         const Link& link = *linkPtr;
-        std::string s = "Launcher " + std::to_string(id) + ": " + stateName(link.state.load());
+        std::string s = "Launcher " + std::to_string(id) + ": " + catapultStateName(link.state.load());
 
         if (link.fd > 0) {
             s += " (" + describeStatusBits(link.lastStatusBits.load()) + ")";
@@ -551,7 +539,7 @@ void CatapultLauncher::m_watchdogLoop() const {
 
             if (elapsedMs > HEARTBEAT_TIMEOUT_MS) {
                 LOG_ERROR("Catapult " + std::to_string(link.id)
-                          + ": heartbeat lost while " + stateName(state)
+                          + ": heartbeat lost while " + catapultStateName(state)
                           + " -- treating as fault (board should self-disarm independently).");
                 m_setState(link, CatapultState::Fault);
             }

@@ -10,9 +10,9 @@ Owns the control-loop thread (`m_controlLoop()`, running at `hlcFrequency`
 Hz) and, in MPC mode, a `Controller` instance (`MpcController` today). Each tick:
 
 1. Takes the latest telemetry (`updateStates()`'s snapshot).
-2. Runs it through `NavigationFrameManager` to get NED-frame states
-   (`initializeOffset()` + `toNavigationFrame()` — always called, even
-   before the frame is initialized; both are no-ops until then).
+2. Runs it through `NavigationFrameManager` to get NED-frame states:
+   `initializeOffset()` every tick (logs once while there is no GCS origin),
+   `toNavigationFrame()` once the frame is initialized.
 3. Once the nav frame is initialized, dispatches based on `controlMode`:
    - **MPC**: `ControlStep::tick()` (controller solve, then the NMHE
      sample push and, on its own cadence, the NMHE solve; see below), then
@@ -102,7 +102,6 @@ that sample instead of the new solution. Otherwise the solve starts cold from
 the reference window and a rejected solve applies the reference feedforward
 control. `controls.csv` marks rejected solves with the source used.
 
-Each command also carries the plan's predicted angle of attack
 Launch phases (`m_unpackLatestStates()`):
 
 - **Standby** (before `initLaunch()`): the controller solves every tick, so
@@ -173,9 +172,6 @@ reference time is followed by the angle-of-attack feedforward [deg] in
   `setReferenceTrajectory()` (in-process, from `TrajectoryGenerator`), all
   storing/reading `m_referenceTrajectory` in the solver's own
   `[x0 u0 x1 u1 ... xN uN]` stride.
-- **Yaw unwrapping** — `m_unwrapYaw()` tracks each UAV's continuous
-  (non-wrapped) yaw across solves, since the solver's cost function
-  penalizes yaw discontinuities that a naive `[-π, π]` wrap would introduce.
 - **Debug/telemetry readback** — `getDebugInfo()` and
   `getTrajectoryForVehicle()`, both plain structs (defined on `Controller`)
   kept independent of `Dashboard/` (see `docs/ARCHITECTURE.md`).

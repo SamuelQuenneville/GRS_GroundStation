@@ -68,9 +68,7 @@ public:
     [[nodiscard]] virtual int nu() const = 0;
     [[nodiscard]] virtual int np() const = 0;
     [[nodiscard]] virtual int nd() const = 0;
-    [[nodiscard]] virtual int numUavs() const = 0;
     [[nodiscard]] virtual bool hasPayload() const = 0;
-    [[nodiscard]] virtual const RigParams& rig() const = 0;
 
     // F(x,u,wind,d,L0) -> {ode, alpha_1..alpha_numUavs}. xdot has nx()
     // entries, alpha numUavs() entries (may be null).
@@ -86,9 +84,7 @@ public:
     [[nodiscard]] int nu() const override { return 6; }
     [[nodiscard]] int np() const override { return 3; }
     [[nodiscard]] int nd() const override { return 9; }
-    [[nodiscard]] int numUavs() const override { return 2; }
     [[nodiscard]] bool hasPayload() const override { return true; }
-    [[nodiscard]] const RigParams& rig() const override { return m_rig; }
 
     void evaluate(const double* x, const double* u, const double* wind, const double* d,
                   double L0, double* xdot, double* alpha) const override;
@@ -106,9 +102,7 @@ public:
     [[nodiscard]] int nu() const override { return 3; }
     [[nodiscard]] int np() const override { return 3; }
     [[nodiscard]] int nd() const override { return 5; }
-    [[nodiscard]] int numUavs() const override { return 1; }
     [[nodiscard]] bool hasPayload() const override { return false; }
-    [[nodiscard]] const RigParams& rig() const override { return m_rig; }
 
     void evaluate(const double* x, const double* u, const double* wind, const double* d,
                   double L0, double* xdot, double* alpha) const override;

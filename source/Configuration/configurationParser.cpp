@@ -8,6 +8,10 @@
 
 #include "configurationParser.h"
 
+#include <stdexcept>
+#include <string>
+#include <utility>
+
 // configurationParser.cpp
 gcsConfig ConfigurationParser::parseGcsConfig(YAML::Node& node, const gcsConfig& defaults) {
     gcsConfig config = defaults;
@@ -26,7 +30,18 @@ gcsConfig ConfigurationParser::parseGcsConfig(YAML::Node& node, const gcsConfig&
             const auto mode = gcsNode["controlMode"].as<std::string>();
             if (mode == "MATLAB")             config.controlMode = ControlMode::MATLAB;
             else if (mode == "ATTITUDE_FILE") config.controlMode = ControlMode::ATTITUDE_FILE;
-            else                              config.controlMode = ControlMode::MPC;
+            else if (mode == "MPC")           config.controlMode = ControlMode::MPC;
+            else throw std::runtime_error("GcsConfiguration.controlMode must be MPC, MATLAB or ATTITUDE_FILE, got '" + mode + "'");
+        }
+    }
+
+    for (const auto& [name, value] : {std::pair{"numUavs", static_cast<double>(config.numUavs)},
+                                      std::pair{"hlcFrequency", config.hlcFrequency},
+                                      std::pair{"nmheFrequency", config.nmheFrequency},
+                                      std::pair{"telemetryTimeout", config.telemetryTimeout},
+                                      std::pair{"stateRateHz", config.stateRateHz}}) {
+        if (!(value > 0.0)) {
+            throw std::runtime_error(std::string("GcsConfiguration.") + name + " must be > 0");
         }
     }
 
