@@ -25,7 +25,7 @@ namespace {
 }
 
 double thrust2rpm(const float airspeed, const float thrustTarget) {
-    if (!std::isfinite(thrustTarget) || thrustTarget <= 2.0f) {
+    if (!std::isfinite(thrustTarget)) {
         return 0.0;
     }
 
@@ -33,7 +33,7 @@ double thrust2rpm(const float airspeed, const float thrustTarget) {
     const double phi = 60.0 * v / kPropDiameter;
 
     // Positive root of Z*n^2 - Y*phi*n - (X*phi^2 + T/psi) = 0.
-    const double c = kThrustCoeffX * phi * phi + thrustTarget / kPsi;
+    const double c = kThrustCoeffX * phi * phi + std::max(static_cast<double>(thrustTarget), 0.0) / kPsi;
     const double rpm = (kThrustCoeffY * phi + std::sqrt(kThrustCoeffY * kThrustCoeffY * phi * phi + 4.0 * kThrustCoeffZ * c)) / (2.0 * kThrustCoeffZ);
 
     return std::clamp(rpm, 0.0, kMaxRpm) / kMaxRpm;

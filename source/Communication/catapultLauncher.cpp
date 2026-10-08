@@ -416,11 +416,14 @@ bool CatapultLauncher::fireAll(const uint32_t countdownMs, const int acceptTimeo
     // before its local countdown elapses. If anyone doesn't confirm within
     // acceptTimeoutMs, there's still time left in the countdown to cancel
     // everyone before anything releases.
+    // One deadline for all links, so the abort window does not grow with their number.
+    const auto acceptDeadline = sentAt + std::chrono::milliseconds(acceptTimeoutMs);
     bool allAccepted = true;
     for (size_t i = 0; i < m_links.size(); ++i) {
         Link& link = *m_links[i];
         CatapultPacket ack{};
-        const bool ok = m_waitForAck(link, seqs[i], MSG_FIRE_AT_ACK, acceptTimeoutMs, ack);
+        const auto leftMs = std::chrono::duration_cast<std::chrono::milliseconds>(acceptDeadline - std::chrono::steady_clock::now()).count();
+        const bool ok = m_waitForAck(link, seqs[i], MSG_FIRE_AT_ACK, static_cast<int>(std::max<long long>(leftMs, 0)), ack);
 
         if (!ok) {
             LOG_ERROR("Catapult " + std::to_string(link.id) + ": no FIRE_AT_ACK received -- last known status: "

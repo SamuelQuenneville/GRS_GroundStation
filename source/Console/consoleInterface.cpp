@@ -160,13 +160,14 @@ void ConsoleInterface::handleCommand(const std::string& command) const {
         m_gcs.catapultConnect();
     } else if (command == "catapultArm") {
         m_gcs.catapultArm();
-    } else if (command.starts_with("catapultFire")) {
+    } else if (command == "catapultFire" || command.starts_with("catapultFire ")) {
         const std::string arg = command.size() > 12 ? command.substr(13) : "";
 
+        // Below 300 ms there is no time left to abort after the accept window.
         if (arg.empty()) {
             m_gcs.catapultFire();
-        } else if (const auto countdownMs = grs::parseInt<uint32_t>(arg); !countdownMs) {
-            LOG_ERROR("Usage: catapultFire [MS]  (MS must be a non-negative integer, default 500)");
+        } else if (const auto countdownMs = grs::parseInt<uint32_t>(arg); !countdownMs || *countdownMs < 300) {
+            LOG_ERROR("Usage: catapultFire [MS]  (MS integer >= 300, default 500)");
         } else {
             m_gcs.catapultFire(*countdownMs);
         }

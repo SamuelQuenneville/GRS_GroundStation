@@ -15,12 +15,6 @@
 #include <ranges>
 #include <stdexcept>
 
-ControlInterface::ControlInterface()
-    : m_running(false)
-{
-
-}
-
 ControlInterface::~ControlInterface() {
     stop();
     if (m_udpSocketMatlab >= 0) close(m_udpSocketMatlab);
@@ -33,6 +27,9 @@ void ControlInterface::initialize(const gcsConfig& config) {
         YAML::Node node = YAML::LoadFile(config.configPath);
 
         auto stack = buildControlStack(node);
+        if (m_config.numUavs != stack.solver.numUavs) {
+            throw std::runtime_error("numUavs " + std::to_string(m_config.numUavs) + " does not match solver NUM_UAVS " + std::to_string(stack.solver.numUavs));
+        }
         // One control step per shooting interval.
         if (std::abs(m_config.hlcFrequency * stack.solver.dt - 1.0) > 1e-6) {
             throw std::runtime_error("hlcFrequency " + std::to_string(m_config.hlcFrequency) + " Hz does not match solver dt " + std::to_string(stack.solver.dt) + " s");
@@ -45,12 +42,15 @@ void ControlInterface::initialize(const gcsConfig& config) {
         if (m_estimator) {
             runner = std::make_unique<ThreadedEstimatorRunner>(*m_estimator, m_config.nmheFrequency, static_cast<size_t>(stack.estimator->M) + 8);
         }
-        m_controlStep = std::make_unique<ControlStep>(*m_controller, std::move(runner), stack.estimator ? stack.estimator->nu : 0);
+        m_controlStep = std::make_unique<ControlStep>(*m_controller, std::move(runner), stack.estimator ? stack.estimator->nu : 0, stack.solver.dt);
     }
 }
 
 void ControlInterface::start() {
-    m_running = true;
+    if (m_running.exchange(true)) {
+        LOG_WARNING("Controller already running");
+        return;
+    }
     m_controllerThread = std::thread(&ControlInterface::m_controlLoop, this);
 }
 
@@ -241,6 +241,10 @@ std::map<uint8_t, uavStates> ControlInterface::getLiveNavigationStates() const {
 }
 
 void ControlInterface::setOrigin(const double latitudeDegrees, const double longitudeDegrees, const double altitude) {
+    // A new origin moves every measured position relative to the reference.
+    if (m_controller && m_controller->getDebugInfo().launched) {
+        throw std::runtime_error("Origin locked: the controller is launched");
+    }
     m_navFrameManager.setOrigin(latitudeDegrees, longitudeDegrees, altitude);
 
     if (m_originCallback) {

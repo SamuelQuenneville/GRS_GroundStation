@@ -17,8 +17,9 @@ bool StatesAggregator::updateControlState(const uint64_t timeUsec, const float p
     const float yaw   = std::atan2(2.0f * (w * z + x * y), 1.0f - 2.0f * (y * y + z * z)) * radToDeg;
 
     std::lock_guard lock(m_mutex);
-    if (m_lastStateTime && timeUsec <= m_lastTimeUsec) {
-        return false; // duplicate or reordered datagram
+    // Duplicate or reordered datagram. A jump back of more than 1 s is a reboot.
+    if (m_lastStateTime && timeUsec <= m_lastTimeUsec && m_lastTimeUsec - timeUsec < 1'000'000) {
+        return false;
     }
 
     m_lastTimeUsec = timeUsec;

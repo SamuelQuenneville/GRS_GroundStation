@@ -299,7 +299,7 @@ void MpcController::m_logTransitions() {
     };
 
     edge(m_telemetryComplete, m_prevTelemetryComplete, "TELEMETRY complete", "TELEMETRY incomplete, missing vehicles keep their last state");
-    edge(m_inFlight, m_prevInFlight, "INFLIGHT detected (speed threshold crossed)", "INFLIGHT cleared");
+    edge(m_inFlight, m_prevInFlight, "INFLIGHT detected", "INFLIGHT cleared");
     edge(m_endedTraj, m_prevEndedTraj, "TRAJECTORY ended, idx=" + std::to_string(m_lastIdxTraj), "TRAJECTORY resumed");
     if (edge(m_holding, m_prevHolding, "TRAJECTORY end, repeating the last control", "TRAJECTORY end cleared") && m_holding) {
         LOG_WARNING("Trajectory end reached: repeating the last control, pilot takeover expected");
@@ -590,9 +590,16 @@ void MpcController::m_unpackLatestStates(const std::map<uint8_t, uavStates>& lat
                 m_inFlight = true;
             }
         }
-        if (!m_inFlight && m_launchTime && time - *m_launchTime > m_config.launchTimeout) {
-            // No release (misfire, or the speed threshold above the launch
-            // speed): back to standby, the reference restarts at its first sample.
+        if (!m_inFlight && m_launchTime && time - *m_launchTime > m_config.launchTimeout
+            && m_launchPositionError > m_config.launchPositionTolerance) {
+            // Left the launcher below the speed threshold (headwind, slow
+            // release): flying all the same.
+            m_inFlight = true;
+            m_logEvent("INFLIGHT by position, " + std::to_string(m_launchPositionError) + " m from the launch point");
+            LOG_WARNING("In flight by position: speed stayed below " + std::to_string(m_config.inFlightSpeed) + " m/s");
+        } else if (!m_inFlight && m_launchTime && time - *m_launchTime > m_config.launchTimeout) {
+            // Still on the launcher (misfire): back to standby, the reference
+            // restarts at its first sample.
             m_launched = false;
             m_launchTime.reset();
             m_planIdx.reset();

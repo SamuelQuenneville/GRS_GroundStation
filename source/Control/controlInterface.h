@@ -30,7 +30,7 @@
 class ControlInterface {
 
 public:
-    ControlInterface();
+    ControlInterface() = default;
     ~ControlInterface();
 
     void initialize(const gcsConfig& config);
@@ -95,7 +95,7 @@ private:
     void m_sendDataToMatlab(const std::map<uint8_t, uavStates>& states);
     std::map<uint8_t, uavCommands> m_receiveDataFromMatlab();
 
-    std::atomic<bool> m_running;
+    std::atomic<bool> m_running{false};
     std::thread m_controllerThread;
     double m_fileFrequency = 10.0;
 

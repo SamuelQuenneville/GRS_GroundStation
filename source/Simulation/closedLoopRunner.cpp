@@ -410,7 +410,7 @@ RunResult runClosedLoop(YAML::Node config, const std::string& controller, const 
                                                            opts.nmheLatencyMs);
     }
     // Declared after `stack`, so destroyed before the estimator it references.
-    ControlStep step(*stack.controller, std::move(runner), stack.estimator ? stack.estimator->nu : 0);
+    ControlStep step(*stack.controller, std::move(runner), stack.estimator ? stack.estimator->nu : 0, stack.solver.dt);
 
     const auto plant = makePlant(truth, numUavs);
     if (plant->nx() != nx || plant->nu() != nu || plant->nd() != sc.nd || plant->np() != sc.np) {

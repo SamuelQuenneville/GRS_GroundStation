@@ -11,6 +11,7 @@
 
 #pragma once
 
+#include <algorithm>
 #include <stdexcept>
 #include <string>
 
@@ -98,6 +99,23 @@ namespace YAML {
                         rhs.controller = solverConfig::Controller::Lmpc;
                     } else if (name != "nmpc") {
                         throw std::runtime_error("SolverConfiguration.CONTROLLER must be 'nmpc' or 'lmpc', got '" + name + "'");
+                    }
+                }
+
+                const auto checkSize = [](const std::vector<double>& v, const int n, const char* key) {
+                    if (v.size() != static_cast<size_t>(n)) {
+                        throw std::runtime_error(std::string("SolverConfiguration.") + key + " needs " + std::to_string(n) + " values, got " + std::to_string(v.size()));
+                    }
+                };
+                checkSize(rhs.lbxStates, rhs.nx, "LBX_STATES");
+                checkSize(rhs.ubxStates, rhs.nx, "UBX_STATES");
+                checkSize(rhs.scalesStates, rhs.nx, "SCALES_STATES");
+                checkSize(rhs.lbxControls, rhs.nu, "LBX_CONTROLS");
+                checkSize(rhs.ubxControls, rhs.nu, "UBX_CONTROLS");
+                checkSize(rhs.scalesControls, rhs.nu, "SCALES_CONTROLS");
+                for (const auto& scales : {rhs.scalesStates, rhs.scalesControls}) {
+                    if (std::ranges::any_of(scales, [](const double s) { return !(s > 0.0); })) {
+                        throw std::runtime_error("SolverConfiguration scales must be > 0");
                     }
                 }
 

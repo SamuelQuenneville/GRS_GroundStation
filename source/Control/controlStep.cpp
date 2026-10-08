@@ -12,9 +12,10 @@
 #include "mpcController.h"
 #include "nmheEstimator.h"
 
-ControlStep::ControlStep(Controller& controller, std::unique_ptr<EstimatorRunner> runner, const int estimatorNu)
+ControlStep::ControlStep(Controller& controller, std::unique_ptr<EstimatorRunner> runner, const int estimatorNu, const double sampleDt)
     : m_controller(controller)
     , m_runner(std::move(runner))
+    , m_sampleDt(sampleDt)
 {
     if (m_runner) {
         m_appliedControl.assign(static_cast<size_t>(estimatorNu), 0.0);
@@ -40,9 +41,11 @@ std::map<uint8_t, uavCommandsFlags> ControlStep::tick(const std::map<uint8_t, ua
         // 3. This tick's measured state with the control applied up to it
         //    (the previous tick's command), in flight only: on the launcher
         //    and in the catapult stroke the model does not hold, and the
-        //    estimate would saturate. The window restarts at each change.
+        //    estimate would saturate. The window restarts at each change and
+        //    after a gap (stale telemetry, late tick): its samples are dt apart.
         const bool flying = m_controller.inFlight();
-        if (flying != m_wasInFlight) {
+        const bool gap = m_lastSampleTime && time - *m_lastSampleTime > 2.0 * m_sampleDt;
+        if (flying != m_wasInFlight || (flying && gap)) {
             m_runner->reset();
             m_appliedEstimate = {};
             m_wasInFlight = flying;
@@ -50,6 +53,7 @@ std::map<uint8_t, uavCommandsFlags> ControlStep::tick(const std::map<uint8_t, ua
         if (flying) {
             grs::control::fillStateVector(navStates, m_layout, m_measuredState);
             m_runner->pushSample(m_measuredState, m_appliedControl);
+            m_lastSampleTime = time;
         }
 
         // Estimator control: thrust in N, roll/pitch in radians.

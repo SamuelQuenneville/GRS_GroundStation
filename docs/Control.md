@@ -111,8 +111,9 @@ Launch phases (`m_unpackLatestStates()`):
   first sample.
 - **Launching** (from `initLaunch()`): the reference runs; same state as
   standby until a UAV exceeds `IN_FLIGHT_SPEED` (default 10 m/s). If that
-  has not happened `LAUNCH_TIMEOUT` (default 1 s) after the launch
-  (misfire), back to standby.
+  has not happened `LAUNCH_TIMEOUT` (default 1 s) after the launch: in
+  flight if a UAV is farther than `LAUNCH_POS_TOL` from its reference start
+  (slow release, headwind), else back to standby (misfire).
 - **In flight**: fully measured state, NMHE on.
 
 `launchReady()` gates `catapultFire` and `initLaunch`: refused without a
@@ -249,7 +250,7 @@ offset while the vehicle is still (< 1 m/s): its `GLOBAL_POSITION_INT`
 must equal the local position plus the offset within 1 m, otherwise an
 error is logged. `frameReady()` requires a checked offset for every UAV and
 gates `catapultFire`/`initLaunch` (see `launchReady()`). `setOrigin()` clears
-every offset, and a changed EKF origin clears that vehicle's offset; both
+every offset (refused by `ControlInterface` once launched), and a changed EKF origin clears that vehicle's offset; both
 are recomputed on the next tick. All public methods lock `m_mutex`, since
 `setOrigin()` can be called from the console or dashboard thread and
 `setEkfOrigin()` from a MAVSDK callback while the control loop is

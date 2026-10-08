@@ -37,7 +37,8 @@ public:
     // runner may be null (no EstimatorConfiguration in the YAML).
     // estimatorNu is the estimator's joint control dimension (ignored
     // without a runner).
-    ControlStep(Controller& controller, std::unique_ptr<EstimatorRunner> runner, int estimatorNu);
+    // sampleDt: estimator sample interval [s]; a longer gap restarts its window.
+    ControlStep(Controller& controller, std::unique_ptr<EstimatorRunner> runner, int estimatorNu, double sampleDt);
 
     // navStates: telemetry in the NED frame, by sysId (stateVector.h).
     // time: when navStates were sampled (see Controller::solve()).
@@ -56,6 +57,8 @@ private:
     std::vector<double> m_appliedControl;
     EstimatorRunner::Estimate m_appliedEstimate;
     bool m_wasInFlight = false;
+    double m_sampleDt;
+    std::optional<double> m_lastSampleTime;
 
     // Estimator sample, same layout as the controller's state (stateVector.h).
     // Kept between ticks: a vehicle without telemetry keeps its last value.
