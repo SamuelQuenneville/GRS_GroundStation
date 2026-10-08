@@ -29,9 +29,7 @@
 
 #include <atomic>
 #include <chrono>
-#include <cmath>
 #include <cstdio>
-#include <ctime>
 #include <filesystem>
 #include <fstream>
 #include <iomanip>

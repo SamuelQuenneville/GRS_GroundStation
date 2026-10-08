@@ -8,6 +8,18 @@
 
 #include "catapultLauncher.h"
 
+#include "Log/programLogger.h"
+
+#include <arpa/inet.h>
+#include <fcntl.h>
+#include <netinet/in.h>
+#include <netinet/tcp.h>
+#include <sys/select.h>
+#include <sys/socket.h>
+#include <algorithm>
+#include <cstring>
+#include <unistd.h>
+
 std::string catapultStateName(const CatapultState state) {
     switch (state) {
         case CatapultState::Disconnected: return "Disconnected";
@@ -93,6 +105,8 @@ bool CatapultLauncher::connectAll(const int timeoutMs) {
 
     for (auto& linkPtr : m_links) {
         Link& link = *linkPtr;
+        if (link.running) continue; // already listening or connected
+
         m_setState(link, CatapultState::Connecting);
 
         if (!m_bindAndListen(link)) {
@@ -135,18 +149,14 @@ bool CatapultLauncher::connectAll(const int timeoutMs) {
 void CatapultLauncher::disconnectAll() const {
     for (auto& linkPtr : m_links) {
         Link& link = *linkPtr;
+        // The link thread wakes within 200 ms and closes fd on exit.
         link.running = false;
-        if (link.fd >= 0) {
-            shutdown(link.fd, SHUT_RDWR);
-            close(link.fd);
-            link.fd = -1;
+        if (link.linkThread.joinable()) {
+            link.linkThread.join();
         }
         if (link.listenFd >= 0) {
             close(link.listenFd);
             link.listenFd = -1;
-        }
-        if (link.linkThread.joinable()) {
-            link.linkThread.join();
         }
         m_setState(link, CatapultState::Disconnected);
     }
@@ -502,7 +512,7 @@ std::string CatapultLauncher::describeStatus(const uint8_t id) const {
         const Link& link = *linkPtr;
         std::string s = "Launcher " + std::to_string(id) + ": " + catapultStateName(link.state.load());
 
-        if (link.fd > 0) {
+        if (link.fd >= 0) {
             s += " (" + describeStatusBits(link.lastStatusBits.load()) + ")";
         } else {
             s += " -- not connected";

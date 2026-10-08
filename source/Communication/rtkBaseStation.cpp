@@ -8,10 +8,18 @@
 
 #include "rtkBaseStation.h"
 
+#include "Log/programLogger.h"
+
+#include <algorithm>
+#include <fcntl.h>
+#include <termios.h>
+#include <filesystem>
+
 
 // --------------------- RtkSerialPort ---------------------
 
 bool RtkSerialPort::init(const std::string& device) {
+    close();
     m_fd = ::open(device.c_str(), O_RDWR | O_NOCTTY);
     if (m_fd < 0) {
         LOG_ERROR("RtkBaseStation: failed to open " + device + ": " + std::strerror(errno));
@@ -21,6 +29,7 @@ bool RtkSerialPort::init(const std::string& device) {
     termios tty{};
     if (tcgetattr(m_fd, &tty) != 0) {
         LOG_ERROR("RtkBaseStation: tcgetattr failed");
+        close();
         return false;
     }
 
@@ -31,6 +40,7 @@ bool RtkSerialPort::init(const std::string& device) {
 
     if (tcsetattr(m_fd, TCSANOW, &tty) != 0) {
         LOG_ERROR("RtkBaseStation: tcsetattr failed");
+        close();
         return false;
     }
 
@@ -70,8 +80,13 @@ ssize_t RtkSerialPort::write(const uint8_t* bytes, const unsigned len) const {
     return ::write(m_fd, bytes, len);
 }
 
-RtkSerialPort::~RtkSerialPort() {
+void RtkSerialPort::close() {
     if (m_fd >= 0) ::close(m_fd);
+    m_fd = -1;
+}
+
+RtkSerialPort::~RtkSerialPort() {
+    close();
 }
 
 // --------------------- RtkBaseStation ---------------------
@@ -119,13 +134,15 @@ bool RtkBaseStation::start(const std::string& device, unsigned baudrate, const R
 
     if (m_driver->configure(baudrate, gpsConfig) != 0) {
         LOG_ERROR("RtkBaseStation: F9P configuration failed");
+        m_driver.reset();
+        m_serialPort.close();
         return false;
     }
 
     LOG_INFO("RtkBaseStation: F9P configured, starting survey-in and RTCM streaming");
 
     m_running.store(true);
-    m_receiveThread = std::thread([this]() {
+    m_receiveThread = std::thread([this] {
         while (m_running.load()) {
             constexpr unsigned timeoutMs = 1000;
             m_driver->receive(timeoutMs);
@@ -145,12 +162,13 @@ void RtkBaseStation::stop() {
         m_receiveThread.join();
     }
     m_driver.reset();
+    m_serialPort.close();
     LOG_INFO("RtkBaseStation stopped");
 }
 
 // Reads /sys/.../idVendor at the given directory, if present. Returns false
 // if the file doesn't exist there (caller should try a parent directory).
-bool readIdVendorAt(const std::filesystem::path& dir, std::string& outVendorId) {
+static bool readIdVendorAt(const std::filesystem::path& dir, std::string& outVendorId) {
     std::ifstream f(dir / "idVendor");
     if (!f) return false;
 

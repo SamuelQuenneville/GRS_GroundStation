@@ -11,14 +11,8 @@
 
 #pragma once
 
-#include <limits>
-
-#include <mavsdk/mavsdk.h>
 #include <mavsdk/plugins/telemetry/telemetry.h>
 #include <mavsdk/plugins/mavlink_passthrough/mavlink_passthrough.h>
-
-#include <utility>
-#include <vector>
 
 // uavStates/uavCommands/uavCommandsFlags live in vehicleStructures.h (no
 // MAVSDK dependency) so the controller core and grs_batchsim can use them

@@ -15,7 +15,6 @@
 #include "Communication/catapultLauncher.h"
 #include "Control/controlInterface.h"
 #include "Control/controlDispatcher.h"
-#include "Log/logger.h"
 #include "gcsConfig.h"
 
 class GroundControlStation {
@@ -49,14 +48,14 @@ public:
     // `file`: path, or empty for ./trajectories/ with a timestamp. Returns
     // the path written. Throws if not in MPC mode, nothing is applied, or
     // the file can't be written.
-    std::string saveTrajectory(const std::string& file = "") const;
+    [[nodiscard]] std::string saveTrajectory(const std::string& file = "") const;
     void setOrigin(double latitudeDegrees, double longitudeDegrees, double altitude) const;
 
     // Captures the payload's current raw GPS fix and uses it directly as the
     // NavigationFrameManager origin, instead of the operator typing lat/lon
     // into `setOrigin` by hand. Returns false (and logs why) if no payload
     // GPS fix has arrived yet -- e.g. its Pixhawk isn't connected/streaming.
-    bool setOriginFromPayload() const;
+    [[nodiscard]] bool setOriginFromPayload() const;
 
     void debugConvert(double latitudeDegrees, double longitudeDegrees, double altitude) const;
 

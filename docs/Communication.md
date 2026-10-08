@@ -83,8 +83,8 @@ the body-rate fields as data (`type_mask` 0):
 
 | Field | Content |
 |---|---|
-| `body_roll_rate` | angle-of-attack feedforward [deg], NaN if none |
-| `body_pitch_rate` | tether tension [N], NaN if none |
+| `body_roll_rate` | angle-of-attack feedforward [deg], 0 if none |
+| `body_pitch_rate` | tether tension [N], 0 if none |
 | `body_yaw_rate` | `commandFlag` bits as a float: bit 0 should_move, bit 1 end_sim, bit 2 launch |
 
 A command file (CSV mode) gives the same values per line: time, sysId, roll,

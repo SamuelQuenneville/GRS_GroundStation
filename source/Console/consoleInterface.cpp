@@ -7,6 +7,9 @@
  */
 #include "consoleInterface.h"
 
+#include "Log/programLogger.h"
+#include "Util/parseUtils.h"
+
 ConsoleInterface::ConsoleInterface(GroundControlStation& gcs, bool& exitFlag, std::mutex& exitMutex, std::condition_variable& cv)
     : m_running(false)
     , m_gcs(gcs)
@@ -108,7 +111,7 @@ void ConsoleInterface::handleCommand(const std::string& command) const {
         m_gcs.generateTrajectory(grs::trajgen::TrajectoryConfig{});
     } else if (command == "saveTraj" || command.starts_with("saveTraj ")) {
         const std::string file = command.size() > 8 ? command.substr(9) : "";
-        m_gcs.saveTrajectory(file); // logs the resulting path itself
+        [[maybe_unused]] auto path = m_gcs.saveTrajectory(file); // logs the resulting path itself
     } else if (command.starts_with("setOrigin ")) {
         const std::string args = command.substr(10);
         double lat, lon, alt;
@@ -119,7 +122,7 @@ void ConsoleInterface::handleCommand(const std::string& command) const {
             m_gcs.setOrigin(lat, lon, alt);
         }
     } else if (command == "setOriginFromPayload") {
-        m_gcs.setOriginFromPayload();
+        [[maybe_unused]] auto res = m_gcs.setOriginFromPayload();
     } else if (command.starts_with("convert ")) {
         const std::string args = command.substr(8);
         double lat, lon, alt;

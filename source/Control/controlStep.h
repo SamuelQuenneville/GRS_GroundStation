@@ -11,7 +11,6 @@
 
 #pragma once
 
-#include <cstdint>
 #include <map>
 #include <memory>
 #include <optional>
@@ -25,7 +24,6 @@
 #include "estimator.h"
 #include "estimatorRunner.h"
 #include "stateVector.h"
-#include "Configuration/configurationParser.h"
 
 // One tick of the MPC control mode, shared by the GCS and grs_batchsim:
 // hand the controller the newest NMHE estimate, solve the NMPC, push this

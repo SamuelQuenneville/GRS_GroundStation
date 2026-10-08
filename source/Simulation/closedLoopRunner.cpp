@@ -8,6 +8,10 @@
 
 #include "closedLoopRunner.h"
 
+#include "Control/controlStep.h"
+#include "Control/estimatorRunner.h"
+#include "Mathematics/math.h"
+
 namespace grs::sim {
 
 namespace {

@@ -13,11 +13,7 @@
 
 #include <map>
 #include <memory>
-#include <cmath>
 #include <fstream>
-#include <set>
-#include <sstream>
-#include <stdexcept>
 
 #include "plantModel.h"
 

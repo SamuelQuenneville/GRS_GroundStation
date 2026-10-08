@@ -24,7 +24,6 @@
 
 #pragma once
 
-#include <cstdint>
 #include <cstdio>
 #include <ctime>
 #include <sys/time.h>

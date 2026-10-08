@@ -9,7 +9,6 @@
 #ifndef GCSCONFIG_H
 #define GCSCONFIG_H
 
-#include <cstdint>
 #include <string>
 #include <optional>
 #include <map>

@@ -145,8 +145,8 @@ Each command also carries the plan's predicted angle of attack
 `AOA_FF_STAGE` stages after the applied control (optional
 `SolverConfiguration` key, default 1; add the link latency in samples), a
 feedforward for the onboard attitude loop. It comes from the alpha rows of
-the accepted solution's `g` (linearized for the LMPC) and is NaN while there
-is no plan. The tether tension slot is NaN for now.
+the accepted solution's `g` (linearized for the LMPC) and is 0 while there
+is no plan. The tether tension slot is 0 for now.
 
 The LMPC is the same problem with the dynamics and angle-of-attack
 constraints linearized: its solver is a QP with the same bounds, constraint

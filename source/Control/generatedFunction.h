@@ -11,7 +11,6 @@
 
 #pragma once
 
-#include <cstddef>
 #include <initializer_list>
 #include <vector>
 

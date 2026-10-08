@@ -8,6 +8,8 @@
 
 #include "programLogger.h"
 
+#include <iostream>
+
 ProgramLogger& ProgramLogger::instance() {
     static ProgramLogger instance;
     return instance;

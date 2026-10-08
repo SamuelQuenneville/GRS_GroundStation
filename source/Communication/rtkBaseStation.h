@@ -9,29 +9,19 @@
 #ifndef RTKBASESTATION_H
 #define RTKBASESTATION_H
 
-#include <atomic>
-#include <cstdint>
 #include <functional>
 #include <memory>
 #include <thread>
-#include <vector>
-
-#include <fcntl.h>
-#include <termios.h>
-#include <unistd.h>
-#include <algorithm>
-#include <filesystem>
 
 #include "gps_helper.h"
 #include "ubx.h"
-
-#include "Log/programLogger.h"
 
 // Minimal serial port wrapper for talking to the F9P. Kept in this class
 // rather than a separate file since it's small and only used here.
 class RtkSerialPort {
 public:
     bool init(const std::string& device);
+    void close();
     [[nodiscard]] bool setBaudrate(unsigned baudrate) const;
     ssize_t read(uint8_t* bytes, unsigned len) const;
     ssize_t write(const uint8_t* bytes, unsigned len) const;

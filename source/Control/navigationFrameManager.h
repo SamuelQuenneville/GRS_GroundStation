@@ -16,7 +16,6 @@
 #include "Definitions/communicationStructures.h"
 #include "Geo/geodeticConverter.h"
 
-
 class NavigationFrameManager {
 
 public:

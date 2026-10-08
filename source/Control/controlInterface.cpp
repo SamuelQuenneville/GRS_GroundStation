@@ -8,11 +8,12 @@
 
 #include "controlInterface.h"
 
-#include <algorithm>
-#include <cstring>
-
 #include "mpcController.h"
 #include "nmheEstimator.h"
+
+#include <algorithm>
+#include <ranges>
+#include <stdexcept>
 
 ControlInterface::ControlInterface()
     : m_running(false)
@@ -32,6 +33,10 @@ void ControlInterface::initialize(const gcsConfig& config) {
         YAML::Node node = YAML::LoadFile(config.configPath);
 
         auto stack = buildControlStack(node);
+        // One control step per shooting interval.
+        if (std::abs(m_config.hlcFrequency * stack.solver.dt - 1.0) > 1e-6) {
+            throw std::runtime_error("hlcFrequency " + std::to_string(m_config.hlcFrequency) + " Hz does not match solver dt " + std::to_string(stack.solver.dt) + " s");
+        }
         m_controller = std::move(stack.controller);
         m_estimator = std::move(stack.estimatorInstance);
 
@@ -366,7 +371,7 @@ void ControlInterface::m_sendDataToMatlab(const std::map<uint8_t, uavStates>& st
     memcpy(buffer.data(), packet.data(), dataSize);
 
     sendto(m_udpSocketMatlab, buffer.data(), buffer.size(), 0,
-           reinterpret_cast<struct sockaddr *>(&m_matlabAddress), sizeof(m_matlabAddress));
+           reinterpret_cast<sockaddr *>(&m_matlabAddress), sizeof(m_matlabAddress));
 
 }
 

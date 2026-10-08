@@ -29,7 +29,7 @@ StateFill fillStateVector(const std::map<uint8_t, uavStates>& states, const Stat
     const uavStates* payload = nullptr;
     for (const auto& [sysId, s] : states) {
         if (sysId >= 1 && sysId <= layout.numUavs) {
-            const size_t o = layout.uavOffset(sysId - 1);
+            const size_t o = grs::control::StateLayout::uavOffset(sysId - 1);
             out[o + 0] = s.northMeter;
             out[o + 1] = s.eastMeter;
             out[o + 2] = s.downMeter;

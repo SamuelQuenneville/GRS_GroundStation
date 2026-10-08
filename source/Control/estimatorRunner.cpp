@@ -8,6 +8,11 @@
 
 #include "estimatorRunner.h"
 
+#include <chrono>
+#include <cmath>
+
+#include "Log/programLogger.h"
+
 // ---------------------------------------------------------------------------
 // ThreadedEstimatorRunner
 // ---------------------------------------------------------------------------

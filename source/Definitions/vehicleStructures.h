@@ -42,7 +42,7 @@ struct uavCommands {
     float thrust;           // [0 1]
 }__attribute__((packed));
 
-// Feedforward for the onboard attitude loop. NaN: none available.
+// Feedforward for the onboard attitude loop. 0: none available.
 struct uavEstimates {
     float aoaDegree = 0.0f;
     float tension = 0.0f;   // [N]

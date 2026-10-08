@@ -56,7 +56,7 @@ size_t denseSize(const casadi_int* sparsity, const char* name) {
     if (sparsity[2] != 1) {
         throw std::runtime_error(std::string("GeneratedFunction: ") + name + " has a sparse input or output");
     }
-    return static_cast<size_t>(sparsity[0] * sparsity[1]);
+    return sparsity[0] * sparsity[1];
 }
 
 } // namespace

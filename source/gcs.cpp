@@ -8,10 +8,11 @@
 
 #include "gcs.h"
 
+#include "Log/logger.h"
+#include "Log/programLogger.h"
+
 #include <algorithm>
 #include <chrono>
-#include <cmath>
-#include <ctime>
 #include <filesystem>
 #include <ranges>
 #include <stdexcept>
@@ -114,7 +115,7 @@ GroundControlStation::GroundControlStation()
         m_dashboardServer->setOrigin(snap);
     });
 
-    m_controlInterface->setTrajectoryLoadedCallback([this]() {
+    m_controlInterface->setTrajectoryLoadedCallback([this] {
         // Stamped unconditionally (not inside the `if (!m_dashboardServer)`
         // guard below) so it's still correct if the dashboard attaches
         // after a trajectory was already loaded/generated.
@@ -203,11 +204,11 @@ void GroundControlStation::setDashboard(DashboardServer* dashboard) {
     // Pure preview: computes a mission and converts it, without touching
     // m_controlInterface/m_nmpc at all. Safe to call before the controller
     // is even running.
-    m_dashboardServer->setTrajectoryGenerateHandler([this](const TrajectoryGenerationParams& params) {
+    m_dashboardServer->setTrajectoryGenerateHandler([](const TrajectoryGenerationParams& params) {
         const auto config = m_paramsToTrajectoryConfig(params);
         const auto selection = m_paramsToSubsetSelection(params, config.simDt);
         const auto liveLaunchPositions = m_paramsToLiveLaunchPositions(params);
-        const auto mission = m_controlInterface->previewTrajectory(config, selection, liveLaunchPositions);
+        const auto mission = ControlInterface::previewTrajectory(config, selection, liveLaunchPositions);
         const auto& sourceUavIndices = selection.uavIndices.value_or(std::vector<size_t>{});
         const bool includePayload = selection.includePayload.value_or(!mission.payload.empty());
         return m_missionToTrajectorySnapshot(mission, sourceUavIndices, includePayload);
@@ -230,7 +231,7 @@ void GroundControlStation::setDashboard(DashboardServer* dashboard) {
         // waiting on -- they still have the "Save current trajectory"
         // button to retry manually.
         try {
-            saveTrajectory();
+            [[maybe_unused]] auto path = saveTrajectory();
         } catch (const std::exception& e) {
             LOG_WARNING(std::string("Auto-save of applied trajectory failed: ") + e.what());
         }
@@ -238,7 +239,7 @@ void GroundControlStation::setDashboard(DashboardServer* dashboard) {
         return m_buildTrajectorySnapshotFromController();
     });
 
-    m_dashboardServer->setLivePositionsHandler([this]() {
+    m_dashboardServer->setLivePositionsHandler([this] {
         return m_buildLivePositionsSnapshot();
     });
 
@@ -248,7 +249,7 @@ void GroundControlStation::setDashboard(DashboardServer* dashboard) {
     // on demand (e.g. right before further edits) and allowed to throw
     // here, since a failure genuinely is the point of the click (-> 400
     // with the message, same convention as the other handlers).
-    m_dashboardServer->setSaveTrajectoryHandler([this]() {
+    m_dashboardServer->setSaveTrajectoryHandler([this] {
         return saveTrajectory();
     });
 
@@ -260,7 +261,7 @@ void GroundControlStation::setDashboard(DashboardServer* dashboard) {
     // dashboard -- so re-reading it back here (rather than reusing the
     // fix we just captured) mirrors the trajectory apply handler's own
     // "always reflect what's actually set" pattern.
-    m_dashboardServer->setOriginFromPayloadHandler([this]() {
+    m_dashboardServer->setOriginFromPayloadHandler([this] {
         if (!setOriginFromPayload()) {
             throw std::runtime_error("No payload GPS fix yet -- check that the payload's Pixhawk is connected and streaming telemetry.");
         }

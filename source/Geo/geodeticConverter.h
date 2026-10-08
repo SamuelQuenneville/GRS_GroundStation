@@ -10,7 +10,6 @@
 #define GEODETICCONVERTER_H
 
 #include "Mathematics/math.h"
-#include "Log/programLogger.h"
 
 // World Geodetic System 1984 (WGS84) ellipsoid
 constexpr double kSemimajorAxis = 6378137.0;

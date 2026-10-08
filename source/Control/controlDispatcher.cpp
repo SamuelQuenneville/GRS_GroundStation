@@ -8,7 +8,7 @@
 
 #include "controlDispatcher.h"
 
-#include <utility>
+#include "Log/programLogger.h"
 
 ControlDispatcher::ControlDispatcher() = default;
 
@@ -63,7 +63,7 @@ void ControlDispatcher::m_dispatchLoop() {
 
     while (m_running) {
         std::unique_lock lock(m_queueMutex);
-        m_cv.wait(lock, [this]() { return m_pending.has_value() || !m_running; });
+        m_cv.wait(lock, [this] { return m_pending.has_value() || !m_running; });
 
         if (!m_running) break;
 

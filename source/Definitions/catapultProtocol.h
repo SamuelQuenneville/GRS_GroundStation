@@ -14,6 +14,7 @@
 #define CATAPULTPROTOCOL_H
 
 #include <cstddef>
+#include <cstdint>
 
 #define CATAPULT_MAGIC   0xC7
 #define CATAPULT_PORT    5800   // default TCP port the ESP32 listens on

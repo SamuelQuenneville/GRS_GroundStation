@@ -170,7 +170,7 @@ void DashboardServer::start() {
     // its own thread. Binds to loopback only: this dashboard has no
     // authentication, so it shouldn't be reachable from other machines.
     // Point this at "0.0.0.0" instead if you want LAN access.
-    m_serverThread = std::thread([this]() {
+    m_serverThread = std::thread([this] {
         if (!m_httpServer->listen("localhost", m_port)) {
             LOG_ERROR("Dashboard: cannot listen on localhost:" + std::to_string(m_port) + " (port in use?)");
         }

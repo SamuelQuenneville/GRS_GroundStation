@@ -29,8 +29,8 @@
 // SET_ATTITUDE_TARGET (82), GCS -> vehicle, type_mask 0:
 //   q                    roll, pitch command, yaw 0
 //   thrust               throttle [0, 1] (thrust2rpm)
-//   body_roll_rate       angle-of-attack feedforward [deg], NaN if none
-//   body_pitch_rate      tether tension [N], NaN if none
+//   body_roll_rate       angle-of-attack feedforward [deg], 0 if none
+//   body_pitch_rate      tether tension [N], 0 if none
 //   body_yaw_rate        flags as a float (commandFlag, vehicleStructures.h):
 //                        bit 0 should_move, bit 1 end_sim, bit 2 launch
 

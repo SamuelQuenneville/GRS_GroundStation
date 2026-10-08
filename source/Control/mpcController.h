@@ -14,7 +14,6 @@
 #include <limits>
 #include <mutex>
 #include <optional>
-#include <sstream>
 #include <cassert>
 
 #include "Definitions/vehicleStructures.h"

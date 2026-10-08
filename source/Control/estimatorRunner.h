@@ -19,13 +19,8 @@
 #include <optional>
 #include <thread>
 #include <algorithm>
-#include <chrono>
-#include <cmath>
 
 #include "estimator.h"
-
-#include "Log/programLogger.h"
-
 
 // How the NMHE runs relative to the control loop. ControlStep talks only to
 // this interface; the Estimator itself is owned by whoever built it

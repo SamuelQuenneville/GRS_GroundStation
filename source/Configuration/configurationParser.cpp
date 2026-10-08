@@ -8,10 +8,6 @@
 
 #include "configurationParser.h"
 
-#include <stdexcept>
-#include <string>
-#include <utility>
-
 // configurationParser.cpp
 gcsConfig ConfigurationParser::parseGcsConfig(YAML::Node& node, const gcsConfig& defaults) {
     gcsConfig config = defaults;

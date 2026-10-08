@@ -16,11 +16,9 @@
 #include <map>
 #include <optional>
 #include <thread>
-#include <atomic>
 #include <functional>
 
 #include "Definitions/communicationStructures.h"
-#include "Log/programLogger.h"
 
 class ControlDispatcher {
 public:

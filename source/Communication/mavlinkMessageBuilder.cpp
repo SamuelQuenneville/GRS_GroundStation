@@ -8,6 +8,8 @@
 
 #include "mavlinkMessageBuilder.h"
 
+#include <chrono>
+
 mavlink_message_t MavlinkMessageBuilder::buildSetAttitudeTarget(const MavlinkAddress& address, const uint8_t channel, const uint8_t targetSysid, const uint8_t targetCompid, const uavCommandsFlags& target) {
     mavlink_message_t msg{};
     float q[4];
@@ -28,7 +30,7 @@ mavlink_message_t MavlinkMessageBuilder::buildSetAttitudeTarget(const MavlinkAdd
         q,
         target.estimates.aoaDegree,     // body_roll_rate field
         target.estimates.tension,       // body_pitch_rate field
-        static_cast<float>(target.flags), // body_yaw_rate field, commandFlag bits
+        target.flags, // body_yaw_rate field, commandFlag bits
         target.commands.thrust,
         thrustBody
     );

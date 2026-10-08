@@ -8,6 +8,11 @@
 
 #include "truthSample.h"
 
+#include <set>
+#include <sstream>
+#include <stdexcept>
+#include <cmath>
+
 namespace grs::sim {
 
 namespace {

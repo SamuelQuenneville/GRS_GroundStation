@@ -12,7 +12,6 @@
 #pragma once
 
 #include <chrono>
-#include <cstdint>
 #include <mutex>
 #include <optional>
 

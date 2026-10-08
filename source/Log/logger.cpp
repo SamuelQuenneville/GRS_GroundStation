@@ -9,7 +9,8 @@
 #include "logger.h"
 
 #include <ranges>
-
+#include <filesystem>
+#include <fstream>
 
 Logger& Logger::instance() {
     static Logger inst;
@@ -95,7 +96,7 @@ std::string Logger::getDateString() {
     char buffer[80];
 
     time(&rawTime);
-    const struct tm *timeInfo = localtime(&rawTime);
+    const tm *timeInfo = localtime(&rawTime);
 
     strftime(buffer,sizeof(buffer),"/%Y-%m-%d_%H-%M-%S",timeInfo);
     const std::string date(buffer);

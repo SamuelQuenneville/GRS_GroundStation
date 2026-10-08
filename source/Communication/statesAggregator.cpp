@@ -8,9 +8,6 @@
 
 #include "statesAggregator.h"
 
-#include <algorithm>
-#include <cmath>
-
 bool StatesAggregator::updateControlState(const uint64_t timeUsec, const float pos[3], const float vel[3], const float airspeed, const float q[4]) {
     // q = [w x y z], body to NED (ZYX Euler).
     const float w = q[0], x = q[1], y = q[2], z = q[3];

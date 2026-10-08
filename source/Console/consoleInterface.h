@@ -9,10 +9,7 @@
 #ifndef CONSOLEINTERFACE_H
 #define CONSOLEINTERFACE_H
 
-#include <atomic>
-
 #include "gcs.h"
-#include "Util/parseUtils.h"
 
 class ConsoleInterface {
 

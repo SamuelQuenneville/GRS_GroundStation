@@ -8,6 +8,7 @@
 
 #include "controlStep.h"
 
+#include "Configuration/configurationParser.h"
 #include "mpcController.h"
 #include "nmheEstimator.h"
 
@@ -77,6 +78,13 @@ ControlStack buildControlStack(YAML::Node& node, const bool withEstimator) {
     if (withEstimator) {
         stack.estimator = ConfigurationParser::parseEstimatorConfig(node);
         if (stack.estimator) {
+            // The NMHE feeds the controller its states, wind and disturbances.
+            const estimatorConfig& e = *stack.estimator;
+            const solverConfig& s = stack.solver;
+            if (e.nx != s.nx || e.nu != s.nu || e.np != s.np || e.nd != s.nd || e.nL0 != s.nL0
+                || e.numUavs != s.numUavs || std::abs(e.dt - s.dt) > 1e-9) {
+                throw std::runtime_error("EstimatorConfiguration does not match SolverConfiguration (nx, nu, np, nd, nL0, numUavs or dt)");
+            }
             stack.estimatorInstance = std::make_unique<NmheEstimator>(*stack.estimator);
         }
     }

@@ -14,6 +14,7 @@
 #include "Util/parseUtils.h"
 #include "gcsConfig.h"
 #include "Configuration/configurationParser.h"
+#include "Log/programLogger.h"
 
 // Global synchronization for clean shutdown
 std::mutex g_exitMutex;

@@ -10,8 +10,6 @@
 #define ESTIMATOR_H
 
 #pragma once
-
-#include <cstddef>
 #include <vector>
 
 #include "fatropStatus.h"

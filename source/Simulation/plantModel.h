@@ -13,9 +13,6 @@
 
 #include <string>
 #include <vector>
-#include <algorithm>
-#include <cmath>
-#include <stdexcept>
 
 // Truth-plant models for grs_batchsim: C++ ports of GRS_Controller's
 //   01_models/02_twoUav/grsTwoUavPayloadDynamicAugmented.m

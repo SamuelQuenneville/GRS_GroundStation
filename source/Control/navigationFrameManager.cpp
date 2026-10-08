@@ -8,8 +8,7 @@
 
 #include "navigationFrameManager.h"
 
-#include <cmath>
-#include <utility>
+#include "Log/programLogger.h"
 
 namespace {
 // Global vs local position through the offset, vehicle still [m]. Both come

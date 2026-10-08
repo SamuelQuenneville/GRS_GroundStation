@@ -335,7 +335,7 @@ std::vector<MpcController::TrajectoryPointView> MpcController::getTrajectoryForV
 
     int offset, blockSize;
     if (vehicleIndex >= 0 && vehicleIndex < m_config.numUavs) {
-        offset = static_cast<int>(m_layout.uavOffset(vehicleIndex));
+        offset = static_cast<int>(grs::control::StateLayout::uavOffset(vehicleIndex));
         blockSize = grs::control::kUavBlockSize;
     } else if (hasPayload() && vehicleIndex == m_config.numUavs) {
         offset = static_cast<int>(m_layout.payloadOffset());
@@ -553,8 +553,8 @@ std::map<uint8_t, uavCommandsFlags> MpcController::m_extractControls() const {
 
         cmd.estimates.aoaDegree = m_planAge < N
             ? grs::radToDeg(static_cast<float>(m_planAlpha[aoaStage * m_config.numUavs + (sysId - 1)]))
-            : std::numeric_limits<float>::quiet_NaN();
-        cmd.estimates.tension = std::numeric_limits<float>::quiet_NaN();
+            : 0.0f;
+        cmd.estimates.tension = 0.0f;
 
         cmd.flags = commandFlag::kShouldMove;
         if (m_launched) cmd.flags |= commandFlag::kLaunch;
@@ -584,7 +584,7 @@ void MpcController::m_unpackLatestStates(const std::map<uint8_t, uavStates>& lat
 
     if (m_launched && !m_inFlight) {
         for (int i = 0; i < m_config.numUavs; ++i) {
-            const size_t o = m_layout.uavOffset(i);
+            const size_t o = grs::control::StateLayout::uavOffset(i);
             const double vn = m_initialStates[o + 3], ve = m_initialStates[o + 4], vd = m_initialStates[o + 5];
             if (fill.uav[i] && std::sqrt(vn * vn + ve * ve + vd * vd) > m_config.inFlightSpeed) {
                 m_inFlight = true;
@@ -605,7 +605,7 @@ void MpcController::m_unpackLatestStates(const std::map<uint8_t, uavStates>& lat
     if (!m_inFlight) {
         m_launchPositionError = 0.0;
         for (int i = 0; i < m_config.numUavs; ++i) {
-            const size_t o = m_layout.uavOffset(i);
+            const size_t o = grs::control::StateLayout::uavOffset(i);
             double e2 = 0.0;
             for (size_t k = 0; k < 3; ++k) {
                 const double e = m_initialStates[o + k] - m_referenceTrajectory[o + k];

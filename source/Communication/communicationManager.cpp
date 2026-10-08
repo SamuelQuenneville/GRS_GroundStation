@@ -8,15 +8,19 @@
 
 #include "communicationManager.h"
 
+#include "Log/programLogger.h"
+#include "mavlinkMessageBuilder.h"
+
 #include <algorithm>
 #include <fstream>
 #include <ranges>
+#include <mavsdk/base64.h>
 
 CommunicationManager::CommunicationManager()
     : m_mavsdk(GROUND_STATION)
 {
     // For the lifetime of this object: fires whenever MAVSDK sees a new system on any link, at any time (see m_watchSystem).
-    m_newSystemHandle = m_mavsdk.subscribe_on_new_system([this]() {
+    m_newSystemHandle = m_mavsdk.subscribe_on_new_system([this] {
         for (const auto& system : m_mavsdk.systems()) {
             m_watchSystem(system);
         }
@@ -39,7 +43,7 @@ void CommunicationManager::start() {
     if (m_config.telemetry_publish_hz > 0.0) {
         // Consolidated snapshots at a fixed rate, only when something changed.
         const auto period = std::chrono::microseconds(static_cast<int64_t>(1e6 / m_config.telemetry_publish_hz));
-        m_publishThread = std::thread([this, period]() {
+        m_publishThread = std::thread([this, period] {
             while (m_running.load()) {
                 std::this_thread::sleep_for(period);
                 if (m_snapshotDirty.exchange(false)) m_onTelemetryUpdate();
@@ -351,7 +355,7 @@ void CommunicationManager::m_watchSystem(const std::shared_ptr<mavsdk::System>& 
     const uint8_t sysId = system->get_system_id();
     {
         std::lock_guard lock(m_linkMutex);
-        if (!m_watchers.try_emplace(sysId, Watcher{system, std::nullopt}).second) return; // already watched
+        if (!m_watchers.try_emplace(sysId, Watcher{.system = system, .handle = std::nullopt}).second) return; // already watched
     }
 
     // Subscribed outside the lock: the callback takes it.
@@ -376,7 +380,7 @@ void CommunicationManager::m_onConnectionChanged(const std::shared_ptr<mavsdk::S
         registered = m_vehicles.contains(sysId);
         if (connected && !registered && system->has_autopilot()) {
             // Plugin construction off the MAVSDK callback thread.
-            m_registrationThreads.emplace_back([this, system]() { m_registerSystem(system); });
+            m_registrationThreads.emplace_back([this, system] { m_registerSystem(system); });
             return;
         }
     }

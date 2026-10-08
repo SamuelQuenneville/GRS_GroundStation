@@ -8,6 +8,8 @@
 
 #include "geodeticConverter.h"
 
+#include "Log/programLogger.h"
+
 bool GeodeticConverter::isInitialized() const {
     return m_haveReference;
 }

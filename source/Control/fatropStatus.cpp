@@ -9,7 +9,6 @@
 #include "fatropStatus.h"
 
 #include <utility>
-
 #include <fatrop/ocp/OCPCInterface.h>
 
 namespace {

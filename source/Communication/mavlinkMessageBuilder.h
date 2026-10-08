@@ -11,14 +11,7 @@
 
 #pragma once
 
-#include <mavsdk/mavsdk.h>
-#include <mavsdk/plugins/mavlink_passthrough/mavlink_passthrough.h>
-#include <cmath>
-#include <array>
-#include <chrono>
-
 #include "Definitions/communicationStructures.h"
-
 
 class MavlinkMessageBuilder {
 public:

@@ -80,7 +80,7 @@ int main(int argc, char** argv) {
     double worst = 0.0;
 
     for (int k = 1; k <= 2; ++k) {
-        const size_t idx = static_cast<size_t>(k - 1);
+        const auto idx = static_cast<size_t>(k - 1);
 
         // Takeoff phase pos/vel/acc
         {

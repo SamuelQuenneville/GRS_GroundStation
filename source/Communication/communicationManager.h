@@ -14,23 +14,13 @@
 #include <mavsdk/plugins/param/param.h>
 #include <mavsdk/plugins/mavlink_passthrough/mavlink_passthrough.h>
 #include <mavsdk/plugins/rtk/rtk.h>
-#include <mavsdk/base64.h>
 
-#include <atomic>
-#include <chrono>
-#include <functional>
-#include <map>
-#include <mutex>
-#include <optional>
 #include <thread>
-#include <vector>
 
 #include "gcsConfig.h"
 #include "statesAggregator.h"
-#include "Log/programLogger.h"
 #include "Definitions/communicationStructures.h"
 
-#include "mavlinkMessageBuilder.h"
 
 #define GROUND_STATION mavsdk::Mavsdk::Configuration(255, MAV_COMP_ID_MISSIONPLANNER, true)
 
@@ -128,7 +118,8 @@ private:
     // Creates the plugins and subscribes. Idempotent per sysId.
     void m_registerSystem(const std::shared_ptr<mavsdk::System>& system);
     void m_subscribeMavlink(uint8_t sysId);
-    void m_unsubscribeMavlink(Vehicle& vehicle); // without m_linkMutex (callbacks take it)
+
+    static void m_unsubscribeMavlink(Vehicle& vehicle); // without m_linkMutex (callbacks take it)
 
     // Waits up to timeoutMs only to print how many vehicles registered.
     void m_waitAndSummarize(int expectedCount, int timeoutMs);

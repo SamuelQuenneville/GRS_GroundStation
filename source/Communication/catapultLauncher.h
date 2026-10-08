@@ -10,29 +10,13 @@
 #define CATAPULTLAUNCHER_H
 
 #include <atomic>
-#include <chrono>
 #include <condition_variable>
 #include <cstdint>
 #include <functional>
-#include <memory>
-#include <mutex>
 #include <optional>
 #include <string>
 #include <thread>
-#include <vector>
 
-#include <cstring>
-#include <algorithm>
-
-#include <arpa/inet.h>
-#include <fcntl.h>
-#include <netinet/in.h>
-#include <netinet/tcp.h>
-#include <sys/select.h>
-#include <sys/socket.h>
-#include <unistd.h>
-
-#include "Log/programLogger.h"
 #include "Definitions/catapultProtocol.h"
 
 enum class CatapultState {
@@ -133,9 +117,11 @@ private:
         uint16_t port = CATAPULT_PORT;
         std::string expectedIp;
 
+        // Opened and closed by the link thread only (listenFd by connectAll and
+        // disconnectAll while that thread is stopped). Others just read them.
         int listenFd = -1;
-        int fd = -1;              // -1 until a launcher has connected
-        std::string peerIp;       // set once a client connects
+        std::atomic<int> fd{-1};  // -1 until a launcher has connected
+        std::string peerIp;       // written before fd is set
 
         std::atomic<CatapultState> state{CatapultState::Disconnected};
         std::atomic<uint32_t> lastStatusBits{0};
