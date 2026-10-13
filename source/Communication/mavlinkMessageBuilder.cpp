@@ -28,7 +28,7 @@ mavlink_message_t MavlinkMessageBuilder::buildSetAttitudeTarget(const MavlinkAdd
         targetCompid,
         0,                              // type_mask: the body-rate fields carry data
         q,
-        target.estimates.aoaDegree,     // body_roll_rate field
+        target.estimates.aoaRad,        // body_roll_rate field
         target.estimates.tension,       // body_pitch_rate field
         target.flags, // body_yaw_rate field, commandFlag bits
         target.commands.thrust,

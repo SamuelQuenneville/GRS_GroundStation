@@ -756,7 +756,7 @@ bool GroundControlStation::m_parseUavCommandsLine(const std::string& line, uavCo
     if (!std::getline(lineStream, token, ',')) {
         return false;
     }
-    commands.estimates.aoaDegree = std::stof(token);
+    commands.estimates.aoaRad = std::stof(token);
 
     if (!std::getline(lineStream, token, ',')) {
         return false;

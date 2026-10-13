@@ -168,8 +168,8 @@ sampled (steady clock in the GCS, simulated time in `grs_batchsim`), and the
 reference window starts at the time elapsed since the first solve after
 launch, interpolated linearly between samples. A slow or skipped tick does
 not delay the reference, and all UAVs follow the same schedule. The
-reference time is followed by the angle-of-attack feedforward [deg] in
-`controls.csv`. Also owns:
+reference time is followed by the angle-of-attack feedforward in
+`controls.csv` (logged in deg, sent in rad). Also owns:
 
 - **Reference trajectory** — `loadTrajectory()`/`saveTrajectory()` (CSV) and
   `setReferenceTrajectory()` (in-process, from `TrajectoryGenerator`), all

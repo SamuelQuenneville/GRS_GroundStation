@@ -551,8 +551,8 @@ std::map<uint8_t, uavCommandsFlags> MpcController::m_extractControls() const {
         cmd.commands.pitchDegree = grs::radToDeg(static_cast<float>(m_uPrev[offset + 2]));
         cmd.commands.yawDegree   = 0.0;
 
-        cmd.estimates.aoaDegree = m_planAge < N
-            ? grs::radToDeg(static_cast<float>(m_planAlpha[aoaStage * m_config.numUavs + (sysId - 1)]))
+        cmd.estimates.aoaRad = m_planAge < N
+            ? static_cast<float>(m_planAlpha[aoaStage * m_config.numUavs + (sysId - 1)])
             : 0.0f;
         cmd.estimates.tension = 0.0f;
 
@@ -566,7 +566,7 @@ std::map<uint8_t, uavCommandsFlags> MpcController::m_extractControls() const {
         msg << std::fixed << std::setprecision(4) << m_trackingNumber << "," << Logger::instance().nowMilliseconds() << "," << Logger::nowWallTimeMs() << "," << m_lastSolveMs << ",";
         msg << cmd.commands.thrust << "," << cmd.commands.rollDegree << "," << cmd.commands.pitchDegree << "," << cmd.commands.yawDegree << "," << m_lastIdxTraj;
         msg << "," << m_lastStatus.fatrop.iterations << "," << m_lastStatus.fatrop.returnCode << "," << m_referenceTime;
-        msg << "," << cmd.estimates.aoaDegree;
+        msg << "," << grs::radToDeg(cmd.estimates.aoaRad);
 
         if (m_violation) {
             msg << ", INVALID SOL, " << (m_planAge < static_cast<size_t>(m_config.N) ? "plan age " + std::to_string(m_planAge) : "reference");

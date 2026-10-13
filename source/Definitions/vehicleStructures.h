@@ -44,7 +44,7 @@ struct uavCommands {
 
 // Feedforward for the onboard attitude loop. 0: none available.
 struct uavEstimates {
-    float aoaDegree = 0.0f;
+    float aoaRad = 0.0f;    // [rad], what the GrsPlane fork expects
     float tension = 0.0f;   // [N]
 }__attribute__((packed));
 
