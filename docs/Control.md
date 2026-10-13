@@ -10,9 +10,11 @@ Owns the control-loop thread (`m_controlLoop()`, running at `hlcFrequency`
 Hz) and, in MPC mode, a `Controller` instance (`MpcController` today). Each tick:
 
 1. Takes the latest telemetry (`updateStates()`'s snapshot).
-2. Runs it through `NavigationFrameManager` to get NED-frame states:
-   `initializeOffset()` every tick (logs once while there is no GCS origin),
-   `toNavigationFrame()` once the frame is initialized.
+2. Runs it through `NavigationFrameManager::toNavigationFrame()` to get
+   NED-frame states, once the frame is initialized. The offsets themselves
+   are computed on every telemetry update (`updateStates()` calls
+   `initializeOffset()`), so live positions and the launch checks work
+   before the controller is started.
 3. Once the nav frame is initialized, dispatches based on `controlMode`:
    - **MPC**: `ControlStep::tick()` (controller solve, then the NMHE
      sample push and, on its own cadence, the NMHE solve; see below), then
@@ -243,8 +245,8 @@ until it arrives, then every 10 s, and passes it on through
 messages sampled at different times. The same holds in SITL. The tangent
 planes of the two origins differ by less than 0.2 m per km of separation.
 
-`initializeOffset()` is called unconditionally every control-loop tick; it's
-incremental: it computes the offset of a sysId once its EKF origin is known
+`initializeOffset()` is called on every telemetry update (logs once while
+there is no GCS origin); it's incremental: it computes the offset of a sysId once its EKF origin is known
 (refused above 5 km: wrong GCS or EKF origin, logged once), and checks every
 offset while the vehicle is still (< 1 m/s): its `GLOBAL_POSITION_INT`
 must equal the local position plus the offset within 1 m, otherwise an

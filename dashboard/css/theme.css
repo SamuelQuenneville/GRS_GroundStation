@@ -339,7 +339,6 @@ body {
 .link-card .info-list li { padding: 0; }
 .link-card .info-list li span:first-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .link-card .info-list li span:last-child { white-space: nowrap; }
-.link-card .info-list li.unrequested span { color: var(--text-dim); font-weight: 400; }
 
 .health-ok { color: var(--green); }
 .health-warn { color: var(--orange); }

@@ -14,9 +14,9 @@
 #include <algorithm>
 #include <array>
 #include <fstream>
-#include <functional>
 #include <ranges>
 #include <mavsdk/base64.h>
+#include <mavsdk/log_callback.h>
 
 namespace {
 // Rates requested by m_requestStatusRates() [Hz].
@@ -24,30 +24,15 @@ constexpr double kPositionRateHz = 5.0;
 constexpr double kStatusRateHz = 1.0;
 }
 
-// "NAME (id)" of a message: the common dialect's names, plus the ArduPilot
-// messages a vehicle streams through its SRx_* parameters.
-static std::string messageName(const uint32_t id) {
-    static const std::map<uint32_t, std::string> names = [] {
-        struct Entry { const char* name; uint32_t id; };
-        constexpr Entry common[] = MAVLINK_MESSAGE_NAMES;
-        constexpr Entry ardupilot[] = {
-                {.name = "SENSOR_OFFSETS", .id = 150}, {.name = "MEMINFO", .id = 152}, {.name = "AHRS", .id = 163}, {.name = "SIMSTATE", .id = 164}, {.name = "HWSTATUS", .id = 165},
-                {.name = "WIND", .id = 168}, {.name = "BATTERY2", .id = 181}, {.name = "RANGEFINDER", .id = 173}, {.name = "AHRS2", .id = 178}, {.name = "AHRS3", .id = 182},
-                {.name = "EKF_STATUS_REPORT", .id = 193}, {.name = "PID_TUNING", .id = 194}, {.name = "RPM", .id = 226}, {.name = "AOA_SSA", .id = 11020},
-                {.name = "ESC_TELEMETRY_1_TO_4", .id = 11030}, {.name = "MCU_STATUS", .id = 11039},
-            };
-        std::map<uint32_t, std::string> map;
-        for (const auto& [name, msgId] : common) map.emplace(msgId, name);
-        for (const auto& [name, msgId] : ardupilot) map.emplace(msgId, name);
-        return map;
-    }();
-    const auto it = names.find(id);
-    return (it == names.end() ? std::string("MSG") : it->second) + " (" + std::to_string(id) + ")";
-}
-
 CommunicationManager::CommunicationManager()
     : m_mavsdk(GROUND_STATION)
 {
+    // m_sendCommandLong() bypasses MAVSDK's command queue, so MAVSDK does not
+    // expect the acks of those commands: drop its warning about them.
+    mavsdk::log::subscribe([](mavsdk::log::Level, const std::string& message, const std::string&, int) {
+        return message.starts_with("Received ack for not-existing command");
+    });
+
     // Counts every incoming message for linkRates(), then lets it through.
     m_mavsdk.intercept_incoming_messages_async([this](const mavlink_message_t& message) {
         std::lock_guard lock(m_rateMutex);
@@ -693,7 +678,7 @@ void CommunicationManager::m_requestGpsGlobalOrigin(const uint8_t sysId) {
 }
 
 void CommunicationManager::m_requestStatusRates(const uint8_t sysId) {
-    // Dashboard and frame offset only. Set every SRx_* of this port to 0 on the
+    // Dashboard and frame offset only. Set every SRx_* of this port to -1 on the
     // vehicle: then only what is requested here is sent.
     m_sendCommandLong(sysId, MAV_CMD_SET_MESSAGE_INTERVAL, MAVLINK_MSG_ID_GLOBAL_POSITION_INT, 1e6 / kPositionRateHz);
     for (const uint32_t id : {MAVLINK_MSG_ID_SYS_STATUS, MAVLINK_MSG_ID_GPS_RAW_INT, MAVLINK_MSG_ID_BATTERY_STATUS}) {
@@ -777,24 +762,5 @@ std::vector<CommunicationManager::LinkRate> CommunicationManager::linkRates(cons
         rates.push_back({.name = l.name, .hz = it == r.receivedHz.end() ? 0.0 : it->second, .requestedHz = l.requestedHz});
     }
     if (withCommands) rates.push_back({.name = "SET_ATTITUDE_TARGET sent", .hz = r.sentHz, .requestedHz = m_config.hlcFrequency});
-
-    // Messages not requested here, fastest first; beyond kShown, one summed row.
-    constexpr size_t kShown = 5;
-    std::vector<std::pair<double, uint32_t>> others;
-    for (const auto& [id, hz] : r.receivedHz) {
-        if (hz >= 0.1 && std::ranges::none_of(listed, [id](const Listed& l) { return l.id == id; })) {
-            others.emplace_back(hz, id);
-        }
-    }
-    std::ranges::sort(others, std::greater{});
-    double restHz = 0.0;
-    for (size_t i = 0; i < others.size(); ++i) {
-        if (i < kShown) rates.push_back({.name = messageName(others[i].second), .hz = others[i].first, .requestedHz = 0.0});
-        else restHz += others[i].first;
-    }
-    if (others.size() > kShown) {
-        rates.push_back({.name = "Other (" + std::to_string(others.size() - kShown) + " more)", .hz = restHz, .requestedHz = 0.0});
-    }
-
     return rates;
 }

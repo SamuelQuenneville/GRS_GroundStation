@@ -54,7 +54,7 @@ on the vehicle so nothing else is streamed:
 
 | Message | Rate | Use |
 |---|---|---|
-| `CONTROL_SYSTEM_STATE` (146) | `stateRateHz` (50) | controller and NMHE state, GRS convention (`grsMavlinkConventions.h`) |
+| `CONTROL_SYSTEM_STATE` (146) | `stateRateHz` (40, at most 80 % of `SCHED_LOOP_RATE`) | controller and NMHE state, GRS convention (`grsMavlinkConventions.h`) |
 | `GLOBAL_POSITION_INT` | 5 Hz | GCS origin, frame-offset check, dashboard |
 | `SYS_STATUS`, `GPS_RAW_INT`, `BATTERY_STATUS` | 1 Hz | dashboard |
 | `HEARTBEAT` | 1 Hz (always) | mode, armed, link |
@@ -69,8 +69,8 @@ after the first 5 s and whenever it drops below 70 % of the request.
 incoming message is counted by one `intercept_incoming_messages_async`
 callback) and of the `SET_ATTITUDE_TARGET` sent, over 1 s windows averaged
 with the previous estimate. The dashboard's Link card shows them against the
-requested rates. Messages not requested here (SRx_* left on) follow, by name
-+and fastest first, the five fastest each on its own row and the rest summed.
+requested rates. The vehicle streams nothing else when its `SRx_*` of this
+port are -1.
 
 ## `StatesAggregator` (`statesAggregator.h`/`.cpp`)
 

@@ -152,8 +152,6 @@ function demoLinkRates() {
         { name: "GPS_RAW_INT", hz: jitter(1), requestedHz: 1 },
         { name: "BATTERY_STATUS", hz: jitter(1), requestedHz: 1 },
         { name: "SET_ATTITUDE_TARGET sent", hz: jitter(20), requestedHz: 20 },
-        { name: "ATTITUDE (30)", hz: jitter(4), requestedHz: 0 },
-        { name: "VFR_HUD (74)", hz: jitter(2), requestedHz: 0 },
 
     ];
 }
@@ -166,7 +164,6 @@ function setLinkRates(panel, rates) {
         const label = document.createElement("span");
         const value = document.createElement("span");
         label.textContent = name;
-        if (!(requestedHz > 0)) li.className = "unrequested";
         const rate = typeof hz === "number" ? hz.toFixed(1) : "--";
         value.textContent = requestedHz > 0 ? `${rate} / ${requestedHz}` : rate;
         if (requestedHz > 0 && typeof hz === "number") {

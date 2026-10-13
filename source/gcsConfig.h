@@ -94,8 +94,8 @@ struct gcsConfig {
     // MPC mode: no command while a vehicle's last CONTROL_SYSTEM_STATE is older than this [s].
     double telemetryTimeout = 0.3;
     // CONTROL_SYSTEM_STATE rate requested from each vehicle [Hz]. ArduPilot
-    // sends at most at its main loop rate (SCHED_LOOP_RATE, 50 Hz on Plane).
-    double stateRateHz = 50.0;
+    // refuses more than 80 % of its main loop rate (SCHED_LOOP_RATE, 50 Hz on Plane).
+    double stateRateHz = 40.0;
     pixhawkConfig pixhawk;
     std::vector<pixhawkEndpointConfig> pixhawkEndpoints; // used when pixhawk.sitl == false
     std::optional<std::pair<std::string, uint16_t>> matlab;

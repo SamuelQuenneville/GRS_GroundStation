@@ -97,7 +97,7 @@ struct TrajectoryConfig {
         /// not a clean constant, so it's a named field rather than folded silently into takeoffPitch0Deg.
         double takeoffPitch0Deg = 19;
         double takeoffPitch0TrimRad = -0.1687;
-        double takeoffPitchDecayFrac = 0.65;    // Fraction of initial pitch to decay to
+        double takeoffPitchDecayFrac = 0.80;    // Fraction of initial pitch to decay to
     } aircraftPath;
 
     /// @name Field calibration

@@ -149,8 +149,13 @@ std::optional<ControlInterface::GpsFix> ControlInterface::getPayloadGpsFix() con
 }
 
 void ControlInterface::updateStates(const std::map<uint8_t, uavStates>& states) {
-    std::lock_guard lock(m_stateMutex);
-    m_latestStates = states;
+    {
+        std::lock_guard lock(m_stateMutex);
+        m_latestStates = states;
+    }
+    // Offsets follow the telemetry, so live positions (trajectory generator,
+    // launch readiness) exist before the controller starts.
+    m_navFrameManager.initializeOffset(states);
 }
 
 void ControlInterface::initMatlabConnection(const char* ip, const uint16_t port) {
@@ -284,9 +289,6 @@ void ControlInterface::m_controlLoop() {
                 latestStates = m_latestStates;
             }
             const double time = std::chrono::duration<double>(std::chrono::steady_clock::now().time_since_epoch()).count();
-
-            // Every tick: adds the offset of systems that connected since (see initializeOffset()).
-            m_navFrameManager.initializeOffset(latestStates);
 
             if (m_navFrameManager.isInitialized()) {
                 std::map<uint8_t, uavCommandsFlags>  cmds;
