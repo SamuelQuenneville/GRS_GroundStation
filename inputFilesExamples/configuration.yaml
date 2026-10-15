@@ -22,9 +22,9 @@ Pixhawk:
   # Only read when sitl: false — one dedicated IP:port per real Pixhawk.
   # We use UDP so IP is WI-FI interface on GCS laptop
   endpoints:
-    - {id: 1, ip: 192.168.50.10, port: 14600}
+    - {id: 1, ip: 192.168.50.10, port: 14400}
     #- {id: 2, ip: 192.168.50.10, port: 14500}
-    #- {id: 3, ip: 192.168.50.10, port: 14600}
+    - {id: 3, ip: 192.168.50.10, port: 14600}
 
 # Connect via TCP
 Catapults:
@@ -48,7 +48,7 @@ SolverConfiguration:
   CONTROLLER: nmpc
 
   # Tether rest length [m], packed into every solve's L0 parameter.
-  L0: 30.0
+  L0: 28.5
 
   # Angle-of-attack bound [rad] (build option 'alpha_max').
   ALPHA_MAX: 0.244346  # deg2rad(14)
@@ -58,16 +58,18 @@ SolverConfiguration:
   AOA_FF_STAGE: 1
 
   # Launch (docs/Control.md): fire refused while a UAV is farther than
-  # LAUNCH_POS_TOL [m] from its reference start; in flight above
-  # IN_FLIGHT_SPEED [m/s]; back to standby if not in flight LAUNCH_TIMEOUT [s]
-  # after the launch.
+  # LAUNCH_POS_TOL [m] from its reference start or its yaw more than
+  # LAUNCH_YAW_TOL [deg] from the rail azimuth; in flight past the catapult
+  # release above IN_FLIGHT_SPEED [m/s] (release measured at 9.5 m/s); back to
+  # standby if not in flight LAUNCH_TIMEOUT [s] after the launch.
   LAUNCH_POS_TOL: 3.0
-  IN_FLIGHT_SPEED: 10.0
+  LAUNCH_YAW_TOL: 15.0
+  IN_FLIGHT_SPEED: 8.0
   LAUNCH_TIMEOUT: 1.0
 
   # Q(8) | R(3) | Qf(8) | Rdu(3) | Rdu0(3), GRS_Controller tuning_oneGround.m.
   #         x,   y,  z, vx, vy, vz, roll, pitch | T, roll, pitch | Qf = 10 Q | Rdu | Rdu0 = 2 Rdu
-  WEIGHT: [0.1, 0.1, 1, 1, 1, 1, 1, 1,   5, 1, 1,   1, 1, 10, 10, 10, 10, 10, 10,   0.5, 2.0, 2.0,   1.0, 4.0, 4.0]
+  WEIGHT: [0.1, 0.1, 1, 1, 1, 1, 1, 1,   5, 1, 1,   1, 1, 10, 10, 10, 10, 10, 10,   0.5, 2.0, 4.0,   1.0, 4.0, 8.0]
   # State bounds apply from the second stage on (the first is the measured state).
   LBX_STATES: [-.inf, -.inf, -.inf, -40.0, -40.0, -10.0, -0.5236, -0.6981]
   UBX_STATES: [ .inf,  .inf,   0.0,  40.0,  40.0,  10.0,  0.5236,  0.6981]

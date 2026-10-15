@@ -36,7 +36,8 @@ public:
     virtual void saveTrajectory(const std::string& file) const = 0;
 
     // Same as loadTrajectory() for a reference built in memory.
-    virtual void setReferenceTrajectory(std::vector<double> referenceTrajectory) = 0;
+    // releaseIndex: first sample after the catapult stroke (0 without one).
+    virtual void setReferenceTrajectory(std::vector<double> referenceTrajectory, size_t releaseIndex = 0) = 0;
 
     // time: when latestStates were sampled, in seconds on the caller's clock
     // (steady clock in the GCS, simulated time in grs_batchsim). The

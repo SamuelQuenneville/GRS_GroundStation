@@ -103,6 +103,10 @@ bool MpcController::launchReady(std::string& reason) const {
         why << "a UAV is " << std::fixed << std::setprecision(1) << m_launchPositionError
             << " m from its reference start (LAUNCH_POS_TOL " << m_config.launchPositionTolerance
             << " m): regenerate the trajectory from the live launch positions";
+    } else if (!(m_launchYawError <= m_config.launchYawTolerance)) {
+        why << "a UAV yaw is " << std::fixed << std::setprecision(0) << m_launchYawError
+            << " deg from the rail azimuth (LAUNCH_YAW_TOL " << m_config.launchYawTolerance
+            << " deg): check the compass on the launcher";
     }
     reason = why.str();
     return reason.empty();
@@ -116,9 +120,19 @@ void MpcController::loadTrajectory(const std::string& file) {
 
     // Parsed in full before anything changes: a bad file leaves the current reference.
     std::vector<double> reference;
+    size_t releaseIndex = 0;
     std::string line;
     for (size_t row = 1; std::getline(fileStream, line); ++row) {
         if (grs::trim(line).empty()) continue;
+        if (line.starts_with('#')) {
+            constexpr std::string_view key = "# release_sample=";
+            if (line.starts_with(key)) {
+                const auto value = grs::parseDouble(line.substr(key.size()));
+                if (!value || *value < 0.0) throw std::runtime_error(file + " row " + std::to_string(row) + ": bad release_sample");
+                releaseIndex = static_cast<size_t>(*value);
+            }
+            continue;
+        }
 
         std::stringstream ss(line);
         std::string field;
@@ -137,7 +151,7 @@ void MpcController::loadTrajectory(const std::string& file) {
         }
     }
 
-    m_setReference(std::move(reference), "loaded from " + file);
+    m_setReference(std::move(reference), releaseIndex, "loaded from " + file);
 }
 
 void MpcController::saveTrajectory(const std::string& file) const {
@@ -152,6 +166,7 @@ void MpcController::saveTrajectory(const std::string& file) const {
 
     // Full double precision, so loadTrajectory() reads back the same values.
     fileStream << std::setprecision(17);
+    if (m_releaseIdx > 0) fileStream << "# release_sample=" << m_releaseIdx << '\n';
 
     for (size_t row = 0; row < m_numTrajectoryPoints; ++row) {
         const size_t rowStart = row * m_refStride;
@@ -168,11 +183,11 @@ void MpcController::saveTrajectory(const std::string& file) const {
     LOG_INFO("Trajectory saved to file, number of points = " + std::to_string(m_numTrajectoryPoints));
 }
 
-void MpcController::setReferenceTrajectory(std::vector<double> referenceTrajectory) {
-    m_setReference(std::move(referenceTrajectory), "generated in-process");
+void MpcController::setReferenceTrajectory(std::vector<double> referenceTrajectory, const size_t releaseIndex) {
+    m_setReference(std::move(referenceTrajectory), releaseIndex, "generated in-process");
 }
 
-void MpcController::m_setReference(std::vector<double> reference, const std::string& source) {
+void MpcController::m_setReference(std::vector<double> reference, const size_t releaseIndex, const std::string& source) {
     std::lock_guard lock(m_solveMutex);
 
     if (m_launched) {
@@ -190,7 +205,12 @@ void MpcController::m_setReference(std::vector<double> reference, const std::str
         throw std::runtime_error("Reference contains NaN or Inf");
     }
 
+    if (releaseIndex >= reference.size() / m_refStride - m_config.N) {
+        throw std::runtime_error("Release sample " + std::to_string(releaseIndex) + " leaves no full window after it");
+    }
+
     m_referenceTrajectory = std::move(reference);
+    m_releaseIdx = releaseIndex;
     m_onReferenceTrajectoryChanged();
     LOG_INFO("Trajectory " + source + ", number of points = " + std::to_string(m_numTrajectoryPoints));
 }
@@ -201,7 +221,8 @@ void MpcController::m_onReferenceTrajectoryChanged() {
     m_endIdxTraj = m_numTrajectoryPoints > m_config.N ? m_numTrajectoryPoints - m_config.N : 0;
 
     m_logEvent("TRAJECTORY loaded, points=" + std::to_string(m_numTrajectoryPoints) + ", numUavs=" + std::to_string(m_config.numUavs)
-        + ", hasPayload=" + (hasPayload() ? "true" : "false") + ", N=" + std::to_string(m_config.N));
+        + ", hasPayload=" + (hasPayload() ? "true" : "false") + ", N=" + std::to_string(m_config.N)
+        + ", release=" + std::to_string(m_releaseIdx));
 }
 
 std::map<uint8_t, uavCommandsFlags> MpcController::solve(const std::map<uint8_t, uavStates>& latestStates, const double time) {
@@ -372,6 +393,9 @@ void MpcController::m_updateReference(const double time) {
     // Reference position in samples, clamped to the last full window.
     const double last = m_endIdxTraj > 0 ? static_cast<double>(m_endIdxTraj - 1) : 0.0;
     double s = m_launchTime ? std::clamp((time - *m_launchTime) / m_config.dt, 0.0, last) : 0.0;
+    if (!m_inFlight) {
+        s = std::max(s, static_cast<double>(std::min(m_releaseIdx, m_endIdxTraj > 0 ? m_endIdxTraj - 1 : 0)));
+    }
     if (std::abs(s - std::round(s)) < 1e-6) {
         s = std::round(s); // ticks exactly on the sample grid use the samples as they are
     }
@@ -582,7 +606,8 @@ void MpcController::m_unpackLatestStates(const std::map<uint8_t, uavStates>& lat
     const auto fill = grs::control::fillStateVector(latestStates, m_layout, m_initialStates);
     m_telemetryComplete = fill.complete(m_layout);
 
-    if (m_launched && !m_inFlight) {
+    const bool pastRelease = m_launchTime && (time - *m_launchTime) / m_config.dt >= static_cast<double>(m_releaseIdx);
+    if (m_launched && !m_inFlight && pastRelease) {
         for (int i = 0; i < m_config.numUavs; ++i) {
             const size_t o = grs::control::StateLayout::uavOffset(i);
             const double vn = m_initialStates[o + 3], ve = m_initialStates[o + 4], vd = m_initialStates[o + 5];
@@ -610,17 +635,32 @@ void MpcController::m_unpackLatestStates(const std::map<uint8_t, uavStates>& lat
     }
 
     if (!m_inFlight) {
+        // Error to the first sample (the UAV at rest on the launcher). The
+        // solve starts from the release sample (end of the rail, launch
+        // velocity) while the UAV is on the rail, then from the measured
+        // position with the launch velocity until in flight.
+        const bool onRail = !pastRelease;
+        const double* release = m_referenceTrajectory.data() + m_releaseIdx * m_refStride;
         m_launchPositionError = 0.0;
+        m_launchYawError = 0.0;
         for (int i = 0; i < m_config.numUavs; ++i) {
             const size_t o = grs::control::StateLayout::uavOffset(i);
+            // A disturbed compass on the rail gives a wrong NED velocity and an
+            // EKF yaw reset with a position jump after the release (flight
+            // 2026-08-25: 80 deg off, 4 m jump).
+            if (const auto it = latestStates.find(static_cast<uint8_t>(i + 1)); it != latestStates.end()) {
+                const double railAzimuth = grs::radToDeg(std::atan2(release[o + 4], release[o + 3]));
+                const double error = std::remainder(it->second.yawDegree - railAzimuth, 360.0);
+                m_launchYawError = std::max(m_launchYawError, std::abs(error));
+            }
             double e2 = 0.0;
             for (size_t k = 0; k < 3; ++k) {
                 const double e = m_initialStates[o + k] - m_referenceTrajectory[o + k];
                 e2 += e * e;
             }
             m_launchPositionError = std::max(m_launchPositionError, std::sqrt(e2));
-            for (size_t k = 3; k < 6; ++k) {
-                m_initialStates[o + k] = m_referenceTrajectory[o + k];
+            for (size_t k = onRail ? 0 : 3; k < 6; ++k) {
+                m_initialStates[o + k] = release[o + k];
             }
         }
     }

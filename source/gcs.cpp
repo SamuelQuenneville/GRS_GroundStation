@@ -523,6 +523,7 @@ grs::trajgen::TrajectoryConfig GroundControlStation::m_paramsToTrajectoryConfig(
     config.tether.payoutDurationSeconds = params.tetherPayoutDurationSeconds;
 
     config.aircraftPath.z0 = params.aircraftZ0Meters;
+    config.aircraftPath.railLength = params.railLengthMeters;
 
     config.finalize();
     return config;

@@ -225,7 +225,7 @@ void ControlInterface::generateTrajectory(const grs::trajgen::TrajectoryConfig& 
 
     const bool hasPayload = selection.includePayload.value_or(m_controller->hasPayload());
     auto reference = grs::trajgen::TrajectoryGenerator::toSolverReference(mission, hasPayload);
-    m_controller->setReferenceTrajectory(std::move(reference));
+    m_controller->setReferenceTrajectory(std::move(reference), mission.releaseIndex);
 
     if (m_trajectoryLoadedCallback) {
         m_trajectoryLoadedCallback();

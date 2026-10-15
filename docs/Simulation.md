@@ -175,9 +175,11 @@ the point. The known differences a MATLAB/C++ comparison will show:
   depends on machine load, so prefer a fixed value for campaigns run with
   `--jobs`.
 - **Launch phases.** The run is launched before the first tick, from the
-  reference's first state (12 m/s, above the 10 m/s `IN_FLIGHT_SPEED`
+  reference's first state (9.5 m/s, above the 8 m/s `IN_FLIGHT_SPEED`
   default), so it is in flight from the first tick: measured state and NMHE
-  samples from the start, as in MATLAB (see `docs/Control.md`).
+  samples from the start, as in MATLAB (see `docs/Control.md`). The truth
+  plant has no catapult: `--reference=generate` builds no stroke, and a CSV
+  saved by the GCS starts at its `# release_sample=` row.
 - **Precision.** Telemetry and commands pass through `float`, as on the
   real link.
 - **Solver statistics.** Fatrop's iteration count and return code come

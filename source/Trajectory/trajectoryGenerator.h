@@ -52,6 +52,7 @@ struct GeneratedMission {
     std::vector<KinematicSample> payload;              // NED, takeoff-padded (zeros) + mission
     std::vector<AircraftTimeline> aircraft;            // size() == config.aircraftPath.phaseRad.size()
     std::vector<std::vector<ControlSample>> controls;  // controls[uavIndex][sample], takeoff + mission concatenated
+    size_t releaseIndex = 0;                           // first sample after the catapult stroke, 0 without one
 };
 
 /// Narrows an already-generated mission for exercising a reduced-order

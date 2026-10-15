@@ -49,7 +49,7 @@ public:
     // solver's [x0 u0 x1 u1 ...] stride and sampled at its dt (as
     // TrajectoryGenerator::toSolverReference() produces). Not resampled or
     // validated.
-    void setReferenceTrajectory(std::vector<double> referenceTrajectory) override;
+    void setReferenceTrajectory(std::vector<double> referenceTrajectory, size_t releaseIndex = 0) override;
 
     std::map<uint8_t, uavCommandsFlags> solve(const std::map<uint8_t, uavStates>& latestStates, double time) override;
 
@@ -111,6 +111,10 @@ private:
     std::vector<double> m_referenceWindow; // [x u] x N, then x
     size_t m_endIdxTraj = 0;               // number of full windows
     size_t m_numTrajectoryPoints = 0;
+    // First sample after the catapult stroke, 0 for a reference that starts
+    // at launch speed. Saved in the trajectory CSV as "# release_sample=N".
+    size_t m_releaseIdx = 0;
+    double m_launchYawError = 0.0; // [deg], measured yaw vs the rail azimuth, largest of the UAVs
 
     size_t m_trackingNumber = 0;
 
@@ -186,7 +190,7 @@ private:
 
     // Validates a new reference (layout, longer than N, finite, not launched)
     // and swaps it in under m_solveMutex; throws and keeps the current one otherwise.
-    void m_setReference(std::vector<double> reference, const std::string& source);
+    void m_setReference(std::vector<double> reference, size_t releaseIndex, const std::string& source);
     // Recomputes m_numTrajectoryPoints/m_endIdxTraj after a new reference.
     void m_onReferenceTrajectoryChanged();
 };

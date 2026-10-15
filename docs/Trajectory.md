@@ -44,10 +44,28 @@ and returns a `GeneratedMission`:
 2. Each aircraft's path around the payload, plus its takeoff phase
    (`generateAircraftTakeoff`) — the tether's slip-clutch payout, if
    configured, is modeled here as a smooth ramp of tether length from
-   `lengthAtLaunch` to `length`.
+   `lengthAtLaunch` to `length`. The speed along the path stays the
+   commanded speed during the payout. The takeoff tether pull is at least
+   the pull that holds the aircraft on its sphere (turn around the anchor,
+   payout), so the wing never takes it.
 3. Tether forces, solved for the two-aircraft bridle.
 4. Per-aircraft attitude/thrust commands from the resulting forces.
 5. Takeoff phase prepended to each aircraft's mission-phase timeline.
+6. Catapult stroke prepended (`aircraftPath.railLength`, 0 = none):
+   acceleration decaying linearly to 0 at the release, as measured on the
+   flight of 2026-08-25, along the rail (azimuth of the launch velocity,
+   inclined at `takeoffPitch0Deg`) from rest to `takeoffVel0`
+   (`releaseIndex` marks its end), so the
+   first sample is the UAV at rest on the launcher and the reference starts
+   with the catapult release. On the rail the controls hold the rail pitch
+   and zero angle of attack. After the release the pitch is held at the
+   rail angle (the autopilot holds the surfaces at 0 until 12 m/s) and the
+   path angle follows from the lift at angle of attack = rail - path angle,
+   the tether pull and the turn around the anchor, down to its lowest value
+   (at most `takeoffTimeBalistic`), where the climb to the loiter starts. The speed starts with the
+   measured acceleration `takeoffAcc0` and reaches `velMean` at
+   `takeoffTimeAcc`. Rounded to the time grid. `grs_batchsim`
+   generates without it (its truth plant has no catapult).
 
 `generate()` is `const` and has no side effects on `m_config` — calling it
 twice returns the same mission. Output is in the config's local NED frame,

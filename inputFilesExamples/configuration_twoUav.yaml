@@ -68,11 +68,13 @@ SolverConfiguration:
   AOA_FF_STAGE: 1
 
   # Launch (docs/Control.md): fire refused while a UAV is farther than
-  # LAUNCH_POS_TOL [m] from its reference start; in flight above
-  # IN_FLIGHT_SPEED [m/s]; back to standby if not in flight LAUNCH_TIMEOUT [s]
-  # after the launch.
+  # LAUNCH_POS_TOL [m] from its reference start or its yaw more than
+  # LAUNCH_YAW_TOL [deg] from the rail azimuth; in flight past the catapult
+  # release above IN_FLIGHT_SPEED [m/s] (release measured at 9.5 m/s); back to
+  # standby if not in flight LAUNCH_TIMEOUT [s] after the launch.
   LAUNCH_POS_TOL: 3.0
-  IN_FLIGHT_SPEED: 10.0
+  LAUNCH_YAW_TOL: 15.0
+  IN_FLIGHT_SPEED: 8.0
   LAUNCH_TIMEOUT: 1.0
 
   # Q(22) | R(6) | Qf(22) | Rdu(6) | Rdu0(6), GRS_Controller tuning_twoUav.m.

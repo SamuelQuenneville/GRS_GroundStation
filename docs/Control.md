@@ -107,22 +107,29 @@ control. `controls.csv` marks rejected solves with the source used.
 Launch phases (`m_unpackLatestStates()`):
 
 - **Standby** (before `initLaunch()`): the controller solves every tick, so
-  a valid plan exists at release. The UAV position and attitude are
-  measured; the velocity is the reference's first one (the launch velocity),
-  so the plan is the flight from the launcher. The reference stays at its
-  first sample.
-- **Launching** (from `initLaunch()`): the reference runs; same state as
-  standby until a UAV exceeds `IN_FLIGHT_SPEED` (default 10 m/s). If that
-  has not happened `LAUNCH_TIMEOUT` (default 1 s) after the launch: in
-  flight if a UAV is farther than `LAUNCH_POS_TOL` from its reference start
-  (slow release, headwind), else back to standby (misfire).
+  a valid plan exists at release. The release sample is the first one after
+  the catapult stroke (`TrajectoryGenerator` sets it, the CSV keeps it as
+  `# release_sample=N`, 0 without a stroke). The solve starts from it
+  (position and launch velocity, measured attitude) and the reference is
+  held there, so the plan is the flight from the end of the rail.
+- **Launching** (from `initLaunch()`): the reference runs from sample 0 (the
+  UAV at rest), held at the release sample while the UAV is on the rail;
+  past it, the measured position with the launch velocity. In flight once
+  the reference has passed the release and a UAV exceeds `IN_FLIGHT_SPEED`
+  (default 8 m/s, release measured at 9.5 m/s). If that has not happened
+  `LAUNCH_TIMEOUT` (default 1 s) after the launch: in flight if a UAV is
+  farther than `LAUNCH_POS_TOL` from its reference start (slow release,
+  headwind), else back to standby (misfire).
 - **In flight**: fully measured state, NMHE on.
 
 `launchReady()` gates `catapultFire` and `initLaunch`: refused without a
 checked frame offset for every UAV (below), without a trajectory, before the first solve, with incomplete telemetry, without a
-valid plan, or while a UAV is more than `LAUNCH_POS_TOL` (default 3 m) from
+valid plan, while a UAV is more than `LAUNCH_POS_TOL` (default 3 m) from
 its reference start (regenerate the trajectory with the live launch
-positions). The three keys are optional `SolverConfiguration` entries.
+positions), or while its yaw is more than `LAUNCH_YAW_TOL` (default 15 deg)
+from the rail azimuth (a disturbed compass on the launcher: wrong NED
+velocity on the rail and an EKF yaw reset with a position jump after the
+release). The four keys are optional `SolverConfiguration` entries.
 Commands are sent in standby too (motor running on the launcher if armed).
 
 A control tick that throws (e.g. no trajectory) sends no command and is

@@ -10,6 +10,8 @@
 
 #include <cassert>
 #include <numeric>
+#include <tuple>
+#include <utility>
 
 namespace grs::trajgen {
 
@@ -52,28 +54,6 @@ std::vector<double> cumtrapzScalar(const std::vector<double>& t, const std::vect
     return out;
 }
 
-// MATLAB gradient(y, dt) on a uniformly-sampled vector: central difference on
-// interior points, one-sided difference at the two ends.
-std::vector<double> gradientUniform(const std::vector<double>& y, const double dt) {
-    const size_t n = y.size();
-    std::vector<double> g(n, 0.0);
-    if (n == 0) {
-        return g;
-    }
-
-    if (n == 1) {
-        g[0] = 0.0; return g;
-    }
-
-    g[0] = (y[1] - y[0]) / dt;
-    g[n - 1] = (y[n - 1] - y[n - 2]) / dt;
-
-    for (size_t i = 1; i + 1 < n; ++i) {
-        g[i] = (y[i + 1] - y[i - 1]) / (2.0 * dt);
-    }
-    return g;
-}
-
 double quinticSmoothstep(const double tau) {
     return 6*tau*tau*tau*tau*tau - 15*tau*tau*tau*tau + 10*tau*tau*tau;
 }
@@ -86,6 +66,26 @@ double quinticSmoothstepDeriv(const double tau) {
 // model's L''(t) (see generateAircraftTakeoff), nothing else uses it.
 double quinticSmoothstepSecondDeriv(const double tau) {
     return 120*tau*tau*tau - 180*tau*tau + 60*tau;
+}
+
+// Quintic from x0 with slope0 (per unit tau) and zero curvature at tau=0, to
+// x1 with zero slope and curvature at tau=1. Returns {x, dx/dtau}.
+std::pair<double, double> quinticFromSlope(const double x0, const double slope0, const double x1, const double tau) {
+    const double d = x1 - x0 - slope0;
+    const double c3 = 10 * d + 4 * slope0, c4 = -15 * d - 7 * slope0, c5 = 6 * d + 3 * slope0;
+    return {x0 + tau * (slope0 + tau * tau * (c3 + tau * (c4 + tau * c5))),
+            slope0 + tau * tau * (3 * c3 + tau * (4 * c4 + tau * 5 * c5))};
+}
+
+// Tether pull on the aircraft during the takeoff [N]: 10 % of the loiter
+// tension until 2 s, then ramped to the full tension over 6 s.
+double takeoffTetherForce(const TrajectoryConfig& config, const double t) {
+    const auto& ap = config.aircraftPath;
+    const double zTarget = std::sqrt(config.tether.length*config.tether.length - ap.radius*ap.radius);
+    const double fTarget = (0.5 * config.payload.mass * config.world.gravity) / (zTarget / config.tether.length);
+    constexpr double tDelay = 2.0;
+    constexpr double tRamp = 6.0;
+    return (0.1 + 0.9 * quinticSmoothstep(std::clamp((t - tDelay) / tRamp, 0.0, 1.0))) * fTarget;
 }
 
 // ---------------------------------------------------------------------------
@@ -334,42 +334,70 @@ TakeoffMission generateAircraftTakeoff(const TrajectoryConfig& config, double ph
 
     const double V0 = ap.takeoffVel0;
     const double Vf = ap.velMean;
-    std::vector<double> v(n);
+    // Starts with the acceleration measured after the release (flight
+    // 2026-08-25: 10.2 m/s at 0.4 s, 11.5 at 1 s, 15 at 2 s).
+    const double Tacc = ap.takeoffTimeAcc;
+    auto speedAt = [&](const double time) -> std::pair<double, double> {
+        if (time >= Tacc) return {Vf, 0.0};
+        const auto [vi, dv] = quinticFromSlope(V0, ap.takeoffAcc0 * Tacc, Vf, time / Tacc);
+        return {vi, dv / Tacc};
+    };
+    std::vector<double> v(n), vDot(n);
     for (size_t i = 0; i < n; ++i) {
-        const double tauV = std::min(t[i] / ap.takeoffTimeAcc, 1.0);
-        v[i] = V0 + (Vf - V0) * quinticSmoothstep(tauV);
+        std::tie(v[i], vDot[i]) = speedAt(t[i]);
     }
 
-    const double t1 = ap.takeoffTimeBalistic;
-    const double t2 = T - t1;
-
     std::vector<double> gamma(n, 0.0), theta(n, 0.0), thetaDot(n, 0.0), thetaDdot(n, 0.0);
-
-    const double gamma0 = grs::degToRad(ap.takeoffPitch0Deg) + ap.takeoffPitch0TrimRad;
-    const double gammaRelax = ap.takeoffPitchDecayFrac * gamma0;
 
     const double theta0 = std::asin(ap.z0 / L0);
     const double zTarget = std::sqrt(Lfinal*Lfinal - ap.radius*ap.radius);
     const double thetaF = std::asin(zTarget / Lfinal);
 
+    // Phase 1, from the release to the lowest path angle: pitch held at the
+    // rail angle (the autopilot holds the surfaces at 0 until 12 m/s), path
+    // angle from the lift at AoA = rail - gamma, the tether pull and the turn
+    // around the anchor. Flight 2026-08-25: 20, 14, 11, 7, 5 deg over 0.6 s.
+    const double railPitch = grs::degToRad(ap.takeoffPitch0Deg);
+    const double mass = config.aircraft.mass;
+    const double halfRhoS = 0.5 * config.world.airDensity * config.aircraft.wingArea;
+    const double F0 = takeoffTetherForce(config, 0.0);
+    const double cTheta0 = std::max(std::cos(theta0), 1e-6);
+    // The tether holds the aircraft on its sphere (turn around the anchor and
+    // payout), at least at the takeoff pull: the wing only takes the excess.
+    auto gammaRate = [&](const double gam, const double V, const double time) {
+        const double lift = halfRhoS * V * V * (config.aircraft.CL0 + config.aircraft.CLalpha * (railPitch - gam));
+        const double vh = V * std::cos(gam);
+        const double inward = mass * (vh * vh / (lengthAt(time) * cTheta0) - lengthDdotAt(time) * cTheta0);
+        const double tether = std::max(inward / std::cos(theta0), F0);
+        const double side = inward - tether * std::cos(theta0);
+        const double up = std::sqrt(std::max(lift * lift - side * side, 0.0));
+        return (up - (mass * config.world.gravity + tether * std::sin(theta0)) * std::cos(gam)) / (mass * V);
+    };
+
+    const size_t iMax = std::min(n - 1, static_cast<size_t>(std::floor(ap.takeoffTimeBalistic / dt + 1e-9)));
+    constexpr int nSub = 10;
+    std::vector<double> thetaDotPhase1, tPhase1;
     size_t iSwitch = 0;
-    for (size_t i = 0; i < n; ++i) {
-        if (t[i] <= t1) {
+    double gam = railPitch;
+    for (size_t i = 0;; ++i) {
+        const double gd = gammaRate(gam, v[i], t[i]);
+        gamma[i] = gam;
+        const double Li = lengthAt(t[i]);
+        thetaDotPhase1.push_back((v[i] * std::sin(gam)) / (Li * cTheta0));
+        thetaDdot[i] = (vDot[i] * std::sin(gam) + v[i] * std::cos(gam) * gd) / (Li * cTheta0)
+                     - thetaDotPhase1.back() * lengthDotAt(t[i]) / Li;
+        tPhase1.push_back(t[i]);
+        if (gd >= 0.0 || i == iMax) {
             iSwitch = i;
+            break;
+        }
+        for (int k = 0; k < nSub; ++k) {
+            const double tk = t[i] + k * dt / nSub;
+            gam += gammaRate(gam, speedAt(tk).first, tk) * dt / nSub;
         }
     }
-
-    // Phase 1
-    std::vector<double> thetaDotPhase1(iSwitch + 1), tPhase1(iSwitch + 1);
-    for (size_t i = 0; i <= iSwitch; ++i) {
-        const double tau1 = t[i] / t1;
-        const double s1 = quinticSmoothstep(tau1);
-        gamma[i] = gamma0 + (gammaRelax - gamma0) * s1;
-        const double ds1 = quinticSmoothstepDeriv(tau1);
-        thetaDotPhase1[i] = (v[i] * std::sin(gamma[i])) / (L0 * std::max(std::cos(theta0), 1e-6));
-        thetaDdot[i] = ((v[i] * (gammaRelax - gamma0) * ds1) / t1) / (L0 * std::max(std::cos(theta0), 1e-6));
-        tPhase1[i] = t[i];
-    }
+    const double t1 = t[iSwitch];
+    const double t2 = T - t1;
     const std::vector<double> thetaPhase1 = [&]{
         auto cum = cumtrapzScalar(tPhase1, thetaDotPhase1);
         for (auto& c : cum) c += theta0;
@@ -381,20 +409,18 @@ TakeoffMission generateAircraftTakeoff(const TrajectoryConfig& config, double ph
     const double theta1 = thetaPhase1[iSwitch];
     const double thetaDot1 = thetaDotPhase1[iSwitch];
     const double thetaDdot1 = thetaDdot[iSwitch];
-    // Analytically exact, not a finite difference: thetaDdot(t) in phase 1
-    // is proportional to quinticSmoothstepDeriv(t/t1), whose own rate of
-    // change is proportional to quinticSmoothstepSecondDeriv(t/t1); both
-    // are exactly 0 at tau1=1 (a quintic smoothstep has zero 1st and 2nd
-    // derivative at both endpoints by construction), so the true jerk at
-    // the phase boundary is 0 regardless of t1, velocity, or pitch swing.
-    // A one-step finite difference here would instead be discretization
-    // noise approximating this known-zero quantity, noise that grows
-    // sharply as takeoffTimeBalistic shrinks toward dt (fewer samples
-    // across phase 1) and gets amplified by t2^3 into the phase-2
-    // polynomial's b3 term below, producing a large pitch/elevation-angle
-    // overshoot right after the phase switch before the polynomial's
-    // boundary conditions pull it back to the correct loiter value at T.
-    constexpr double thetaJerk1 = 0.0;
+    // Jerk of the phase-1 path at the boundary, from the derivatives of the
+    // path angle ODE and of the speed ramp (smooth functions, not the time grid).
+    const double thetaJerk1 = [&] {
+        constexpr double h = 1e-4;
+        const double g1 = gamma[iSwitch];
+        const double gd1 = gammaRate(g1, v[iSwitch], t1);
+        const auto [vh, vDoth] = speedAt(t1 + h);
+        const double gdd1 = (gammaRate(g1 + gd1 * h, vh, t1 + h) - gd1) / h;
+        const double vdd1 = (vDoth - vDot[iSwitch]) / h;
+        return (vdd1 * std::sin(g1) + 2 * vDot[iSwitch] * std::cos(g1) * gd1 + v[iSwitch] * std::cos(g1) * gdd1
+                - v[iSwitch] * std::sin(g1) * gd1 * gd1) / (lengthAt(t1) * cTheta0);
+    }();
 
     const double b0 = theta1;
     const double b1 = thetaDot1 * t2;
@@ -451,14 +477,21 @@ TakeoffMission generateAircraftTakeoff(const TrajectoryConfig& config, double ph
         gamma[i] = std::asin(std::clamp(ratio, -1.0, 1.0));
     }
 
-    // Azimuth
-    std::vector<double> psiDot(n);
+    // Azimuth: the speed left after the elevation and payout rates, on the
+    // actual tether length, so the total speed is v. psiDdot is its analytic
+    // derivative (a finite difference is one-sided at the release).
+    std::vector<double> psiDot(n, 0.0), psiDdot(n, 0.0);
     for (size_t i = 0; i < n; ++i) {
-        const double vOverL = v[i] / Lfinal;
-        const double under = std::max(vOverL*vOverL - thetaDot[i]*thetaDot[i], 0.0);
-        psiDot[i] = config.aircraftPath.direction * std::sqrt(under) / std::max(std::cos(theta[i]), 1e-6);
+        const double Lt = lengthAt(t[i]), LDot = lengthDotAt(t[i]), LDdot = lengthDdotAt(t[i]);
+        const double cTheta = std::max(std::cos(theta[i]), 1e-6);
+        const double w = v[i]*v[i] - Lt*Lt*thetaDot[i]*thetaDot[i] - LDot*LDot;
+        if (w <= 1e-12) continue;
+        const double wDot = 2 * v[i] * vDot[i] - 2 * Lt * thetaDot[i] * (LDot * thetaDot[i] + Lt * thetaDdot[i]) - 2 * LDot * LDdot;
+        const double den = Lt * cTheta;
+        const double denDot = LDot * cTheta - Lt * std::sin(theta[i]) * thetaDot[i];
+        psiDot[i] = config.aircraftPath.direction * std::sqrt(w) / den;
+        psiDdot[i] = config.aircraftPath.direction * (wDot / (2 * std::sqrt(w) * den) - std::sqrt(w) * denDot / (den * den));
     }
-    const std::vector<double> psiDdot = gradientUniform(psiDot, dt);
     const std::vector<double> psiCum = cumtrapzScalar(t, psiDot);
     std::vector<double> psi(n);
     for (size_t i = 0; i < n; ++i) psi[i] = phase + psiCum[i];
@@ -780,12 +813,6 @@ std::vector<ControlSample> computeControlsTakeoff(const TrajectoryConfig& config
     const double T = ap.takeoffTime;
     const size_t n = takeoff.t.size();
 
-    const double zTarget = std::sqrt(config.tether.length*config.tether.length - ap.radius*ap.radius);
-    const double fTarget = (0.5 * config.payload.mass * config.world.gravity) / (zTarget / config.tether.length);
-
-    constexpr double tDelay = 2.0;
-    constexpr double tRamp = 6.0;
-
     std::vector<ControlSample> out(n);
     for (size_t i = 0; i < n; ++i) {
         const double t = takeoff.t[i];
@@ -793,25 +820,75 @@ std::vector<ControlSample> computeControlsTakeoff(const TrajectoryConfig& config
         const double s = quinticSmoothstep(tau);
         const double phi = (1 - s) * grs::degToRad(ap.takeoffRoll0Deg) + s * rollLoiter;
 
-        const double tauF = std::clamp((t - tDelay) / tRamp, 0.0, 1.0);
-        const double sF = quinticSmoothstep(tauF);
-        const double F = (0.1 + 0.9 * sF) * fTarget;
-
+        // At least the pull that holds the aircraft on its sphere: the tether,
+        // not the wing, takes the turn around the anchor and the payout.
         Vec3d et = config.payloadPath.x0 - takeoff.inertial[i].pos;
         et = normalizeSafe(et);
-        const Vec3d externalForce = et * F;
+        const Vec3d weight{0, 0, config.aircraft.mass * config.world.gravity};
+        const double hold = dot(takeoff.inertial[i].acc * config.aircraft.mass - weight, et);
+        const Vec3d externalForce = et * std::max(hold, takeoffTetherForce(config, t));
 
         const auto [angleOfAttack, thrust, liftDir] = computeAngleOfAttackThrust(config, takeoff.inertial[i].vel, takeoff.inertial[i].acc, externalForce);
+        const Vec3d freestream = takeoff.inertial[i].vel + config.world.wind;
+        const double pathAngle = -std::atan2(freestream[2], std::hypot(freestream[0], freestream[1]));
 
         ControlSample& c = out[i];
         c.rollRad = phi;
-        c.pitchRad = angleOfAttack + takeoff.gamma[i];
+        c.pitchRad = angleOfAttack + pathAngle;
         c.yawRad = takeoff.psi[i];
         c.thrustNewton = thrust;
         c.angleOfAttackRad = angleOfAttack;
         c.liftDirection = liftDir;
     }
     return out;
+}
+
+// Catapult stroke along the rail (azimuth of the launch velocity, inclined at
+// takeoffPitch0Deg), from rest to takeoffVel0, ending on the first takeoff
+// sample. The acceleration decays linearly to 0 at the release, as measured
+// on the flight of 2026-08-25: T = 3 L / (2 V0). The first sample is then the
+// UAV at rest on the launcher. Rounded to the time grid, so the stroke is
+// 2 V0 n dt / 3 rather than exactly railLength. Controls hold the release
+// values, with the pitch of the rail and zero angle of attack.
+void prependCatapultStroke(const TrajectoryConfig& config, GeneratedMission& mission) {
+    const double V0 = config.aircraftPath.takeoffVel0;
+    const double dt = config.simDt;
+    if (!(config.aircraftPath.railLength > 0.0) || !(V0 > 0.0) || mission.time.empty()) return;
+
+    const auto n = static_cast<size_t>(std::max(1.0, std::round(1.5 * config.aircraftPath.railLength / V0 / dt)));
+    const double T = static_cast<double>(n) * dt;
+    const double a0 = 2.0 * V0 / T;
+    const double stroke = a0 * T * T / 3.0;
+
+    for (auto& t : mission.time) t += static_cast<double>(n) * dt;
+    std::vector<double> time(n);
+    for (size_t i = 0; i < n; ++i) time[i] = static_cast<double>(i) * dt;
+    mission.time.insert(mission.time.begin(), time.begin(), time.end());
+    mission.payload.insert(mission.payload.begin(), n, mission.payload.front());
+
+    for (size_t k = 0; k < mission.aircraft.size(); ++k) {
+        const KinematicSample release = mission.aircraft[k].inertial.front();
+        const Vec3d horizontal = normalizeSafe(Vec3d(release.vel[0], release.vel[1], 0.0));
+        const double railPitch = grs::degToRad(config.aircraftPath.takeoffPitch0Deg);
+        const Vec3d u = horizontal * std::cos(railPitch) + Vec3d(0.0, 0.0, -std::sin(railPitch));
+        std::vector<KinematicSample> inertial(n), payloadFrame(n);
+        for (size_t i = 0; i < n; ++i) {
+            const double t = time[i];
+            inertial[i].pos = release.pos - u * (stroke - a0 * (t * t / 2.0 - t * t * t / (6.0 * T)));
+            inertial[i].vel = u * (a0 * (t - t * t / (2.0 * T)));
+            inertial[i].acc = u * (a0 * (1.0 - t / T));
+            payloadFrame[i] = inertial[i];
+            payloadFrame[i].pos = inertial[i].pos - config.payloadPath.x0; // as the takeoff samples
+        }
+        auto& tl = mission.aircraft[k];
+        tl.inertial.insert(tl.inertial.begin(), inertial.begin(), inertial.end());
+        tl.payloadFrame.insert(tl.payloadFrame.begin(), payloadFrame.begin(), payloadFrame.end());
+        ControlSample onRail = mission.controls[k].front();
+        onRail.pitchRad = railPitch;
+        onRail.angleOfAttackRad = 0.0;
+        mission.controls[k].insert(mission.controls[k].begin(), n, onRail);
+    }
+    mission.releaseIndex = n;
 }
 
 } // namespace
@@ -897,6 +974,7 @@ GeneratedMission TrajectoryGenerator::generate() const {
         for (size_t i = 0; i < nMission; ++i) out.controls[k][nTakeoff + i] = missionControls[k][i];
     }
 
+    prependCatapultStroke(m_config, out);
     return out;
 }
 
@@ -1006,6 +1084,7 @@ GeneratedMission TrajectoryGenerator::extractSubset(const GeneratedMission& miss
 
     GeneratedMission out;
     out.time.assign(mission.time.begin(), mission.time.begin() + n);
+    out.releaseIndex = std::min(mission.releaseIndex, n);
     out.payload.assign(mission.payload.begin(), mission.payload.begin() + n);
 
     out.aircraft.reserve(indices.size());

@@ -37,14 +37,15 @@ struct solverConfig {
     // attack is sent as feedforward (1: the next sample, + link latency).
     int aoaFeedforwardStage = 1;
 
-    // Launch (optional keys). Before launch the solve starts from the
-    // measured position with the reference's first velocity, and the launch
-    // is refused while that position is more than launchPositionTolerance [m]
-    // from the reference's first sample. In flight once a UAV exceeds
-    // inFlightSpeed [m/s]; back to standby if that has not happened
-    // launchTimeout [s] after the launch.
+    // Launch (optional keys, docs/Control.md). The launch is refused while a
+    // UAV is more than launchPositionTolerance [m] from the reference's first
+    // sample, or its yaw more than launchYawTolerance [deg] from the rail
+    // azimuth. In flight once the reference has passed the catapult release
+    // and a UAV exceeds inFlightSpeed [m/s] (release measured at 9.5 m/s);
+    // back to standby if that has not happened launchTimeout [s] after the launch.
     double launchPositionTolerance = 3.0;
-    double inFlightSpeed = 10.0;
+    double launchYawTolerance = 15.0;
+    double inFlightSpeed = 8.0;
     double launchTimeout = 1.0;
 
     std::vector<double> weight; // [Q(nx) R(nu) Qf(nx) Rdu(nu) Rdu0(nu)]

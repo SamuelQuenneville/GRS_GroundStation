@@ -89,6 +89,7 @@ namespace YAML {
                 }
 
                 if (node["LAUNCH_POS_TOL"])   rhs.launchPositionTolerance = node["LAUNCH_POS_TOL"].as<double>();
+                if (node["LAUNCH_YAW_TOL"])   rhs.launchYawTolerance = node["LAUNCH_YAW_TOL"].as<double>();
                 if (node["IN_FLIGHT_SPEED"])  rhs.inFlightSpeed = node["IN_FLIGHT_SPEED"].as<double>();
                 if (node["LAUNCH_TIMEOUT"])   rhs.launchTimeout = node["LAUNCH_TIMEOUT"].as<double>();
 

@@ -116,6 +116,10 @@
             <div class="gen-row"><label for="gen-tetherPayoutDurationSeconds">Rollout duration (s)</label><input type="number" id="gen-tetherPayoutDurationSeconds" step="0.1"></div>
 
             <div class="section-gap"></div>
+            <span class="ro-label">Catapult</span>
+            <div class="gen-row"><label for="gen-railLengthMeters">Rail length (m)</label><input type="number" id="gen-railLengthMeters" step="0.1" min="0"></div>
+
+            <div class="section-gap"></div>
             <span class="ro-label">Field calibration</span>
             <div class="gen-row"><label for="gen-fieldHeadingDeg">Field heading (deg)</label><input type="number" id="gen-fieldHeadingDeg" step="1"></div>
             <div class="gen-row"><label for="gen-originNorthOffsetMeters">Origin N offset (m)</label><input type="number" id="gen-originNorthOffsetMeters" step="0.5"></div>
@@ -1291,7 +1295,7 @@
         'climbDistanceMeters', 'climbVelMetersPerSecond', 'climbAccelMetersPerSecondSq',
         'moveDistanceMeters', 'moveVelMetersPerSecond', 'moveAccelMetersPerSecondSq', 'moveAngleDegrees',
         'holdTimeSeconds', 'tetherLengthMeters', 'payloadMassKg',
-        'tetherLengthAtLaunchMeters', 'tetherPayoutDurationSeconds',
+        'tetherLengthAtLaunchMeters', 'tetherPayoutDurationSeconds', 'railLengthMeters',
         'fieldHeadingDeg', 'originNorthOffsetMeters', 'originEastOffsetMeters', 'originDownOffsetMeters',
         'uav1PhaseDeg', 'uav2PhaseDeg', 'aircraftZ0Meters',
         'uav1SnapNorthMeters', 'uav1SnapEastMeters', 'uav1SnapDownMeters',

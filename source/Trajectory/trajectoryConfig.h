@@ -87,17 +87,15 @@ struct TrajectoryConfig {
         double z0 = 1.382;                          // Aircraft height above the payload on the launcher [m], positive up
 
         double takeoffTime = 10;          // Takeoff phase duration [s]
-        double takeoffTimeBalistic = 0.5; // Decay time pitch0 -> pitchDecay [s]
+        double takeoffTimeBalistic = 1.5; // Max duration of the pitch held at the rail angle after the release [s]
         double takeoffTimeAcc = 8;        // Time to reach velMean [s]
-        double takeoffVel0 = 12;          // Aircraft speed after launch [m/s]
+        double takeoffVel0 = 9.5;         // Aircraft speed at the catapult release [m/s], flight 2026-08-25
+        double takeoffAcc0 = 1.75;        // Acceleration right after the release [m/s^2], flight 2026-08-25
+        double railLength = 2.15;         // Catapult stroke [m], rail inclined at takeoffPitch0Deg: samples at rest to takeoffVel0 prepended, 0 = none
         double takeoffAngle0Deg = 0;      // Azimuth of aircraft 1 on launcher [deg]
         double takeoffRoll0Deg = 10;      // Launcher roll angle [deg]
 
-        /// The -0.1687 rad trim offset is an empirical alpha/path-angle correction from the launcher rig,
-        /// not a clean constant, so it's a named field rather than folded silently into takeoffPitch0Deg.
-        double takeoffPitch0Deg = 19;
-        double takeoffPitch0TrimRad = -0.1687;
-        double takeoffPitchDecayFrac = 0.80;    // Fraction of initial pitch to decay to
+        double takeoffPitch0Deg = 19;           // Rail inclination [deg]: pitch held after the release, initial path angle
     } aircraftPath;
 
     /// @name Field calibration

@@ -349,6 +349,9 @@ struct TrajectoryGenerationParams {
     /// -> UAV offset instead of requiring a manual guess.
     double aircraftZ0Meters = 1.382;
 
+    /// Catapult stroke [m]: the reference starts at rest on the launcher.
+    double railLengthMeters = 2.15;
+
     /// When true, rigidly translates each UAV's whole trajectory so its
     /// launch waypoint lands exactly on that UAV's *captured* position
     /// below (see TrajectoryGenerator::snapToLiveLaunchPositions()).
@@ -411,6 +414,7 @@ struct TrajectoryGenerationParams {
             .add("tetherLengthAtLaunchMeters", tetherLengthAtLaunchMeters)
             .add("tetherPayoutDurationSeconds", tetherPayoutDurationSeconds)
             .add("aircraftZ0Meters", aircraftZ0Meters)
+            .add("railLengthMeters", railLengthMeters)
             .add("snapToLiveLaunchPosition", snapToLiveLaunchPosition)
             .add("uav1SnapCaptured", uav1SnapCaptured)
             .add("uav1SnapNorthMeters", uav1SnapNorthMeters)
@@ -455,6 +459,7 @@ struct TrajectoryGenerationParams {
         p.tetherLengthAtLaunchMeters = reader.getNumber("tetherLengthAtLaunchMeters", p.tetherLengthAtLaunchMeters);
         p.tetherPayoutDurationSeconds = reader.getNumber("tetherPayoutDurationSeconds", p.tetherPayoutDurationSeconds);
         p.aircraftZ0Meters = reader.getNumber("aircraftZ0Meters", p.aircraftZ0Meters);
+        p.railLengthMeters = reader.getNumber("railLengthMeters", p.railLengthMeters);
         p.snapToLiveLaunchPosition = reader.getBool("snapToLiveLaunchPosition", p.snapToLiveLaunchPosition);
         p.uav1SnapCaptured = reader.getBool("uav1SnapCaptured", p.uav1SnapCaptured);
         p.uav1SnapNorthMeters = reader.getNumber("uav1SnapNorthMeters", p.uav1SnapNorthMeters);

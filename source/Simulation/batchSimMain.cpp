@@ -139,8 +139,14 @@ std::vector<double> readReferenceCsv(const std::string& path, const size_t strid
     std::vector<double> ref;
     std::string line;
     size_t row = 0;
+    size_t release = 0;
     while (std::getline(f, line)) {
         if (line.find_first_not_of(" \t\r") == std::string::npos) continue;
+        if (line.starts_with("# release_sample=")) {
+            release = std::stoul(line.substr(17));
+            continue;
+        }
+        if (line.starts_with('#')) continue;
         const auto cells = split(line, ',');
         if (cells.size() != stride) {
             throw std::runtime_error(path + " row " + std::to_string(row) + ": " + std::to_string(cells.size()) +
@@ -149,6 +155,8 @@ std::vector<double> readReferenceCsv(const std::string& path, const size_t strid
         for (const auto& c : cells) ref.push_back(std::stod(c));
         ++row;
     }
+    // The truth plant has no catapult: start at the release.
+    ref.erase(ref.begin(), ref.begin() + static_cast<std::ptrdiff_t>(std::min(release * stride, ref.size())));
     return ref;
 }
 
@@ -370,7 +378,9 @@ int main(int argc, char** argv) {
         // Reference
         std::vector<double> reference;
         if (args.get("reference") == "generate") {
-            grs::trajgen::TrajectoryGenerator generator{grs::trajgen::TrajectoryConfig{}};
+            grs::trajgen::TrajectoryConfig trajectoryConfig;
+            trajectoryConfig.aircraftPath.railLength = 0.0; // the truth plant starts at the release, no catapult
+            grs::trajgen::TrajectoryGenerator generator{trajectoryConfig};
             auto mission = generator.generate();
             if (sc.numUavs == 1) {
                 // One UAV tethered to the ground: first aircraft only, no payload.
