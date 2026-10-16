@@ -13,13 +13,15 @@
 #include <string>
 
 #include "CasadiSolver/linearize_oneGround_lmpc.h"
-#include "CasadiSolver/linearize_twoUavPayload_lmpc.h"
 #include "CasadiSolver/nmhe_oneGround.h"
-#include "CasadiSolver/nmhe_twoUavPayload.h"
 #include "CasadiSolver/solver_oneGround_lmpc.h"
 #include "CasadiSolver/solver_oneGround_nmpc.h"
+#ifndef GRS_ONE_UAV_ONLY
+#include "CasadiSolver/linearize_twoUavPayload_lmpc.h"
+#include "CasadiSolver/nmhe_twoUavPayload.h"
 #include "CasadiSolver/solver_twoUavPayload_lmpc.h"
 #include "CasadiSolver/solver_twoUavPayload_nmpc.h"
+#endif
 
 struct GeneratedApi {
     const char* name;
@@ -33,22 +35,31 @@ struct GeneratedApi {
 };
 
 #define GENERATED_API(f) GeneratedApi{#f, f, f##_checkout, f##_release, f##_init_mem, f##_sparsity_in, f##_sparsity_out, f##_work}
+#ifdef GRS_ONE_UAV_ONLY
+#define TWO_UAV_API(f) GeneratedApi{}
+#else
+#define TWO_UAV_API(f) GENERATED_API(f)
+#endif
 
 namespace {
 
 // Row index: GeneratedFunction::Id. Column: numUavs - 1.
 constexpr GeneratedApi kApis[][2] = {
-    {GENERATED_API(solver_oneGround_nmpc), GENERATED_API(solver_twoUavPayload_nmpc)},
-    {GENERATED_API(solver_oneGround_lmpc), GENERATED_API(solver_twoUavPayload_lmpc)},
-    {GENERATED_API(linearize_oneGround_lmpc), GENERATED_API(linearize_twoUavPayload_lmpc)},
-    {GENERATED_API(nmhe_oneGround), GENERATED_API(nmhe_twoUavPayload)},
+    {GENERATED_API(solver_oneGround_nmpc), TWO_UAV_API(solver_twoUavPayload_nmpc)},
+    {GENERATED_API(solver_oneGround_lmpc), TWO_UAV_API(solver_twoUavPayload_lmpc)},
+    {GENERATED_API(linearize_oneGround_lmpc), TWO_UAV_API(linearize_twoUavPayload_lmpc)},
+    {GENERATED_API(nmhe_oneGround), TWO_UAV_API(nmhe_twoUavPayload)},
 };
 
 const GeneratedApi& findApi(const GeneratedFunction::Id id, const int numUavs) {
     if (numUavs < 1 || numUavs > 2) {
         throw std::runtime_error("GeneratedFunction: nothing generated for numUavs=" + std::to_string(numUavs));
     }
-    return kApis[static_cast<int>(id)][numUavs - 1];
+    const GeneratedApi& api = kApis[static_cast<int>(id)][numUavs - 1];
+    if (!api.eval) {
+        throw std::runtime_error("GeneratedFunction: built with GRS_ONE_UAV_ONLY, no two-UAV solver (configure with -DGRS_ONE_UAV_ONLY=OFF)");
+    }
+    return api;
 }
 
 // Compressed CasADi sparsity: {nrow, ncol, 1} when dense.

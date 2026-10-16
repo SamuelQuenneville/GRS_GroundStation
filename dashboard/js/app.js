@@ -464,7 +464,8 @@ function stopDemo() {
 
     // Wipe demo-created panels so stale fake data can't linger next to (or
     // instead of) real ones once telemetry starts flowing.
-    uavGrid.innerHTML = "";
+    // UAV panels only: the payload container lives in the same grid.
+    uavPanels.forEach((panel) => panel.remove());
     uavPanels.clear();
     launcherGrid.innerHTML = "";
     launcherPanels.clear();

@@ -162,11 +162,13 @@ private:
     // window and whenever below 70 % of the request.
     void m_onControlState(uint8_t sysId, const mavlink_message_t& message);
     void m_onGpsGlobalOrigin(uint8_t sysId, const mavlink_message_t& message);
+    // SET_MESSAGE_INTERVAL refusals, logged at most every 10 s per vehicle.
+    void m_onCommandAck(uint8_t sysId, const mavlink_message_t& message);
 
-    // Requested again on any global position while the state is missing or
+    // Requested again on each autopilot heartbeat while the state is missing or
     // older than 1 s (startup, vehicle reboot), at most every 2 s.
     void m_requestControlState(uint8_t sysId);
-    // Called on every global position: requests GPS_GLOBAL_ORIGIN when due.
+    // Called on every autopilot heartbeat: requests GPS_GLOBAL_ORIGIN when due.
     void m_requestGpsGlobalOrigin(uint8_t sysId);
     // Everything else at the low rates the dashboard needs.
     void m_requestStatusRates(uint8_t sysId);
@@ -176,6 +178,9 @@ private:
     std::map<uint8_t, bool> m_ekfOriginKnown;
     std::map<uint8_t, std::chrono::steady_clock::time_point> m_ekfOriginRequestedAt;
     std::map<uint8_t, std::chrono::steady_clock::time_point> m_stateRequestedAt;
+    std::map<uint8_t, std::chrono::steady_clock::time_point> m_ackRefusedLoggedAt;
+    std::map<uint8_t, std::chrono::steady_clock::time_point> m_positionAt;        // last GLOBAL_POSITION_INT
+    std::map<uint8_t, std::chrono::steady_clock::time_point> m_statusRequestedAt; // last m_requestStatusRates
     struct RateWindow {
         std::chrono::steady_clock::time_point start;
         int count = 0;

@@ -60,9 +60,13 @@ on the vehicle so nothing else is streamed:
 | `HEARTBEAT` | 1 Hz (always) | mode, armed, link |
 | `GPS_GLOBAL_ORIGIN` | on request (2 s until known, then 10 s) | frame offset |
 
-`CONTROL_SYSTEM_STATE` is requested again (at most every 2 s, with a
-warning) while it is missing or older than 1 s, so a vehicle without the GRS
-firmware is reported and a rebooted one resumes. Its measured rate is logged
+The requests are driven by the autopilot `HEARTBEAT`, the only message sent
+whatever the stream settings, so a request lost at connection (UDP, vehicle
+still booting) is sent again: `CONTROL_SYSTEM_STATE` (at most every 2 s, with a
+warning) while it is missing or older than 1 s, and the status rates while no
+`GLOBAL_POSITION_INT` arrived for 2 s. A vehicle without the GRS firmware is
+reported and a rebooted one resumes. A vehicle is registered once its
+autopilot heartbeat is seen, even if a telemetry bridge's heartbeat came first. Its measured rate is logged
 after the first 5 s and whenever it drops below 70 % of the request.
 
 `linkRates(sysId)` estimates the received rate of each message (every

@@ -27,6 +27,8 @@ cmake --build build
 
 `-DGRS_BUILD_GCS=OFF` builds only the MAVSDK-free parts (`grs_batchsim`,
 tests), for example on a compute server.
+`-DGRS_ONE_UAV_ONLY=ON` compiles only the one-UAV solvers and NMHE, much
+faster; a two-UAV configuration then stops at startup with a message.
 
 ## Run
 

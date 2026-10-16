@@ -48,6 +48,10 @@ set(CMAKE_PREFIX_PATH "${CASADI_DIR}" ${CMAKE_PREFIX_PATH})
 # server running Monte Carlo campaigns.
 option(GRS_BUILD_GCS "Build the GRS_GroundStation executable (needs MAVSDK)" ON)
 option(GRS_BUILD_BATCHSIM "Build grs_batchsim, the closed-loop batch simulator" ON)
+# GRS_ONE_UAV_ONLY=ON compiles only the one-UAV (oneGround) solvers and NMHE:
+# the two-UAV ones are most of the build time. A two-UAV config then fails
+# at startup with a message.
+option(GRS_ONE_UAV_ONLY "Build only the one-UAV generated solvers" OFF)
 
 find_package(casadi CONFIG REQUIRED)
 if(GRS_BUILD_GCS)
@@ -255,32 +259,38 @@ endfunction()
 # collision one level up, between the two files' now-identically-renamed
 # copies.
 nmpc_solver_isolate_runtime_symbols(source/Control/CasadiSolver/solver_oneGround_nmpc.c oneGroundNmpc)
-nmpc_solver_isolate_runtime_symbols(source/Control/CasadiSolver/solver_twoUavPayload_nmpc.c twoUavPayloadNmpc)
 nmpc_solver_isolate_runtime_symbols(source/Control/CasadiSolver/solver_oneGround_lmpc.c oneGroundLmpc)
-nmpc_solver_isolate_runtime_symbols(source/Control/CasadiSolver/solver_twoUavPayload_lmpc.c twoUavPayloadLmpc)
 nmpc_solver_isolate_runtime_symbols(source/Control/CasadiSolver/nmhe_oneGround.c oneGroundNmhe)
-nmpc_solver_isolate_runtime_symbols(source/Control/CasadiSolver/nmhe_twoUavPayload.c twoUavPayloadNmhe)
 
-add_library(nmpc_solver STATIC
+set(NMPC_SOLVER_SOURCES
         source/Control/CasadiSolver/solver_oneGround_nmpc.c
         source/Control/CasadiSolver/solver_oneGround_nmpc.h
-        source/Control/CasadiSolver/solver_twoUavPayload_nmpc.c
-        source/Control/CasadiSolver/solver_twoUavPayload_nmpc.h
         source/Control/CasadiSolver/solver_oneGround_lmpc.c
         source/Control/CasadiSolver/solver_oneGround_lmpc.h
-        source/Control/CasadiSolver/solver_twoUavPayload_lmpc.c
-        source/Control/CasadiSolver/solver_twoUavPayload_lmpc.h
         source/Control/CasadiSolver/linearize_oneGround_lmpc.c
         source/Control/CasadiSolver/linearize_oneGround_lmpc.h
-        source/Control/CasadiSolver/linearize_twoUavPayload_lmpc.c
-        source/Control/CasadiSolver/linearize_twoUavPayload_lmpc.h
         source/Control/CasadiSolver/nmhe_oneGround.c
         source/Control/CasadiSolver/nmhe_oneGround.h
-        source/Control/CasadiSolver/nmhe_twoUavPayload.c
-        source/Control/CasadiSolver/nmhe_twoUavPayload.h
         source/Control/fatropStatus.cpp
         source/Control/fatropStatus.h
 )
+if(NOT GRS_ONE_UAV_ONLY)
+    nmpc_solver_isolate_runtime_symbols(source/Control/CasadiSolver/solver_twoUavPayload_nmpc.c twoUavPayloadNmpc)
+    nmpc_solver_isolate_runtime_symbols(source/Control/CasadiSolver/solver_twoUavPayload_lmpc.c twoUavPayloadLmpc)
+    nmpc_solver_isolate_runtime_symbols(source/Control/CasadiSolver/nmhe_twoUavPayload.c twoUavPayloadNmhe)
+    list(APPEND NMPC_SOLVER_SOURCES
+            source/Control/CasadiSolver/solver_twoUavPayload_nmpc.c
+            source/Control/CasadiSolver/solver_twoUavPayload_nmpc.h
+            source/Control/CasadiSolver/solver_twoUavPayload_lmpc.c
+            source/Control/CasadiSolver/solver_twoUavPayload_lmpc.h
+            source/Control/CasadiSolver/linearize_twoUavPayload_lmpc.c
+            source/Control/CasadiSolver/linearize_twoUavPayload_lmpc.h
+            source/Control/CasadiSolver/nmhe_twoUavPayload.c
+            source/Control/CasadiSolver/nmhe_twoUavPayload.h
+    )
+endif()
+
+add_library(nmpc_solver STATIC ${NMPC_SOLVER_SOURCES})
 
 target_compile_options(nmpc_solver PRIVATE
         -O3
@@ -303,6 +313,10 @@ set_property(GLOBAL APPEND PROPERTY JOB_POOLS casadi_codegen=1)
 set_property(TARGET nmpc_solver PROPERTY JOB_POOL_COMPILE casadi_codegen)
 
 # Include libraries
+# yaml-cpp 0.7.0 and PX4-GPSDrivers declare a CMake minimum below 3.5, which
+# CMake 4 refuses (CLion bundles CMake 4). Ignored by CMake < 3.31.
+set(CMAKE_POLICY_VERSION_MINIMUM 3.5)
+
 # YAML
 FetchContent_Declare(
         yaml-cpp
@@ -339,6 +353,9 @@ target_include_directories(grs_core PUBLIC source)
 # propagates to both executables). The generated solvers keep full
 # fast-math (their own target_compile_options).
 target_compile_options(grs_core PUBLIC -fno-finite-math-only)
+if(GRS_ONE_UAV_ONLY)
+    target_compile_definitions(grs_core PRIVATE GRS_ONE_UAV_ONLY)
+endif()
 find_package(Threads REQUIRED)  # ThreadedEstimatorRunner (NMHE thread)
 target_link_libraries(grs_core PUBLIC
         nmpc_solver

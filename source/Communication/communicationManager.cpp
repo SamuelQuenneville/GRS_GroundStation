@@ -400,7 +400,7 @@ void CommunicationManager::m_onConnectionChanged(const std::shared_ptr<mavsdk::S
     {
         std::lock_guard lock(m_linkMutex);
         registered = m_vehicles.contains(sysId);
-        if (connected && !registered && system->has_autopilot()) {
+        if (connected && !registered) {
             // Plugin construction off the MAVSDK callback thread.
             m_registrationThreads.emplace_back([this, system] { m_registerSystem(system); });
             return;
@@ -421,6 +421,16 @@ void CommunicationManager::m_onConnectionChanged(const std::shared_ptr<mavsdk::S
 
 void CommunicationManager::m_registerSystem(const std::shared_ptr<mavsdk::System>& system) {
     const uint8_t sysId = system->get_system_id();
+
+    // A telemetry bridge's own heartbeat can create the system before the
+    // autopilot's arrives, and no connection event follows: wait for it.
+    for (int i = 0; i < 100 && !system->has_autopilot(); ++i) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    }
+    if (!system->has_autopilot()) {
+        LOG_WARNING("sysId " + std::to_string(sysId) + ": heartbeats but no autopilot within 10 s, not registered");
+        return;
+    }
 
     Vehicle vehicle;
     vehicle.system      = system;
@@ -515,8 +525,10 @@ void CommunicationManager::m_subscribeMavlink(const uint8_t sysId) {
         if (const auto aggregator = m_aggregatorOf(sysId)) {
             aggregator->updateGlobalPosition(position.latitude_deg, position.longitude_deg, position.absolute_altitude_m);
         }
-        m_requestGpsGlobalOrigin(sysId);
-        m_requestControlState(sysId);
+        {
+            std::lock_guard lock(m_requestMutex);
+            m_positionAt[sysId] = std::chrono::steady_clock::now();
+        }
         m_telemetryChanged();
     });
 
@@ -528,6 +540,7 @@ void CommunicationManager::m_subscribeMavlink(const uint8_t sysId) {
     raw(MAVLINK_MSG_ID_HEARTBEAT, &CommunicationManager::m_onHeartbeat);
     raw(MAVLINK_MSG_ID_CONTROL_SYSTEM_STATE, &CommunicationManager::m_onControlState);
     raw(MAVLINK_MSG_ID_GPS_GLOBAL_ORIGIN, &CommunicationManager::m_onGpsGlobalOrigin);
+    raw(MAVLINK_MSG_ID_COMMAND_ACK, &CommunicationManager::m_onCommandAck);
 
     {
         std::lock_guard lock(m_linkMutex);
@@ -594,12 +607,29 @@ void CommunicationManager::m_updateHealth(const uint8_t sysId, const std::functi
 }
 
 void CommunicationManager::m_onHeartbeat(const uint8_t sysId, const mavlink_message_t& message) {
+    // Other components (telemetry bridge, camera) send heartbeats too.
+    if (message.compid != MAV_COMP_ID_AUTOPILOT1) return;
     mavlink_heartbeat_t heartbeat;
     mavlink_msg_heartbeat_decode(&message, &heartbeat);
     m_updateHealth(sysId, [&](uavHealth& h) {
         h.customMode = heartbeat.custom_mode;
         h.customModeReceived = true;
     });
+
+    // The heartbeat is sent whatever the stream settings (SRx_* = -1): it
+    // drives the requests, so a request lost at connection is sent again.
+    m_requestGpsGlobalOrigin(sysId);
+    m_requestControlState(sysId);
+    bool positionStale;
+    {
+        std::lock_guard lock(m_requestMutex);
+        const auto now = std::chrono::steady_clock::now();
+        const auto position = m_positionAt.find(sysId);
+        const auto requested = m_statusRequestedAt.find(sysId);
+        positionStale = (position == m_positionAt.end() || now - position->second > std::chrono::seconds(2))
+                        && (requested == m_statusRequestedAt.end() || now - requested->second > std::chrono::seconds(2));
+    }
+    if (positionStale) m_requestStatusRates(sysId);
 }
 
 void CommunicationManager::m_onControlState(const uint8_t sysId, const mavlink_message_t& message) {
@@ -642,6 +672,21 @@ void CommunicationManager::m_onGpsGlobalOrigin(const uint8_t sysId, const mavlin
     }
 }
 
+void CommunicationManager::m_onCommandAck(const uint8_t sysId, const mavlink_message_t& message) {
+    mavlink_command_ack_t ack;
+    mavlink_msg_command_ack_decode(&message, &ack);
+    if (ack.command != MAV_CMD_SET_MESSAGE_INTERVAL || ack.result == MAV_RESULT_ACCEPTED) return;
+    {
+        std::lock_guard lock(m_requestMutex);
+        const auto now = std::chrono::steady_clock::now();
+        const auto last = m_ackRefusedLoggedAt.find(sysId);
+        if (last != m_ackRefusedLoggedAt.end() && now - last->second < std::chrono::seconds(10)) return;
+        m_ackRefusedLoggedAt[sysId] = now;
+    }
+    // MAV_RESULT: 2 DENIED (rate too fast for SCHED_LOOP_RATE), 3 UNSUPPORTED, 4 FAILED.
+    LOG_WARNING("sysId " + std::to_string(sysId) + ": SET_MESSAGE_INTERVAL refused, MAV_RESULT " + std::to_string(ack.result));
+}
+
 // ---------------------------------------------------------------------------
 // Requests
 // ---------------------------------------------------------------------------
@@ -657,7 +702,8 @@ void CommunicationManager::m_requestControlState(const uint8_t sysId) {
         const auto requested = m_stateRequestedAt.find(sysId);
         if (requested != m_stateRequestedAt.end() && now - requested->second < std::chrono::seconds(2)) return;
         if (requested != m_stateRequestedAt.end()) {
-            LOG_WARNING("sysId " + std::to_string(sysId) + ": no CONTROL_SYSTEM_STATE (GRS firmware required), requested again");
+            LOG_WARNING("sysId " + std::to_string(sysId) + ": no CONTROL_SYSTEM_STATE, requested again (needs the GRS firmware and an EKF position"
+                        + std::string(m_ekfOriginKnown[sysId] ? ")" : ", no EKF origin received yet)"));
         }
         m_stateRequestedAt[sysId] = now;
     }
@@ -678,6 +724,10 @@ void CommunicationManager::m_requestGpsGlobalOrigin(const uint8_t sysId) {
 }
 
 void CommunicationManager::m_requestStatusRates(const uint8_t sysId) {
+    {
+        std::lock_guard lock(m_requestMutex);
+        m_statusRequestedAt[sysId] = std::chrono::steady_clock::now();
+    }
     // Dashboard and frame offset only. Set every SRx_* of this port to -1 on the
     // vehicle: then only what is requested here is sent.
     m_sendCommandLong(sysId, MAV_CMD_SET_MESSAGE_INTERVAL, MAVLINK_MSG_ID_GLOBAL_POSITION_INT, 1e6 / kPositionRateHz);
