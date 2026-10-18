@@ -13,6 +13,7 @@
 
 #include <algorithm>
 #include <array>
+#include <cstring>
 #include <fstream>
 #include <ranges>
 #include <mavsdk/base64.h>
@@ -22,6 +23,7 @@ namespace {
 // Rates requested by m_requestStatusRates() [Hz].
 constexpr double kPositionRateHz = 5.0;
 constexpr double kStatusRateHz = 1.0;
+constexpr int kMsgIdRpm = 226; // RPM, ardupilotmega
 }
 
 CommunicationManager::CommunicationManager()
@@ -537,6 +539,7 @@ void CommunicationManager::m_subscribeMavlink(const uint8_t sysId) {
             (this->*handler)(sysId, m);
         }));
     };
+    raw(kMsgIdRpm, &CommunicationManager::m_onRpm);
     raw(MAVLINK_MSG_ID_HEARTBEAT, &CommunicationManager::m_onHeartbeat);
     raw(MAVLINK_MSG_ID_CONTROL_SYSTEM_STATE, &CommunicationManager::m_onControlState);
     raw(MAVLINK_MSG_ID_GPS_GLOBAL_ORIGIN, &CommunicationManager::m_onGpsGlobalOrigin);
@@ -660,6 +663,13 @@ void CommunicationManager::m_onControlState(const uint8_t sysId, const mavlink_m
     m_telemetryChanged();
 }
 
+void CommunicationManager::m_onRpm(const uint8_t sysId, const mavlink_message_t& message) {
+    // Payload: float rpm1, float rpm2. MAVLink 2 trims trailing zeros.
+    float rpm = 0.0f;
+    if (message.len >= sizeof(rpm)) std::memcpy(&rpm, _MAV_PAYLOAD(&message), sizeof(rpm));
+    m_updateHealth(sysId, [rpm](uavHealth& u) { u.rpm = rpm; });
+}
+
 void CommunicationManager::m_onGpsGlobalOrigin(const uint8_t sysId, const mavlink_message_t& message) {
     mavlink_gps_global_origin_t origin;
     mavlink_msg_gps_global_origin_decode(&message, &origin);
@@ -731,7 +741,7 @@ void CommunicationManager::m_requestStatusRates(const uint8_t sysId) {
     // Dashboard and frame offset only. Set every SRx_* of this port to -1 on the
     // vehicle: then only what is requested here is sent.
     m_sendCommandLong(sysId, MAV_CMD_SET_MESSAGE_INTERVAL, MAVLINK_MSG_ID_GLOBAL_POSITION_INT, 1e6 / kPositionRateHz);
-    for (const uint32_t id : {MAVLINK_MSG_ID_SYS_STATUS, MAVLINK_MSG_ID_GPS_RAW_INT, MAVLINK_MSG_ID_BATTERY_STATUS}) {
+    for (const uint32_t id : {MAVLINK_MSG_ID_SYS_STATUS, MAVLINK_MSG_ID_GPS_RAW_INT, MAVLINK_MSG_ID_BATTERY_STATUS, kMsgIdRpm}) {
         m_sendCommandLong(sysId, MAV_CMD_SET_MESSAGE_INTERVAL, static_cast<float>(id), 1e6 / kStatusRateHz);
     }
 }

@@ -154,6 +154,8 @@ private:
     // Applies `update` to a vehicle's health under the lock, then publishes.
     void m_updateHealth(uint8_t sysId, const std::function<void(uavHealth&)>& update);
 
+    // RPM (226, ardupilotmega, not in MAVSDK's common headers): rpm1.
+    void m_onRpm(uint8_t sysId, const mavlink_message_t& message);
     // HEARTBEAT custom_mode read raw: GrsPlane's mode numbering is not
     // MAVSDK's ArduPilot table (uavHealth::customMode).
     void m_onHeartbeat(uint8_t sysId, const mavlink_message_t& message);

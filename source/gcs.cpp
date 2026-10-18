@@ -832,8 +832,8 @@ void GroundControlStation::m_pushDashboardSnapshot(const uint8_t sysId) {
     snap.altitude    = state.altitudeAmslMeter;
     snap.roll        = state.rollDegree;
     snap.pitch       = state.pitchDegree;
-    // rpm / cl: not currently published over MAVSDK telemetry (no
-    // subscription wired for them yet) -- left at 0 until that's added.
+    snap.rpm         = health.rpm;
+    // cl: not currently published over MAVSDK telemetry -- left at 0.
 
     snap.battery  = health.batteryRemainingPercent; // [%], NaN (null in JSON) if unknown
     // gpsHdop: mavsdk::Telemetry::GpsInfo doesn't expose HDOP, only fix type

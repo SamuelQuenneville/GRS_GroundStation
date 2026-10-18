@@ -52,6 +52,8 @@ struct uavHealth {
 
     int gpsNumSatellites = 0;
     mavsdk::Telemetry::FixType gpsFixType = mavsdk::Telemetry::FixType::NoGps;
+
+    float rpm = 0.0f; // RPM (226) rpm1, set by RPM1_TYPE on the vehicle
 };
 
 
