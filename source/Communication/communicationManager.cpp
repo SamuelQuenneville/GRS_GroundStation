@@ -167,8 +167,8 @@ void CommunicationManager::connectAll(const std::vector<pixhawkEndpointConfig>& 
         std::lock_guard lock(m_linkMutex);
         for (const auto& endpoint : endpoints) m_expectedSysIds.push_back(endpoint.id);
     }
-    for (const auto& [id, ip, port] : endpoints) {
-        const std::string uri = "udpin://0.0.0.0:" + std::to_string(port);
+    for (const auto& [id, ip, port, endpointUri] : endpoints) {
+        const std::string uri = endpointUri.empty() ? "udpin://0.0.0.0:" + std::to_string(port) : endpointUri;
         LOG_INFO("Adding link for UAV " + std::to_string(id) + " -> " + uri);
         addLink(uri);
     }
@@ -330,12 +330,15 @@ void CommunicationManager::setUavCommands(const std::map<uint8_t, uavCommandsFla
 }
 
 void CommunicationManager::sendRtcmData(const std::vector<uint8_t>& data) {
-    std::vector<std::pair<uint8_t, std::shared_ptr<mavsdk::Rtk>>> rtks;
+    // GPS_RTCM_DATA has no target: MAVSDK sends it on every link, so one
+    // vehicle's Rtk plugin reaches them all. One per vehicle sent N copies
+    // with interleaved fragment sequences.
+    std::shared_ptr<mavsdk::Rtk> rtk;
     {
         std::lock_guard lock(m_linkMutex);
-        for (const auto& [sysId, vehicle] : m_vehicles) rtks.emplace_back(sysId, vehicle.rtk);
+        if (!m_vehicles.empty()) rtk = m_vehicles.begin()->second.rtk;
     }
-    if (rtks.empty()) {
+    if (!rtk) {
         LOG_DEBUG("sendRtcmData called but no UAV is connected yet");
         return;
     }
@@ -345,10 +348,8 @@ void CommunicationManager::sendRtcmData(const std::vector<uint8_t>& data) {
     mavsdk::Rtk::RtcmData rtcmData;
     rtcmData.data_base64 = mavsdk::base64_encode(encodableData);
 
-    for (const auto& [sysId, rtk] : rtks) {
-        if (rtk->send_rtcm_data(rtcmData) != mavsdk::Rtk::Result::Success) {
-            LOG_WARNING("Failed to send RTCM data to sysId = " + std::to_string(sysId));
-        }
+    if (rtk->send_rtcm_data(rtcmData) != mavsdk::Rtk::Result::Success) {
+        LOG_WARNING("Failed to send RTCM data");
     }
 }
 

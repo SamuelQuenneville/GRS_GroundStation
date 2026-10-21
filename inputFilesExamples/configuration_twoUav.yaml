@@ -31,6 +31,8 @@ Pixhawk:
   # see docs/ARCHITECTURE.md's "Payload sysId convention" -- the payload,
   # if it reports its own GPS fix as its own sysId, must be the HIGHEST
   # sysId of anything connected, higher than both UAVs' here).
+  # uri replaces ip/port with any MAVSDK connection, e.g. a Pixhawk on USB:
+  #   - {id: 1, uri: "serial:///dev/ttyACM0:115200"}
   endpoints:
     - {id: 1, ip: 192.168.50.10, port: 14400}
     - {id: 2, ip: 192.168.50.11, port: 14500}

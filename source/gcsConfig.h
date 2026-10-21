@@ -73,7 +73,8 @@ struct pixhawkConfig {
 struct pixhawkEndpointConfig {
     uint8_t id;
     std::string ip;
-    uint16_t port;
+    uint16_t port = 0;
+    std::string uri; // any MAVSDK connection (e.g. serial:///dev/ttyACM0:115200), replaces ip/port
 };
 
 struct catapultEndpointConfig {

@@ -40,6 +40,10 @@ namespace YAML {
             static bool decode(const Node& node, pixhawkEndpointConfig& rhs) {
                 if (!node.IsMap()) return false;
                 rhs.id   = node["id"].as<uint8_t>();
+                if (node["uri"]) {
+                    rhs.uri = node["uri"].as<std::string>();
+                    return true;
+                }
                 rhs.ip   = node["ip"].as<std::string>();
                 rhs.port = node["port"].as<uint16_t>();
                 return true;

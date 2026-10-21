@@ -22,8 +22,10 @@ Pixhawk:
   # Only read when sitl: false — one dedicated IP:port per real Pixhawk.
   # We use UDP so IP is WI-FI interface on GCS laptop
   endpoints:
-    - {id: 1, ip: 192.168.50.10, port: 14400}
-    - {id: 3, ip: 192.168.50.10, port: 14600}
+    - {id: 1, ip: 192.168.50.10, port: 14600}
+    - {id: 3, ip: 192.168.50.10, port: 14500}
+    # uri replaces ip/port with any MAVSDK connection, e.g. a Pixhawk on USB:
+    #- {id: 1, uri: "serial:///dev/ttyACM0:115200"}
 
 # Connect via TCP
 Catapults:
