@@ -40,6 +40,8 @@ public:
     void setCommandCallback(std::function<void(const std::map<uint8_t, uavCommandsFlags>&)> cb);
     // Age [s] of a vehicle's latest telemetry (CommunicationManager::telemetryAge()).
     void setTelemetryAgeProvider(std::function<std::optional<double>(uint8_t)> provider);
+    // Vehicle time_usec of a vehicle's latest telemetry, for timing.csv only.
+    void setVehicleTimeProvider(std::function<std::optional<uint64_t>(uint8_t)> provider);
     void updateStates(const std::map<uint8_t, uavStates>& states);
 
     void setNmpcDebugCallback(std::function<void(const Controller::DebugInfo&)> cb);
@@ -110,6 +112,7 @@ private:
 
     std::function<void(const std::map<uint8_t, uavCommandsFlags>&)> m_sendCommand;
     std::function<std::optional<double>(uint8_t)> m_telemetryAge;
+    std::function<std::optional<uint64_t>(uint8_t)> m_vehicleTime;
     // MPC mode: a vehicle of the controller's state has no frame offset yet,
     // or its telemetry is missing or older than telemetryTimeout, so this
     // tick neither solves nor sends a command. Read by launchReady().

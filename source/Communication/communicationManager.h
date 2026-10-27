@@ -56,6 +56,8 @@ public:
 
     // Age [s] of a vehicle's last CONTROL_SYSTEM_STATE; nullopt if none yet.
     [[nodiscard]] std::optional<double> telemetryAge(uint8_t sysId);
+    // Vehicle time_usec of a vehicle's latest control state.
+    [[nodiscard]] std::optional<uint64_t> vehicleTimeUsec(uint8_t sysId);
 
     // Estimated rate of each message received from a vehicle, and of the
     // commands sent to it (withCommands), smoothed over 1 s windows. For the dashboard.

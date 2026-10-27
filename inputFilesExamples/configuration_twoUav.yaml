@@ -18,6 +18,7 @@ GcsConfiguration:
   telemetryTimeout: 0.3  # [s] MPC: no command while a UAV's telemetry is older
   stateRateHz: 40.0       # CONTROL_SYSTEM_STATE request; at most 80 % of the vehicle's SCHED_LOOP_RATE
   controlMode: MPC        # MPC | MATLAB | ATTITUDE_FILE
+  verboseLogging: true
 
 Pixhawk:
   sitl: false               # true -> base IP + port*increment (SITL). false -> use endpoints below.
@@ -36,7 +37,7 @@ Pixhawk:
   endpoints:
     - {id: 1, ip: 192.168.50.10, port: 14400}
     - {id: 2, ip: 192.168.50.11, port: 14500}
-    #- {id: 3, ip: 192.168.50.10, port: 14600}  # payload GPS, if it reports one
+    - {id: 3, ip: 192.168.50.10, port: 14600}  # payload GPS, if it reports one
 
 # Connect via TCP
 Catapults:
@@ -57,10 +58,10 @@ SolverConfiguration:
   DT: 0.05
   NUM_UAVS: 2
   # nmpc (default) or lmpc, same values below for both.
-  CONTROLLER: nmpc
+  CONTROLLER: lmpc
 
   # Tether rest length [m], packed into every solve's L0 parameter.
-  L0: 30.0
+  L0: 28.5
 
   # Angle-of-attack bound [rad], both UAVs (build option 'alpha_max').
   ALPHA_MAX: 0.436332  # deg2rad(25)
@@ -86,8 +87,8 @@ SolverConfiguration:
   WEIGHT: [10, 10, 10, 1, 1, 1, 0.1, 0.1,   10, 10, 10, 1, 1, 1, 0.1, 0.1,   10, 10, 10, 1, 1, 1,
            0.1, 0.1, 0.1,   0.1, 0.1, 0.1,
            100, 100, 100, 10, 10, 10, 1, 1,   100, 100, 100, 10, 10, 10, 1, 1,   100, 100, 100, 10, 10, 10,
-           0.5, 2.0, 2.0,   0.5, 2.0, 2.0,
-           1.0, 4.0, 4.0,   1.0, 4.0, 4.0]
+           0.5, 2.0, 4.0,   0.5, 2.0, 4.0,
+           1.0, 4.0, 8.0,   1.0, 4.0, 8.0]
   # State bounds apply from the second stage on (the first is the measured
   # state). Payload pD upper bound 0.15: the ground-contact model rests
   # slightly below 0.
@@ -119,7 +120,7 @@ EstimatorConfiguration:
   NUM_UAVS: 2
 
   # Tether rest length [m], as SolverConfiguration.L0.
-  L0: 30.0
+  L0: 28.5
 
   # W_MEAS(22) | W_WINDP(3) | W_DP(9), GRS_Controller tuning_twoUav.m.
   W_MEAS: [5, 5, 5, 2, 2, 2, 1, 1,   5, 5, 5, 2, 2, 2, 1, 1,   5, 5, 5, 2, 2, 2]

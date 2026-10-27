@@ -12,8 +12,12 @@
 #include "nmheEstimator.h"
 
 #include <algorithm>
+#include <iomanip>
 #include <ranges>
+#include <sstream>
 #include <stdexcept>
+
+#include "Log/logger.h"
 
 ControlInterface::~ControlInterface() {
     stop();
@@ -67,6 +71,10 @@ void ControlInterface::setCommandCallback(std::function<void(const std::map<uint
 
 void ControlInterface::setTelemetryAgeProvider(std::function<std::optional<double>(uint8_t)> provider) {
     m_telemetryAge = std::move(provider);
+}
+
+void ControlInterface::setVehicleTimeProvider(std::function<std::optional<uint64_t>(uint8_t)> provider) {
+    m_vehicleTime = std::move(provider);
 }
 
 bool ControlInterface::m_checkTelemetry(const std::map<uint8_t, uavStates>& navStates) {
@@ -267,6 +275,7 @@ void ControlInterface::m_controlLoop() {
 
     const auto period = std::chrono::milliseconds(static_cast<int>(1000.0 / m_config.hlcFrequency));
     auto next = std::chrono::steady_clock::now();
+    std::optional<std::chrono::steady_clock::time_point> lastTickStart; // timing.csv only
 
     while (m_running) {
         next += period;
@@ -289,6 +298,20 @@ void ControlInterface::m_controlLoop() {
                 latestStates = m_latestStates;
             }
             const double time = std::chrono::duration<double>(std::chrono::steady_clock::now().time_since_epoch()).count();
+
+            // timing.csv: tick period and, per vehicle, the age and vehicle time of the state used.
+            const auto tickStart = std::chrono::steady_clock::now();
+            const double periodMs = lastTickStart ? std::chrono::duration<double, std::milli>(tickStart - *lastTickStart).count() : 0.0;
+            lastTickStart = tickStart;
+            std::ostringstream vehicles;
+            if (Logger::instance().verbose()) {
+                vehicles << std::fixed << std::setprecision(3);
+                for (const auto sysId : latestStates | std::views::keys) {
+                    const auto age = m_telemetryAge ? m_telemetryAge(sysId) : std::nullopt;
+                    const auto vehicleTime = m_vehicleTime ? m_vehicleTime(sysId) : std::nullopt;
+                    vehicles << "," << static_cast<int>(sysId) << "," << (age ? *age * 1000.0 : -1.0) << "," << (vehicleTime ? *vehicleTime : 0);
+                }
+            }
 
             if (m_navFrameManager.isInitialized()) {
                 std::map<uint8_t, uavCommandsFlags>  cmds;
@@ -338,6 +361,14 @@ void ControlInterface::m_controlLoop() {
 
                 if (m_sendCommand) {
                     m_sendCommand(cmds);
+                }
+
+                if (m_config.controlMode == ControlMode::MPC && Logger::instance().verbose()) {
+                    const double latencyMs = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - tickStart).count();
+                    std::ostringstream line;
+                    line << std::fixed << std::setprecision(4) << Logger::instance().nowMilliseconds() << "," << Logger::nowWallTimeMs()
+                         << "," << time << "," << periodMs << "," << latencyMs << vehicles.str();
+                    Logger::instance().log(LogType::TIMING, line.str());
                 }
 
             }

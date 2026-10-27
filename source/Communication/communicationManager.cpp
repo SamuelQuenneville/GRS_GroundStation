@@ -140,6 +140,12 @@ void CommunicationManager::setEkfOriginCallback(std::function<void(uint8_t, doub
     m_ekfOriginCallback = std::move(cb);
 }
 
+std::optional<uint64_t> CommunicationManager::vehicleTimeUsec(const uint8_t sysId) {
+    const auto aggregator = m_aggregatorOf(sysId);
+    if (!aggregator || !aggregator->lastStateTime()) return std::nullopt;
+    return aggregator->lastTimeUsec();
+}
+
 std::optional<double> CommunicationManager::telemetryAge(const uint8_t sysId) {
     const auto aggregator = m_aggregatorOf(sysId);
     if (!aggregator) return std::nullopt;

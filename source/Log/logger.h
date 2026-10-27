@@ -26,6 +26,8 @@ public:
     void stop();
 
     void log(LogType type, const std::string& line);
+    // True when the per-tick logs (verboseLogging) are written.
+    [[nodiscard]] bool verbose() const { return m_running && m_enabled; }
 
     uint64_t nowMilliseconds() const;
     static uint64_t nowWallTimeMs();

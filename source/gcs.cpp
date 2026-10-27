@@ -46,6 +46,9 @@ GroundControlStation::GroundControlStation()
     m_controlInterface->setTelemetryAgeProvider([this](const uint8_t sysId) {
         return m_communicationManager->telemetryAge(sysId);
     });
+    m_controlInterface->setVehicleTimeProvider([this](const uint8_t sysId) {
+        return m_communicationManager->vehicleTimeUsec(sysId);
+    });
 
     m_communicationManager->setEkfOriginCallback([this](const uint8_t sysId, const double lat, const double lon, const double alt) {
         m_controlInterface->setEkfOrigin(sysId, lat, lon, alt);

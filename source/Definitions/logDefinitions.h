@@ -19,6 +19,20 @@ enum class LogType {
     MPC_RES_X,
     STATES,
     CONTROLS,
+    // ms, wall ms, sample time, then the measured state vector (stateVector.h)
+    // as received, before the launch-phase substitution logged in STATES.
+    MEASURED_STATES,
+    // ms, wall ms, sample time, event (applied | ignored | reset), NMHE solves,
+    // published, overruns, last solve ms, then wind (np) and d (nd) if any.
+    ESTIMATOR,
+    // ms, wall ms, sample time, accepted, warm start age (N: cold start), then for stages k = 0..5:
+    // x_k (nx), u_k (nu), alpha_k (numUavs), then x_N. Physical units, the
+    // solve's result whether accepted or not.
+    PLAN,
+    // ms, wall ms, sample time, tick period ms, latency ms (tick start to
+    // command sent), then per vehicle: sysId, state age ms at tick start,
+    // vehicle time_usec of that state (CONTROL_SYSTEM_STATE).
+    TIMING,
     // Sparse NMPC events (launch, in flight, trajectory ended, violation,
     // telemetry complete). Always written, unlike the types above.
     NMPC_EVENT

@@ -50,6 +50,11 @@ uavStates StatesAggregator::getSnapshot() const {
     return m_state;
 }
 
+uint64_t StatesAggregator::lastTimeUsec() const {
+    std::lock_guard lock(m_mutex);
+    return m_lastTimeUsec;
+}
+
 std::optional<std::chrono::steady_clock::time_point> StatesAggregator::lastStateTime() const {
     std::lock_guard lock(m_mutex);
     return m_lastStateTime;

@@ -29,6 +29,8 @@ public:
     uavStates getSnapshot() const;
     // Arrival time of the last control state; nullopt before the first.
     std::optional<std::chrono::steady_clock::time_point> lastStateTime() const;
+    // Vehicle time_usec of the last control state.
+    uint64_t lastTimeUsec() const;
 
 private:
     mutable std::mutex m_mutex;

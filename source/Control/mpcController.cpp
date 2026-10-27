@@ -266,6 +266,7 @@ std::map<uint8_t, uavCommandsFlags> MpcController::solve(const std::map<uint8_t,
         m_violation = !check.valid;
         m_lastMaxConstraintViolation = check.maxConstraintViolation;
     }
+    m_logPlan(time);
 
     if (!m_violation) {
         m_plan = m_solver.x;
@@ -308,6 +309,29 @@ std::map<uint8_t, uavCommandsFlags> MpcController::solve(const std::map<uint8_t,
 
     m_trackingNumber += 1;
     return controls;
+}
+
+void MpcController::m_logPlan(const double time) const {
+    if (!Logger::instance().verbose()) return;
+    constexpr size_t kStages = 6;
+    const auto N = static_cast<size_t>(m_config.N);
+    const auto numUavs = static_cast<size_t>(m_config.numUavs);
+    const size_t gStride = m_nz + numUavs;  // g: nz initial rows, then per stage [nz dynamics | numUavs alpha]
+    const auto& x = m_solver.x;
+
+    std::ostringstream line;
+    line << std::fixed << std::setprecision(4) << Logger::instance().nowMilliseconds() << "," << Logger::nowWallTimeMs()
+         << "," << time << "," << !m_violation << "," << m_planAge;
+    const auto states = [&](const size_t k) {
+        for (int i = 0; i < m_config.nx; ++i) line << "," << x[k * m_solStride + i] * m_config.scalesStates[i];
+    };
+    for (size_t k = 0; k < std::min(kStages, N); ++k) {
+        states(k);
+        for (int i = 0; i < m_config.nu; ++i) line << "," << x[k * m_solStride + m_nz + i] * m_config.scalesControls[i];
+        for (size_t j = 0; j < numUavs; ++j) line << "," << m_solver.g[m_nz + k * gStride + m_nz + j];
+    }
+    states(N);
+    Logger::instance().log(LogType::PLAN, line.str());
 }
 
 void MpcController::m_logTransitions() {

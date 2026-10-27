@@ -8,9 +8,37 @@
 
 #include "controlStep.h"
 
+#include <iomanip>
+#include <sstream>
+
 #include "Configuration/configurationParser.h"
+#include "Log/logger.h"
 #include "mpcController.h"
 #include "nmheEstimator.h"
+
+namespace {
+
+std::ostringstream logLine(const double time) {
+    std::ostringstream line;
+    line << std::fixed << std::setprecision(4) << Logger::instance().nowMilliseconds() << ","
+         << Logger::nowWallTimeMs() << "," << time;
+    return line;
+}
+
+void logEstimator(const EstimatorRunner& runner, const char* event, const double time,
+                  const EstimatorRunner::Estimate* estimate = nullptr) {
+    if (!Logger::instance().verbose()) return;
+    const auto stats = runner.stats();
+    auto line = logLine(time);
+    line << "," << event << "," << stats.solves << "," << stats.published << "," << stats.overruns << "," << stats.lastSolveMs;
+    if (estimate) {
+        for (const double v : estimate->wind) line << "," << v;
+        for (const double v : estimate->d) line << "," << v;
+    }
+    Logger::instance().log(LogType::ESTIMATOR, line.str());
+}
+
+} // namespace
 
 ControlStep::ControlStep(Controller& controller, std::unique_ptr<EstimatorRunner> runner, const int estimatorNu, const double sampleDt)
     : m_controller(controller)
@@ -28,10 +56,23 @@ std::map<uint8_t, uavCommandsFlags> ControlStep::tick(const std::map<uint8_t, ua
     // 1. Newest NMHE estimate, if one finished since the last tick. Only in
     //    flight: the estimator only sees in-flight samples.
     if (m_runner) {
-        if (auto est = m_runner->takeEstimate(); est && m_controller.inFlight()) {
-            m_controller.setDisturbanceEstimate(est->wind, est->d);
-            m_appliedEstimate = std::move(*est);
+        if (auto est = m_runner->takeEstimate()) {
+            const bool apply = m_controller.inFlight();
+            logEstimator(*m_runner, apply ? "applied" : "ignored", time, &*est);
+            if (apply) {
+                m_controller.setDisturbanceEstimate(est->wind, est->d);
+                m_appliedEstimate = std::move(*est);
+            }
         }
+    }
+
+    if (Logger::instance().verbose()) {
+        const grs::control::StateLayout layout{.numUavs = m_controller.numUavs(), .hasPayload = m_controller.hasPayload()};
+        std::vector<double> measured(layout.size(), 0.0);
+        grs::control::fillStateVector(navStates, layout, measured);
+        auto line = logLine(time);
+        for (const double v : measured) line << "," << v;
+        Logger::instance().log(LogType::MEASURED_STATES, line.str());
     }
 
     // 2. NMPC solve, which also updates the launch phase.
@@ -49,6 +90,7 @@ std::map<uint8_t, uavCommandsFlags> ControlStep::tick(const std::map<uint8_t, ua
             m_runner->reset();
             m_appliedEstimate = {};
             m_wasInFlight = flying;
+            logEstimator(*m_runner, "reset", time);
         }
         if (flying) {
             grs::control::fillStateVector(navStates, m_layout, m_measuredState);

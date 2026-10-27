@@ -185,6 +185,7 @@ private:
     // changed since the last call.
     // Called once per solve(), after all of them have their final value.
     void m_logTransitions();
+    void m_logPlan(double time) const;
     // One LogType::NMPC_EVENT line: trackingNumber, ms, wall ms, event.
     void m_logEvent(const std::string& event) const;
 
