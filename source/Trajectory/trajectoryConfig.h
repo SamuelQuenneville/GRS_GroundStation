@@ -84,7 +84,7 @@ struct TrajectoryConfig {
         double velMean = 26;                        // Aircraft mean speed [m/s]
         std::vector<double> phaseRad = {0.0, M_PI}; // Aircraft phase per UAV [rad], from North toward East
         double radius = 25;                         // Aircraft path radius [m]
-        double z0 = 1.382;                          // Aircraft height above the payload on the launcher [m], positive up
+        std::vector<double> z0 = {1.382, 1.382};    // Aircraft height above the payload on the launcher per UAV [m], positive up
 
         double takeoffTime = 10;          // Takeoff phase duration [s]
         double takeoffTimeBalistic = 1.5; // Max duration of the pitch held at the rail angle after the release [s]

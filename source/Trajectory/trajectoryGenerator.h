@@ -53,6 +53,7 @@ struct GeneratedMission {
     std::vector<AircraftTimeline> aircraft;            // size() == config.aircraftPath.phaseRad.size()
     std::vector<std::vector<ControlSample>> controls;  // controls[uavIndex][sample], takeoff + mission concatenated
     size_t releaseIndex = 0;                           // first sample after the catapult stroke, 0 without one
+    size_t takeoffEndIndex = 0;                        // first mission sample, after the takeoff
 };
 
 /// Narrows an already-generated mission for exercising a reduced-order
@@ -102,16 +103,13 @@ public:
     /// calibration math.
     static void applyFieldCalibration(GeneratedMission& mission, double fieldHeadingDeg, const Vec3d& originOffset = Vec3d::zeros());
 
-    /// Rigidly translates each UAV's entire generated trajectory (already
-    /// field-calibrated, i.e. real-world NED) so its first (launch) sample
-    /// lands exactly on a measured live GPS fix, instead of wherever
-    /// phase/z0/tetherLengthAtLaunch would otherwise place it.
-    /// Position-only; velocity/acceleration/attitude are left untouched,
-    /// since a pure translation doesn't change them. Independent per UAV,
-    /// so e.g. two UAVs at different launcher heights each land exactly on
-    /// their own measured fix, without the averaging
-    /// TrajectoryConfig::AircraftPath::z0/tetherLengthAtLaunch would need
-    /// (those are single values shared by every UAV).
+    /// Translates each UAV's generated trajectory (already field-calibrated,
+    /// i.e. real-world NED) so its first (launch) sample lands exactly on a
+    /// measured live GPS fix, instead of wherever phase/z0/tetherLengthAtLaunch
+    /// would otherwise place it. The offset is full up to the release, then
+    /// fades out over the takeoff (velocity and acceleration follow), so the
+    /// mission circles stay centred on the payload at the nominal height.
+    /// Attitude and thrust are left as generated. Independent per UAV.
     /// @param liveLaunchPositionsNed Indexed the same as `mission.aircraft`
     ///        (nullopt = no correction for that UAV); call this before
     ///        extractSubset(), while that indexing still matches the full

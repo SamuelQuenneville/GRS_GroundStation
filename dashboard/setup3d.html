@@ -130,7 +130,8 @@
             <span class="ro-label">Aircraft launch geometry, relative to payload (or the origin, if flying without a payload link)</span>
             <div class="gen-row"><label for="gen-uav1PhaseDeg">UAV 1 phase (deg)</label><input type="number" id="gen-uav1PhaseDeg" step="1"></div>
             <div class="gen-row"><label for="gen-uav2PhaseDeg">UAV 2 phase (deg)</label><input type="number" id="gen-uav2PhaseDeg" step="1"></div>
-            <div class="gen-row"><label for="gen-aircraftZ0Meters">Altitude on launcher (m)</label><input type="number" id="gen-aircraftZ0Meters" step="0.05"></div>
+            <div class="gen-row"><label for="gen-uav1Z0Meters">UAV 1 height on launcher (m)</label><input type="number" id="gen-uav1Z0Meters" step="0.05"></div>
+            <div class="gen-row"><label for="gen-uav2Z0Meters">UAV 2 height on launcher (m)</label><input type="number" id="gen-uav2Z0Meters" step="0.05"></div>
             <input type="checkbox" id="gen-uav1SnapCaptured" hidden><input type="number" id="gen-uav1SnapNorthMeters" hidden><input type="number" id="gen-uav1SnapEastMeters" hidden><input type="number" id="gen-uav1SnapDownMeters" hidden>
             <input type="checkbox" id="gen-uav2SnapCaptured" hidden><input type="number" id="gen-uav2SnapNorthMeters" hidden><input type="number" id="gen-uav2SnapEastMeters" hidden><input type="number" id="gen-uav2SnapDownMeters" hidden>
 
@@ -1063,7 +1064,7 @@
     // mode (see the sidebar section of the same name), used in place of a
     // real GET /api/trajectory/live-positions read. Chosen so that
     // capturing them and generating a preview reproduces this GCS's own
-    // existing defaults -- aircraftZ0Meters=1.382, tetherLengthAtLaunchMeters
+    // existing defaults -- uav1Z0Meters=uav2Z0Meters=1.382, tetherLengthAtLaunchMeters
     // =30, phase 0/180 -- rather than an arbitrary-looking layout. The
     // reference point for that math (see the capture handler below) is
     // always the origin (0,0,0) whether or not the demo payload is
@@ -1297,7 +1298,7 @@
         'holdTimeSeconds', 'tetherLengthMeters', 'payloadMassKg',
         'tetherLengthAtLaunchMeters', 'tetherPayoutDurationSeconds', 'railLengthMeters',
         'fieldHeadingDeg', 'originNorthOffsetMeters', 'originEastOffsetMeters', 'originDownOffsetMeters',
-        'uav1PhaseDeg', 'uav2PhaseDeg', 'aircraftZ0Meters',
+        'uav1PhaseDeg', 'uav2PhaseDeg', 'uav1Z0Meters', 'uav2Z0Meters',
         'uav1SnapNorthMeters', 'uav1SnapEastMeters', 'uav1SnapDownMeters',
         'uav2SnapNorthMeters', 'uav2SnapEastMeters', 'uav2SnapDownMeters',
         'testMaxDurationSeconds',
@@ -1509,17 +1510,13 @@
 
             // Launch geometry (theta0 = asin(z0 / tetherLengthAtLaunch) in
             // trajectoryGenerator.cpp): read straight off the measured
-            // reference->UAV offset instead of two independent manual
-            // guesses that have to happen to agree. TrajectoryConfig::
-            // AircraftPath::z0 is a single value shared by both UAVs, so
-            // average across whichever UAVs have a live fix -- with one UAV
-            // (the reduced ground-tethered case) this is exact, not an
-            // approximation.
-            const z0Vals = liveUavs.map(u => reference.down - u.down); // height above the reference, positive up
+            // reference->UAV offsets. Height above the reference per UAV
+            // (positive up); TrajectoryConfig::Tether::lengthAtLaunch is
+            // shared, so averaged across whichever UAVs have a live fix.
+            if (uav1) document.getElementById('gen-uav1Z0Meters').value = (reference.down - uav1.down).toFixed(3);
+            if (uav2) document.getElementById('gen-uav2Z0Meters').value = (reference.down - uav2.down).toFixed(3);
             const l0Vals = liveUavs.map(u => distance3D(reference, u));
-            const meanZ0 = z0Vals.reduce((a, b) => a + b, 0) / z0Vals.length;
             const meanL0 = l0Vals.reduce((a, b) => a + b, 0) / l0Vals.length;
-            document.getElementById('gen-aircraftZ0Meters').value = meanZ0.toFixed(3);
             document.getElementById('gen-tetherLengthAtLaunchMeters').value = meanL0.toFixed(2);
 
             // Saves this instant's fix into the hidden gen-uavNSnap* fields,
@@ -1551,9 +1548,9 @@
                 : 'no live payload fix, so origin offset was left as-is (fine if it was already set at the anchor) — ';
             const demoNote = demoActive ? ' [demo data — not a real fix]' : '';
             if (missing.length) {
-                setGenStatus(`Captured ${originNote}phase, launch altitude, length at launch, and snap position, but no live fix for ${missing.join(' and ')} — its phase angle and snap position were left unchanged.${demoNote}`, 'preview');
+                setGenStatus(`Captured ${originNote}phase, launch height, length at launch, and snap position, but no live fix for ${missing.join(' and ')} — its phase angle, launch height and snap position were left unchanged.${demoNote}`, 'preview');
             } else {
-                setGenStatus(`Captured ${originNote}phase, launch altitude, length at launch, and snap position.${demoNote}`, 'preview');
+                setGenStatus(`Captured ${originNote}phase, launch height, length at launch, and snap position.${demoNote}`, 'preview');
             }
         } catch (err) {
             console.error('Failed to capture live positions:', err);

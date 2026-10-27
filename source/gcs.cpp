@@ -525,7 +525,7 @@ grs::trajgen::TrajectoryConfig GroundControlStation::m_paramsToTrajectoryConfig(
     config.tether.lengthAtLaunch       = params.tetherLengthAtLaunchMeters;
     config.tether.payoutDurationSeconds = params.tetherPayoutDurationSeconds;
 
-    config.aircraftPath.z0 = params.aircraftZ0Meters;
+    config.aircraftPath.z0 = {params.uav1Z0Meters, params.uav2Z0Meters};
     config.aircraftPath.railLength = params.railLengthMeters;
 
     config.finalize();

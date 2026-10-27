@@ -87,10 +87,11 @@ not yet field-calibrated.
   translates by `originOffset`. Both arguments default to identity, so this
   is a no-op unless a caller opts in.
 - **`snapToLiveLaunchPositions(mission, liveLaunchPositionsNed)`** — after
-  field calibration, rigidly translates each aircraft's *entire* trajectory
-  so its first (launch) sample lands exactly on a measured live GPS fix,
-  independently per aircraft. Position-only; velocity/acceleration/attitude
-  are untouched since a pure translation doesn't change them.
+  field calibration, translates each aircraft's trajectory so its first
+  (launch) sample lands exactly on a measured live GPS fix, independently per
+  aircraft. The offset is full up to the release and fades out (quintic) by
+  the end of the takeoff, velocity and acceleration included, so the mission
+  circles stay centred on the payload. Attitude and thrust are untouched.
   `liveLaunchPositionsNed[k]` must line up with `mission.aircraft[k]`'s
   indexing, so call this before `extractSubset()`.
 - **`extractSubset(mission, selection)`** — slices a `SubsetSelection` (a

@@ -62,8 +62,8 @@ double quinticSmoothstepDeriv(const double tau) {
     return 30*tau*tau*tau*tau - 60*tau*tau*tau + 30*tau*tau;
 }
 
-// d^2/dtau^2 of quinticSmoothstep -- needed for the tether slip-clutch payout
-// model's L''(t) (see generateAircraftTakeoff), nothing else uses it.
+// d^2/dtau^2 of quinticSmoothstep: the tether payout's L''(t) (generateAircraftTakeoff)
+// and the launch offset fade (snapToLiveLaunchPositions).
 double quinticSmoothstepSecondDeriv(const double tau) {
     return 120*tau*tau*tau - 180*tau*tau + 60*tau;
 }
@@ -294,7 +294,7 @@ struct TakeoffMission {
     std::vector<KinematicSample> inertial;     // + config.payloadPath.x0
 };
 
-TakeoffMission generateAircraftTakeoff(const TrajectoryConfig& config, double phase) {
+TakeoffMission generateAircraftTakeoff(const TrajectoryConfig& config, const double phase, const double z0) {
     const auto& ap = config.aircraftPath;
     const double Lfinal = config.tether.length;
     const double dt = config.simDt;
@@ -349,7 +349,7 @@ TakeoffMission generateAircraftTakeoff(const TrajectoryConfig& config, double ph
 
     std::vector<double> gamma(n, 0.0), theta(n, 0.0), thetaDot(n, 0.0), thetaDdot(n, 0.0);
 
-    const double theta0 = std::asin(ap.z0 / L0);
+    const double theta0 = std::asin(z0 / L0);
     const double zTarget = std::sqrt(Lfinal*Lfinal - ap.radius*ap.radius);
     const double thetaF = std::asin(zTarget / Lfinal);
 
@@ -561,14 +561,14 @@ TakeoffMission generateAircraftTakeoff(const TrajectoryConfig& config, double ph
 
 struct AircraftMissionRaw { AircraftTimeline timeline; TakeoffMission takeoff; };
 
-AircraftMissionRaw generateAircraftPathForUav(const TrajectoryConfig& config, const double phase, const PayloadMission& payloadMission) {
+AircraftMissionRaw generateAircraftPathForUav(const TrajectoryConfig& config, const double phase, const double z0, const PayloadMission& payloadMission) {
     const auto& ap = config.aircraftPath;
     const double R = ap.radius;
     const double omega = ap.direction * ap.velMean / R;
     const double zpay = -std::sqrt(config.tether.length*config.tether.length - R*R);
 
     AircraftMissionRaw out;
-    out.takeoff = generateAircraftTakeoff(config, phase);
+    out.takeoff = generateAircraftTakeoff(config, phase, z0);
     const double psiEnd = out.takeoff.psi.back();
 
     const size_t n = payloadMission.t.size();
@@ -905,10 +905,12 @@ GeneratedMission TrajectoryGenerator::generate() const {
     // apps/main.m, in order.
     const PayloadMission payloadMission = generatePayloadPath(m_config);
 
-    const size_t nUavs = m_config.aircraftPath.phaseRad.size();
+    const auto& ap = m_config.aircraftPath;
+    const size_t nUavs = ap.phaseRad.size();
+    assert(ap.z0.size() == nUavs && "One launcher height (z0) per UAV.");
     std::vector<AircraftMissionRaw> aircraftRaw(nUavs);
     for (size_t k = 0; k < nUavs; ++k) {
-        aircraftRaw[k] = generateAircraftPathForUav(m_config, m_config.aircraftPath.phaseRad[k], payloadMission);
+        aircraftRaw[k] = generateAircraftPathForUav(m_config, ap.phaseRad[k], ap.z0[k], payloadMission);
     }
 
     // dyn.getTethersForces: static per-tether gravity + per-sample tether pull at each aircraft.
@@ -975,6 +977,7 @@ GeneratedMission TrajectoryGenerator::generate() const {
     }
 
     prependCatapultStroke(m_config, out);
+    out.takeoffEndIndex = out.releaseIndex + nTakeoff;
     return out;
 }
 
@@ -1019,12 +1022,17 @@ void TrajectoryGenerator::snapToLiveLaunchPositions(GeneratedMission& mission,
         auto& timeline = mission.aircraft[k].inertial;
         if (timeline.empty()) continue;
 
-        // Every sample of this UAV's trajectory shifts by the same amount,
-        // so velocity/acceleration/attitude (all unaffected by a pure
-        // translation) stay exactly as generated -- only where the shape
-        // sits in space changes.
+        // Full offset up to the release, then a quintic fade to zero at the end of the takeoff,
+        // velocity and acceleration included: the mission circles stay centred on the payload.
         const Vec3d delta = *liveLaunchPositionsNed[k] - timeline.front().pos;
-        for (auto& s : timeline) s.pos += delta;
+        const double t0 = mission.time[mission.releaseIndex];
+        const double T = mission.time[mission.takeoffEndIndex] - t0;
+        for (size_t i = 0; i < timeline.size(); ++i) {
+            const double s = std::clamp((mission.time[i] - t0) / T, 0.0, 1.0);
+            timeline[i].pos += delta * (1.0 - quinticSmoothstep(s));
+            timeline[i].vel -= delta * (quinticSmoothstepDeriv(s) / T);
+            timeline[i].acc -= delta * (quinticSmoothstepSecondDeriv(s) / (T * T));
+        }
     }
 }
 
@@ -1085,6 +1093,7 @@ GeneratedMission TrajectoryGenerator::extractSubset(const GeneratedMission& miss
     GeneratedMission out;
     out.time.assign(mission.time.begin(), mission.time.begin() + n);
     out.releaseIndex = std::min(mission.releaseIndex, n);
+    out.takeoffEndIndex = std::min(mission.takeoffEndIndex, n);
     out.payload.assign(mission.payload.begin(), mission.payload.begin() + n);
 
     out.aircraft.reserve(indices.size());

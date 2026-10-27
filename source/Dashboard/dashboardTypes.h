@@ -342,20 +342,22 @@ struct TrajectoryGenerationParams {
     double tetherPayoutDurationSeconds = 1.5;
     /// @}
 
-    /// Aircraft height above the payload on the launcher at t=0 [m], positive up. A wrong
-    /// value shifts every takeoff/loiter waypoint even when phase and
+    /// Height of each aircraft above the payload on its launcher at t=0 [m], positive up.
+    /// A wrong value shifts every takeoff/loiter waypoint even when phase and
     /// tetherLengthAtLaunchMeters are correct -- see docs/Trajectory.md.
-    /// "Capture live positions" derives this from the real payload/anchor
-    /// -> UAV offset instead of requiring a manual guess.
-    double aircraftZ0Meters = 1.382;
+    /// "Capture live positions" derives them from the real payload/anchor
+    /// -> UAV offsets instead of requiring a manual guess.
+    double uav1Z0Meters = 1.382;
+    double uav2Z0Meters = 1.382;
 
     /// Catapult stroke [m]: the reference starts at rest on the launcher.
     double railLengthMeters = 2.15;
 
-    /// When true, rigidly translates each UAV's whole trajectory so its
-    /// launch waypoint lands exactly on that UAV's *captured* position
-    /// below (see TrajectoryGenerator::snapToLiveLaunchPositions()).
-    /// Position-only; defaults to false (strict no-op). Deliberately does
+    /// When true, translates each UAV's trajectory so its launch waypoint
+    /// lands exactly on that UAV's *captured* position below, the offset
+    /// fading out over the takeoff (see
+    /// TrajectoryGenerator::snapToLiveLaunchPositions()).
+    /// Defaults to false (strict no-op). Deliberately does
     /// NOT re-read live telemetry at generate/apply time -- the operator
     /// clicks "Capture live positions" once, and that snapshot is what
     /// applies on every subsequent Generate/Apply until re-captured, so
@@ -413,7 +415,8 @@ struct TrajectoryGenerationParams {
             .add("uav2PhaseDeg", uav2PhaseDeg)
             .add("tetherLengthAtLaunchMeters", tetherLengthAtLaunchMeters)
             .add("tetherPayoutDurationSeconds", tetherPayoutDurationSeconds)
-            .add("aircraftZ0Meters", aircraftZ0Meters)
+            .add("uav1Z0Meters", uav1Z0Meters)
+            .add("uav2Z0Meters", uav2Z0Meters)
             .add("railLengthMeters", railLengthMeters)
             .add("snapToLiveLaunchPosition", snapToLiveLaunchPosition)
             .add("uav1SnapCaptured", uav1SnapCaptured)
@@ -458,7 +461,8 @@ struct TrajectoryGenerationParams {
         p.uav2PhaseDeg = reader.getNumber("uav2PhaseDeg", p.uav2PhaseDeg);
         p.tetherLengthAtLaunchMeters = reader.getNumber("tetherLengthAtLaunchMeters", p.tetherLengthAtLaunchMeters);
         p.tetherPayoutDurationSeconds = reader.getNumber("tetherPayoutDurationSeconds", p.tetherPayoutDurationSeconds);
-        p.aircraftZ0Meters = reader.getNumber("aircraftZ0Meters", p.aircraftZ0Meters);
+        p.uav1Z0Meters = reader.getNumber("uav1Z0Meters", p.uav1Z0Meters);
+        p.uav2Z0Meters = reader.getNumber("uav2Z0Meters", p.uav2Z0Meters);
         p.railLengthMeters = reader.getNumber("railLengthMeters", p.railLengthMeters);
         p.snapToLiveLaunchPosition = reader.getBool("snapToLiveLaunchPosition", p.snapToLiveLaunchPosition);
         p.uav1SnapCaptured = reader.getBool("uav1SnapCaptured", p.uav1SnapCaptured);
