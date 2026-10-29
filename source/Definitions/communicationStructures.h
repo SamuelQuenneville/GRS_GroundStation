@@ -29,6 +29,9 @@ struct subscriptionHandles {
     std::vector<std::pair<uint16_t, mavsdk::MavlinkPassthrough::MessageHandle>> messageHandles;
 };
 
+// Result of CommunicationManager's comparison of the XNAV params between UAVs.
+enum class ParamCheck { NotChecked, Ok, Mismatch };
+
 // Non-numeric / low-rate UAV status, kept separate from uavStates (which is
 // packed and shared verbatim with the MATLAB UDP link -- don't add fields
 // there). This is what feeds the dashboard's panels; the control loop never
@@ -54,6 +57,8 @@ struct uavHealth {
     mavsdk::Telemetry::FixType gpsFixType = mavsdk::Telemetry::FixType::NoGps;
 
     float rpm = 0.0f; // RPM (226) rpm1, set by RPM1_TYPE on the vehicle
+
+    ParamCheck paramCheck = ParamCheck::NotChecked;
 };
 
 

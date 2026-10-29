@@ -81,6 +81,7 @@ struct UavTelemetrySnapshot {
     int satellites = 0;
     double stateAgeMs = 0.0;         // age of the last CONTROL_SYSTEM_STATE, NaN if none
     std::vector<MessageRate> linkRates;
+    std::string params = "--";       // XNAV params between UAVs: "OK", "MISMATCH", "--" not checked
 
     [[nodiscard]] std::string toJson() const {
         JsonWriter root;
@@ -101,6 +102,7 @@ struct UavTelemetrySnapshot {
             .add("gpsFix", gpsFix)
             .add("satellites", satellites)
             .add("stateAgeMs", stateAgeMs)
+            .add("params", params)
             .addRaw("linkRates", linkRatesJson(linkRates));
         return root.str();
     }

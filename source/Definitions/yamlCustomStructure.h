@@ -58,6 +58,8 @@ namespace YAML {
                 if (node["remoteIP"])         rhs.remoteIP         = node["remoteIP"].as<std::string>();
                 if (node["tcpPort"])          rhs.tcpPort          = node["tcpPort"].as<int>();
                 if (node["tcpPortIncrement"]) rhs.tcpPortIncrement = node["tcpPortIncrement"].as<int>();
+                if (node["paramCheck"])       rhs.paramCheck       = node["paramCheck"].as<bool>();
+                if (node["paramCheckPrefixes"]) rhs.paramCheckPrefixes = node["paramCheckPrefixes"].as<std::vector<std::string>>();
                 return true;
             }
         };

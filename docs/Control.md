@@ -122,7 +122,8 @@ Launch phases (`m_unpackLatestStates()`):
   headwind), else back to standby (misfire).
 - **In flight**: fully measured state, NMHE on.
 
-`launchReady()` gates `catapultFire` and `initLaunch`: refused without a
+`launchReady()` gates `catapultFire` and `initLaunch` (after the param check
+between UAVs, `docs/Communication.md`): refused without a
 checked frame offset for every UAV (below), without a trajectory, before the first solve, with incomplete telemetry, without a
 valid plan, while a UAV is more than `LAUNCH_POS_TOL` (default 3 m) from
 its reference start (regenerate the trajectory with the live launch

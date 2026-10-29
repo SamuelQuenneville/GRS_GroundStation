@@ -69,6 +69,22 @@ reported and a rebooted one resumes. A vehicle is registered once its
 autopilot heartbeat is seen, even if a telemetry bridge's heartbeat came first. Its measured rate is logged
 after the first 5 s and whenever it drops below 70 % of the request.
 
+**Param check.** After its registration, each UAV (sysId up to `numUavs`)
+waits 2 s for its armed state, then downloads its params once
+(`get_all_params()`) and keeps those starting with one of
+`Pixhawk.paramCheckPrefixes` (default `APTCH_`, `ARLL_`, `RPM_`,
+`RPM1_SCALING`, `SCALING_SPEED`: the XNAV pitch, roll and RPM loops and the
+gain scaling). Once every UAV is read, the values are compared between UAVs
+(relative tolerance 1e-6); a param missing on one UAV is a mismatch. The
+result is logged (the values of each UAV, then each mismatch), shown on the
+dashboard Status card (`XNAV params`) and gates the launch:
+`paramsMatch()` is false until every UAV is read and identical, and
+`GroundControlStation` refuses `catapultFire` and `launch` then. Nothing is
+downloaded while a UAV is armed, so a reconnection in flight costs nothing,
+and nothing runs in the control loop. After changing a param on a vehicle,
+`checkParams` reads every UAV again. `Pixhawk.paramCheck: false` disables
+the check and the gate.
+
 `linkRates(sysId)` estimates the received rate of each message (every
 incoming message is counted by one `intercept_incoming_messages_async`
 callback) and of the `SET_ATTITUDE_TARGET` sent, over 1 s windows averaged

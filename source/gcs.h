@@ -38,6 +38,7 @@ public:
     void startController() const;
     void initLaunch() const;
     void fetchParam(int sysId) const;
+    void checkParams() const;
     void loadTrajectory(const std::string& file) const;
     void generateTrajectory(const grs::trajgen::TrajectoryConfig& config,
         const grs::trajgen::SubsetSelection& selection = {},
@@ -79,6 +80,8 @@ public:
     void listLinks() const;
 
 private:
+    // Params identical on every UAV and ControlInterface::launchReady().
+    [[nodiscard]] bool m_launchReady(std::string& reason) const;
     gcsConfig m_gcsConfig;
 
     // NMPC dashboard panel context -- see setNmpcDebugCallback/

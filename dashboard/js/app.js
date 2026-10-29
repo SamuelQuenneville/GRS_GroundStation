@@ -21,6 +21,7 @@
  *   "gpsFix": "3D Fix (10)",
  *   "satellites": 18,
  *   "stateAgeMs": 12,                      // last CONTROL_SYSTEM_STATE, null if none
+ *   "params": "OK",                        // XNAV params between UAVs: "OK", "MISMATCH" or "--"
  *   "linkRates": [{"name": "CONTROL_SYSTEM_STATE", "hz": 48.7, "requestedHz": 50}, ...]
  * }
  *
@@ -140,6 +141,13 @@ function setStateAge(panel, ms) {
     setInfo(panel, "stateAge", typeof ms === "number" ? `${ms.toFixed(0)} ms` : "--");
 }
 
+function setParamCheck(panel, status) {
+    const el = panel.querySelector('[data-field="params"]');
+    if (!el) return;
+    el.textContent = status ?? "--";
+    el.className = status === "OK" ? "health-ok" : status === "MISMATCH" ? "health-fail" : "";
+}
+
 // Link card rows, colored against the requested rate (70 % is the GCS log threshold).
 // Demo rows: the state stream sometimes below its request to show the colors.
 function demoLinkRates() {
@@ -202,6 +210,7 @@ function applyUpdate(data) {
     setInfo(panel, "gpsFix", data.gpsFix ?? "--");
     setInfo(panel, "satellites", data.satellites ?? "--");
     setStateAge(panel, data.stateAgeMs);
+    setParamCheck(panel, data.params);
     setLinkRates(panel, data.linkRates);
 
     updateTopbar();

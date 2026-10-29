@@ -25,6 +25,10 @@ Pixhawk:
   remoteIP: 127.0.0.1
   tcpPort: 5760
 
+  # Launch refused until these params are identical on every UAV (checkParams to read them again).
+  paramCheck: true
+  paramCheckPrefixes: [ APTCH_, ARLL_, RPM_, RPM1_SCALING, SCALING_SPEED ]
+
   endpoints:
     - {id: 1, ip: 127.0.0.1, port: 14400}
     - {id: 2, ip: 127.0.0.1, port: 14500}

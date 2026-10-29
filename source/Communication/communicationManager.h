@@ -79,6 +79,12 @@ public:
     void setMode(uint8_t sysId, const std::string& mode);
     void setModeAll(const std::string& mode);
     void fetchParam(int sysId);
+    // Reads the params of Pixhawk.paramCheckPrefixes from every connected UAV
+    // (not while armed) and compares them between UAVs. Also run once per UAV
+    // after its registration.
+    void checkParams();
+    // False, with the reason, until every UAV's params are read and identical.
+    [[nodiscard]] bool paramsMatch(std::string& reason);
 
     // Opens one link; the vehicle on it registers asynchronously (m_watchSystem).
     bool addLink(const std::string& connection);
@@ -135,6 +141,14 @@ private:
     void m_subscribeMavlink(uint8_t sysId);
 
     static void m_unsubscribeMavlink(Vehicle& vehicle); // without m_linkMutex (callbacks take it)
+
+    // Downloads all params of a UAV and keeps those of paramCheckPrefixes, then compares.
+    void m_readCheckedParams(uint8_t sysId);
+    // Once every UAV is read: sets each UAV's uavHealth::paramCheck and m_paramMismatch.
+    void m_compareCheckedParams();
+    std::mutex m_paramMutex; // the two members below
+    std::map<uint8_t, std::map<std::string, double>> m_checkedParams; // UAV sysIds only
+    std::string m_paramMismatch; // empty when identical
 
     // Waits up to timeoutMs only to print how many vehicles registered.
     void m_waitAndSummarize(int expectedCount, int timeoutMs);

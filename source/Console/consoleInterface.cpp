@@ -48,6 +48,7 @@ void ConsoleInterface::printCommands() {
                       << "  startController       --> Start the controller\n"
                       << "  launch                --> Init launch sequence\n"
                       << "  fetchParams [ID]      --> Retrieve all parameter and create a .param file\n"
+                      << "  checkParams           --> Read the XNAV params of every UAV again and compare them (launch gate)\n"
                       << "  loadTraj [FILE]       --> Load a reference trajectory via a .csv file\n"
                       << "  genTraj               --> Generate a reference trajectory in-process (default config, no field calibration)\n"
                       << "  saveTraj [FILE]       --> Save the currently-loaded reference trajectory to a .csv file (FILE optional, auto-named under ./trajectories/ otherwise)\n"
@@ -97,6 +98,8 @@ void ConsoleInterface::handleCommand(const std::string& command) const {
     } else if (command == "launch") {
         LOG_INFO("Launching ...");
         m_gcs.initLaunch();
+    } else if (command == "checkParams") {
+        m_gcs.checkParams();
     } else if (command.starts_with("fetchParams ")) {
         const auto sysId = grs::parseInt<int>(command.substr(12));
         if (!sysId || *sysId < 0) {

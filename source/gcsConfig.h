@@ -68,6 +68,9 @@ struct pixhawkConfig {
     int tcpPort = 5760;                 // Ardupilot specific
     int tcpPortIncrement = 10;          // Ardupilot specific
     bool sitl = false;
+    // Launch refused until the params matching these prefixes are identical on every UAV.
+    bool paramCheck = true;
+    std::vector<std::string> paramCheckPrefixes{"APTCH_", "ARLL_", "RPM_", "RPM1_SCALING", "SCALING_SPEED"};
 };
 
 struct pixhawkEndpointConfig {

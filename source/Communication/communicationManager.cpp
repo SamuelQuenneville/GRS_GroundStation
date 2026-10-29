@@ -13,9 +13,12 @@
 
 #include <algorithm>
 #include <array>
+#include <cmath>
 #include <cstring>
 #include <fstream>
 #include <ranges>
+#include <set>
+#include <sstream>
 #include <mavsdk/base64.h>
 #include <mavsdk/log_callback.h>
 
@@ -122,6 +125,11 @@ void CommunicationManager::stop() {
         std::lock_guard lock(m_statesMutex);
         m_aggregators.clear();
         for (auto& health : m_uavHealths | std::views::values) health.isConnected = false;
+    }
+    {
+        std::lock_guard lock(m_paramMutex);
+        m_checkedParams.clear();
+        m_paramMismatch.clear();
     }
     m_onStatusUpdate();
 
@@ -287,6 +295,139 @@ void CommunicationManager::fetchParam(const int sysId) {
 
     file.close();
     LOG_INFO("Params file created");
+}
+
+void CommunicationManager::checkParams() {
+    std::vector<uint8_t> uavs;
+    {
+        std::lock_guard lock(m_linkMutex);
+        for (const auto sysId : m_vehicles | std::views::keys) {
+            if (sysId <= m_config.numUavs) uavs.push_back(sysId);
+        }
+    }
+    if (uavs.empty()) {
+        LOG_WARNING("Param check: no UAV connected");
+        return;
+    }
+    for (const auto sysId : uavs) m_readCheckedParams(sysId);
+}
+
+bool CommunicationManager::paramsMatch(std::string& reason) {
+    if (!m_config.pixhawk.paramCheck) return true;
+    std::lock_guard lock(m_paramMutex);
+    if (static_cast<int>(m_checkedParams.size()) < m_config.numUavs) {
+        reason = "XNAV params not read from every UAV yet (checkParams)";
+        return false;
+    }
+    if (!m_paramMismatch.empty()) {
+        reason = "XNAV params differ between UAVs:" + m_paramMismatch;
+        return false;
+    }
+    return true;
+}
+
+void CommunicationManager::m_readCheckedParams(const uint8_t sysId) {
+    std::shared_ptr<mavsdk::Param> param;
+    {
+        std::lock_guard lock(m_linkMutex);
+        const auto it = m_vehicles.find(sysId);
+        if (it != m_vehicles.end()) param = it->second.param;
+    }
+    if (!param) return;
+    {
+        // No param download in flight.
+        std::lock_guard lock(m_statesMutex);
+        if (m_uavHealths[sysId].isArmed) {
+            LOG_WARNING("Param check: UAV sysId = " + std::to_string(sysId) + " is armed, not read");
+            return;
+        }
+    }
+
+    {
+        std::lock_guard lock(m_paramMutex);
+        m_checkedParams.erase(sysId);
+    }
+    m_updateHealth(sysId, [](uavHealth& h) { h.paramCheck = ParamCheck::NotChecked; });
+    LOG_INFO("Param check: reading params of UAV sysId = " + std::to_string(sysId) + " ...");
+
+    const auto [intParams, floatParams, customParams] = param->get_all_params();
+    std::map<std::string, double> checked;
+    const auto keep = [&](const std::string& name, const double value) {
+        for (const auto& prefix : m_config.pixhawk.paramCheckPrefixes) {
+            if (name.starts_with(prefix)) {
+                checked[name] = value;
+                return;
+            }
+        }
+    };
+    for (const auto& [name, value] : intParams) keep(name, value);
+    for (const auto& [name, value] : floatParams) keep(name, value);
+    if (checked.empty()) {
+        LOG_ERROR("Param check: no matching param received from UAV sysId = " + std::to_string(sysId) + ", run checkParams again");
+        return;
+    }
+
+    std::ostringstream record;
+    for (const auto& [name, value] : checked) record << " " << name << "=" << value;
+    LOG_INFO("Param check: UAV sysId = " + std::to_string(sysId) + record.str());
+
+    {
+        std::lock_guard lock(m_paramMutex);
+        m_checkedParams[sysId] = std::move(checked);
+    }
+    m_compareCheckedParams();
+}
+
+void CommunicationManager::m_compareCheckedParams() {
+    std::map<uint8_t, std::map<std::string, double>> params;
+    {
+        std::lock_guard lock(m_paramMutex);
+        params = m_checkedParams;
+    }
+    if (static_cast<int>(params.size()) < m_config.numUavs) return;
+
+    std::set<std::string> names;
+    for (const auto& uav : params | std::views::values) {
+        for (const auto& name : uav | std::views::keys) names.insert(name);
+    }
+
+    const auto& reference = params.begin()->second;
+    std::ostringstream mismatch;
+    int count = 0;
+    for (const auto& name : names) {
+        const auto ref = reference.find(name);
+        bool differ = false;
+        std::ostringstream line;
+        line << " " << name << ":";
+        for (const auto& [sysId, uav] : params) {
+            const auto it = uav.find(name);
+            line << " UAV-" << static_cast<int>(sysId) << " ";
+            if (it == uav.end()) line << "missing";
+            else line << it->second;
+            if (it == uav.end() || ref == reference.end()
+                || std::abs(it->second - ref->second) > 1e-6 * std::max({1.0, std::abs(it->second), std::abs(ref->second)})) {
+                differ = true;
+            }
+        }
+        if (differ) {
+            mismatch << line.str() << ";";
+            ++count;
+        }
+    }
+
+    const ParamCheck result = count == 0 ? ParamCheck::Ok : ParamCheck::Mismatch;
+    {
+        std::lock_guard lock(m_paramMutex);
+        m_paramMismatch = mismatch.str();
+    }
+    for (const auto sysId : params | std::views::keys) {
+        m_updateHealth(sysId, [result](uavHealth& h) { h.paramCheck = result; });
+    }
+    if (count == 0) {
+        LOG_INFO("Param check: " + std::to_string(names.size()) + " params identical on every UAV");
+    } else {
+        LOG_ERROR("Param check: " + std::to_string(count) + " params differ between UAVs, launch refused:" + mismatch.str());
+    }
 }
 
 bool CommunicationManager::addLink(const std::string& connection) {
@@ -468,6 +609,11 @@ void CommunicationManager::m_registerSystem(const std::shared_ptr<mavsdk::System
     m_subscribeMavlink(sysId);
     m_onStatusUpdate();
     LOG_INFO("Connected: sysID = " + std::to_string(sysId));
+
+    if (m_config.pixhawk.paramCheck && sysId <= m_config.numUavs) {
+        std::this_thread::sleep_for(std::chrono::seconds(2)); // armed state from the first heartbeats
+        m_readCheckedParams(sysId);
+    }
 }
 
 void CommunicationManager::m_waitAndSummarize(const int expectedCount, const int timeoutMs) {

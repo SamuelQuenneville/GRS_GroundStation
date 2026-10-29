@@ -341,7 +341,7 @@ void GroundControlStation::startController() const {
 }
 
 void GroundControlStation::initLaunch() const {
-    if (std::string reason; !m_controlInterface->launchReady(reason)) {
+    if (std::string reason; !m_launchReady(reason)) {
         LOG_ERROR("Launch refused: " + reason);
         return;
     }
@@ -350,6 +350,14 @@ void GroundControlStation::initLaunch() const {
 
 void GroundControlStation::fetchParam(const int sysId) const {
     m_communicationManager->fetchParam(sysId);
+}
+
+void GroundControlStation::checkParams() const {
+    m_communicationManager->checkParams();
+}
+
+bool GroundControlStation::m_launchReady(std::string& reason) const {
+    return m_communicationManager->paramsMatch(reason) && m_controlInterface->launchReady(reason);
 }
 
 void GroundControlStation::loadTrajectory(const std::string& file) const {
@@ -665,7 +673,7 @@ void GroundControlStation::catapultArm() const {
 }
 
 void GroundControlStation::catapultFire(const uint32_t countdownMs) const {
-    if (std::string reason; !m_controlInterface->launchReady(reason)) {
+    if (std::string reason; !m_launchReady(reason)) {
         LOG_ERROR("Fire refused: " + reason);
         return;
     }
@@ -846,6 +854,8 @@ void GroundControlStation::m_pushDashboardSnapshot(const uint8_t sysId) {
     snap.satellites = health.gpsNumSatellites;
     snap.stateAgeMs = stateAgeMs;
     snap.linkRates  = std::move(linkRates);
+    snap.params     = health.paramCheck == ParamCheck::Ok ? "OK"
+                    : health.paramCheck == ParamCheck::Mismatch ? "MISMATCH" : "--";
 
     m_dashboardServer->updateTelemetry(snap);
 }
