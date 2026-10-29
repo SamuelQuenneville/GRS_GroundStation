@@ -193,7 +193,9 @@ void CommunicationManager::connectAll(const std::vector<pixhawkEndpointConfig>& 
 }
 
 void CommunicationManager::armAll(const bool force) {
-    const auto passthroughs = m_passthroughs();
+    // UAVs only: the payload (sysId above numUavs) is never armed.
+    auto passthroughs = m_passthroughs();
+    std::erase_if(passthroughs, [this](const auto& p) { return p.first > m_config.numUavs; });
     if (passthroughs.empty()) {
         LOG_WARNING("Arm command ignored: no UAV connected");
         return;

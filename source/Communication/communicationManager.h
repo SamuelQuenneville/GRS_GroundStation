@@ -74,7 +74,7 @@ public:
     void connectAll(const std::string& baseIp, uint16_t basePort, int numUavs, int increment, int discoveryTimeoutMs = 5000);
     void connectAll(const std::vector<pixhawkEndpointConfig>& endpoints, int discoveryTimeoutMs = 5000);
 
-    // force: ArduPilot force arm, skips the pre-arm checks.
+    // Arms the UAVs, not the payload. force: ArduPilot force arm, skips the pre-arm checks.
     void armAll(bool force = false);
     void setMode(uint8_t sysId, const std::string& mode);
     void setModeAll(const std::string& mode);
