@@ -1,0 +1,108 @@
+---
+#--------------------------------------------------
+#                Controller Config                #
+#--------------------------------------------------
+#
+# Example profile for the two-UAV + payload cooperative-lift configuration
+# (Phase 3, gcs-sitl-integration-plan.md). Sibling of configuration.yaml
+# (the one-UAV-tethered-to-ground profile) -- SolverBackendFactory picks
+# TwoUavPayloadNmpcBackend purely from this file's
+# SolverConfiguration.NUM_UAVS, so switching profiles is just pointing
+# --config at whichever of the two files matches the run.
+#
+GcsConfiguration:
+  numUavs: 2
+  verbose: false
+  hlcFrequency: 20.0
+  nmheFrequency: 5.0      # NMHE update rate -- starting point per gcs-sitl-integration-plan.md's Decisions, not yet validated
+  telemetryTimeout: 0.3  # [s] MPC: no command while a UAV's telemetry is older
+  stateRateHz: 40.0       # CONTROL_SYSTEM_STATE request; at most 80 % of the vehicle's SCHED_LOOP_RATE
+  controlMode: MPC        # MPC | MATLAB | ATTITUDE_FILE
+  verboseLogging: true
+
+Pixhawk:
+  sitl: false               # true -> base IP + port*increment (SITL). false -> use endpoints below.
+  remoteIP: 127.0.0.1
+  tcpPort: 5760
+
+  endpoints:
+    - {id: 1, ip: 127.0.0.1, port: 14400}
+    - {id: 2, ip: 127.0.0.1, port: 14500}
+    - {id: 3, ip: 127.0.0.1, port: 14600}
+
+# Connect via TCP
+Catapults:
+  - {id: 1, port: 5800, ip: 192.168.50.20}
+  - {id: 2, port: 5801, ip: 192.168.50.21}
+
+SolverConfiguration:
+  # Must describe the generated solver (GRS_Controller 04_tools/generate_solvers.m,
+  # build_nlp_twoUavPayload_nmpc.m / _lmpc.m and solver_twoUavPayload_nmpc_meta.h).
+  # Decision vector [z0 u0 ... zN], z = [x; previous control]: MpcController
+  # derives it from NX/NU/N and refuses a solver of another layout.
+  NX: 22   # [UAV1(8); UAV2(8); payload(6)]
+  NU: 6    # [UAV1(3); UAV2(3)]
+  NP: 3    # wind, shared
+  ND: 9    # [dFa1 dCL1 b_roll1 b_pitch1  dFa2 dCL2 b_roll2 b_pitch2  dFz_pay]
+  NL0: 1   # tether rest length, shared by both tethers
+  N: 30
+  DT: 0.05
+  NUM_UAVS: 2
+  # nmpc (default) or lmpc, same values below for both.
+  CONTROLLER: lmpc
+
+  # Tether rest length [m], packed into every solve's L0 parameter.
+  L0: 28.5
+
+  # Angle-of-attack bound [rad], both UAVs (build option 'alpha_max').
+  ALPHA_MAX: 0.436332  # deg2rad(25)
+  
+  # Delay compensation (docs/Control.md): in flight, the solve starts
+  # DELAY_STAGES samples ahead, from the measured state propagated with the
+  # commands already sent; 0 disables it. DELAY_TAU_*: attitude time
+  # constants [s] of that propagation. Flight 2026-10-21: 4 stages (link
+  # 0.1 s + autopilot target filter 0.115 s), roll 0.35, pitch 0.1832; then
+  # AOA_FF_STAGE: 0.
+  DELAY_STAGES: 3
+  DELAY_TAU_ROLL: 0.35
+  DELAY_TAU_PITCH: 0.18
+
+  # Angle-of-attack feedforward sent with each command: the plan's alpha this
+  # many stages after the applied control (1 + link latency in samples).
+  AOA_FF_STAGE: 0
+
+  # Launch (docs/Control.md): fire refused while a UAV is farther than
+  # LAUNCH_POS_TOL [m] from its reference start or its yaw more than
+  # LAUNCH_YAW_TOL [deg] from the rail azimuth; in flight past the catapult
+  # release above IN_FLIGHT_SPEED [m/s] (release measured at 9.5 m/s); back to
+  # standby if not in flight LAUNCH_TIMEOUT [s] after the launch.
+  LAUNCH_POS_TOL: 3.0
+  LAUNCH_YAW_TOL: 15.0
+  IN_FLIGHT_SPEED: 8.0
+  LAUNCH_TIMEOUT: 1.0
+
+  # Q(22) | R(6) | Qf(22) | Rdu(6) | Rdu0(6), GRS_Controller tuning_twoUav.m.
+  # Scaled errors (SCALES_*): position up, attitude and controls down, so
+  # the controller follows the path rather than the windless attitude and
+  # control reference.
+  WEIGHT: [10, 10, 10, 1, 1, 1, 0.1, 0.1,   10, 10, 10, 1, 1, 1, 0.1, 0.1,   10, 10, 10, 1, 1, 1,
+           0.1, 0.1, 0.1,   0.1, 0.1, 0.1,
+           100, 100, 100, 10, 10, 10, 1, 1,   100, 100, 100, 10, 10, 10, 1, 1,   100, 100, 100, 10, 10, 10,
+           0.5, 2.0, 4.0,   0.5, 2.0, 4.0,
+           1.0, 4.0, 8.0,   1.0, 4.0, 8.0]
+  # State bounds apply from the second stage on (the first is the measured
+  # state). Payload pD upper bound 0.15: the ground-contact model rests
+  # slightly below 0.
+  LBX_STATES: [-.inf, -.inf, -.inf, -40.0, -40.0, -10.0, -0.5236, -0.6981,
+               -.inf, -.inf, -.inf, -40.0, -40.0, -10.0, -0.5236, -0.6981,
+               -.inf, -.inf, -.inf, -40.0, -40.0, -10.0]
+  UBX_STATES: [ .inf,  .inf,   0.0,  40.0,  40.0,  10.0,  0.5236,  0.6981,
+                .inf,  .inf,   0.0,  40.0,  40.0,  10.0,  0.5236,  0.6981,
+                .inf,  .inf,  0.15,  40.0,  40.0,  10.0]
+  LBX_CONTROLS: [ 0.0, -0.5236, -0.6981,   0.0, -0.5236, -0.6981]
+  UBX_CONTROLS: [60.0,  0.5236,  0.6981,  60.0,  0.5236,  0.6981]
+  # scaling_twoUav.m
+  SCALES_STATES: [100.0, 100.0, 50.0, 30.0, 30.0, 15.0, 0.4, 0.4,
+                  100.0, 100.0, 50.0, 30.0, 30.0, 15.0, 0.4, 0.4,
+                  100.0, 100.0, 50.0,  5.0,  5.0,  5.0]
+  SCALES_CONTROLS: [30.0, 0.4, 0.4,   30.0, 0.4, 0.4]

@@ -66,6 +66,16 @@ SolverConfiguration:
   # Angle-of-attack bound [rad], both UAVs (build option 'alpha_max').
   ALPHA_MAX: 0.436332  # deg2rad(25)
 
+  # Delay compensation (docs/Control.md): in flight, the solve starts
+  # DELAY_STAGES samples ahead, from the measured state propagated with the
+  # commands already sent; 0 disables it. DELAY_TAU_*: attitude time
+  # constants [s] of that propagation. Flight 2026-10-21: 4 stages (link
+  # 0.1 s + autopilot target filter 0.115 s), roll 0.35, pitch 0.1832; then
+  # AOA_FF_STAGE: 0.
+  DELAY_STAGES: 0
+  DELAY_TAU_ROLL: 0.35
+  DELAY_TAU_PITCH: 0.1832
+
   # Angle-of-attack feedforward sent with each command: the plan's alpha this
   # many stages after the applied control (1 + link latency in samples).
   AOA_FF_STAGE: 1

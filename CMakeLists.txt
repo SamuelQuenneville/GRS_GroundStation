@@ -102,6 +102,8 @@ set(GRS_CONTROL_CORE
         source/Control/generatedFunction.h
         source/Control/nlpsol.cpp
         source/Control/nlpsol.h
+        source/Simulation/plantModel.cpp
+        source/Simulation/plantModel.h
 )
 
 set(GRS_CONTROL
@@ -181,8 +183,6 @@ set(GRS_UTIL
 # grs_batchsim: truth plant (C++ port of the MATLAB models), Monte Carlo
 # sample mapping, closed-loop runner. See source/Simulation/batchSimMain.cpp.
 set(GRS_SIMULATION
-        source/Simulation/plantModel.cpp
-        source/Simulation/plantModel.h
         source/Simulation/truthSample.cpp
         source/Simulation/truthSample.h
         source/Simulation/closedLoopRunner.cpp

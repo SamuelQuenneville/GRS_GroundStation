@@ -158,6 +158,21 @@ feedforward for the onboard attitude loop. It comes from the alpha rows of
 the accepted solution's `g` (linearized for the LMPC) and is 0 while there
 is no plan. The tether tension slot is 0 for now.
 
+Delay compensation (optional `SolverConfiguration` keys, off by default):
+a command reaches the attitude loop about 0.2 s after the state it was
+computed from (telemetry age and link about 0.1 s, the autopilot's 2 Hz
+Butterworth on the attitude target about 0.115 s, which acts as a delay
+below about 1 Hz). With `DELAY_STAGES: n`, in flight, the measured state is
+propagated over the last n commands sent (nominal plant model of
+`Simulation/plantModel.h`, RK4, the current wind/disturbance estimate) and
+the solve starts from that state with the reference read n samples ahead:
+the first control applies when it takes effect. `DELAY_TAU_ROLL` and
+`DELAY_TAU_PITCH` set the attitude time constants of the propagation
+(default the solver model's 0.2215 / 0.1832 s). Not applied on the launcher
+(the catapult stroke is not in the model). The angle-of-attack feedforward
+goes through the same link and its own 2 Hz filter, so `AOA_FF_STAGE: 0`
+with delay compensation.
+
 The LMPC is the same problem with the dynamics and angle-of-attack
 constraints linearized: its solver is a QP with the same bounds, constraint
 rows and warm start, and its parameter vector is the NMPC's followed by

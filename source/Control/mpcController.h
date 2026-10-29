@@ -11,7 +11,9 @@
 
 #pragma once
 
+#include <deque>
 #include <limits>
+#include <memory>
 #include <mutex>
 #include <optional>
 #include <cassert>
@@ -26,6 +28,7 @@
 
 #include "nlpsol.h"
 #include "stateVector.h"
+#include "Simulation/plantModel.h"
 
 class MpcController final : public Controller {
 public:
@@ -135,6 +138,12 @@ private:
     // U_prev parameter of the first-stage rate cost (weight Rdu0).
     std::vector<double> m_uPrev;
 
+    // Delay compensation (DELAY_STAGES > 0): the last delayStages commands
+    // sent, oldest first, physical units, and the model that propagates the
+    // measured state through them (nominal plant, DELAY_TAU_* attitude).
+    std::deque<std::vector<double>> m_sentControls;
+    std::unique_ptr<grs::sim::PlantModel> m_predictor;
+
     // Latest estimate from setDisturbanceEstimate(), physical units, held
     // between updates; zero without an estimator.
     std::vector<double> m_windEst;
@@ -145,8 +154,14 @@ private:
 
     double m_lastSolveMs = 0.0;
 
-    // Sets the reference time, m_lastIdxTraj, m_referenceWindow and m_endedTraj.
-    void m_updateReference(double time);
+    // Sets the reference time, m_lastIdxTraj, m_referenceWindow and m_endedTraj,
+    // the reference read `lookahead` seconds after `time`.
+    void m_updateReference(double time, double lookahead);
+
+    // In flight with delay compensation: m_initialStates propagated through
+    // m_sentControls, the state when the next command takes effect.
+    void m_predictInitialStates();
+    void m_recordSentControl();
 
     // m_plan advanced by `shift` stages (shift < N), tail repeated, z0 from
     // the measured state and U_prev.

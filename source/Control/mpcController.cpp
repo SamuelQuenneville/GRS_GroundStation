@@ -61,6 +61,27 @@ MpcController::MpcController(const solverConfig& config)
 
     m_packBounds();
     m_packInequalityBounds();
+
+    if (m_config.delayStages > 0) {
+        grs::sim::AirframeParams uav;
+        uav.T_roll = m_config.delayTauRoll;
+        uav.T_pitch = m_config.delayTauPitch;
+        constexpr grs::sim::RigParams rig;
+        if (m_config.numUavs == 2 && hasPayload()) {
+            m_predictor = std::make_unique<grs::sim::TwoUavPayloadPlant>(uav, uav, rig);
+        } else if (m_config.numUavs == 1 && !hasPayload()) {
+            m_predictor = std::make_unique<grs::sim::OneGroundPlant>(uav, rig);
+        } else {
+            throw std::runtime_error("DELAY_STAGES: no prediction model for this vehicle layout");
+        }
+        if (m_predictor->nx() != m_config.nx || m_predictor->nu() != m_config.nu
+            || m_predictor->np() != m_config.np || m_predictor->nd() != m_config.nd) {
+            throw std::runtime_error("DELAY_STAGES: prediction model does not match nx, nu, np or nd");
+        }
+        LOG_INFO("Delay compensation: " + std::to_string(m_config.delayStages) + " stages ("
+            + std::to_string(m_config.delayStages * m_config.dt) + " s), attitude tau roll "
+            + std::to_string(m_config.delayTauRoll) + " s, pitch " + std::to_string(m_config.delayTauPitch) + " s");
+    }
 }
 
 MpcController::~MpcController() = default;
@@ -235,11 +256,17 @@ std::map<uint8_t, uavCommandsFlags> MpcController::solve(const std::map<uint8_t,
 
     m_unpackLatestStates(latestStates, time);
 
-    m_updateReference(time);
+    // The catapult stroke is not in the model: prediction from the release on.
+    const bool predict = m_predictor && m_inFlight;
+    if (predict) {
+        m_predictInitialStates();
+    }
+    m_updateReference(time, predict ? m_config.delayStages * m_config.dt : 0.0);
 
     const auto N = static_cast<size_t>(m_config.N);
     if (m_holding) {
         m_planAge = N; // no plan: no AoA feedforward
+        m_recordSentControl();
         auto controls = m_extractControls();
         m_logTransitions();
         m_trackingNumber += 1;
@@ -302,6 +329,7 @@ std::map<uint8_t, uavCommandsFlags> MpcController::solve(const std::map<uint8_t,
     } else {
         std::copy_n(m_referenceWindow.begin() + m_config.nx, m_config.nu, m_uPrev.begin());
     }
+    m_recordSentControl();
 
     auto controls = m_extractControls();
 
@@ -409,14 +437,35 @@ std::vector<MpcController::TrajectoryPointView> MpcController::getTrajectoryForV
     return points;
 }
 
-void MpcController::m_updateReference(const double time) {
+void MpcController::m_predictInitialStates() {
+    std::vector<double> wind, d;
+    {
+        std::lock_guard lock(m_disturbanceMutex);
+        wind = m_windEst;
+        d = m_dEst;
+    }
+    for (const auto& u : m_sentControls) {
+        grs::sim::integrate(*m_predictor, m_initialStates, u, wind, d, m_config.tetherL0, m_config.dt);
+    }
+}
+
+void MpcController::m_recordSentControl() {
+    if (!m_predictor) return;
+    m_sentControls.push_back(m_uPrev);
+    if (m_sentControls.size() > static_cast<size_t>(m_config.delayStages)) {
+        m_sentControls.pop_front();
+    }
+}
+
+void MpcController::m_updateReference(const double time, const double lookahead) {
     if (m_launched && !m_launchTime) {
         m_launchTime = time;
     }
 
     // Reference position in samples, clamped to the last full window.
     const double last = m_endIdxTraj > 0 ? static_cast<double>(m_endIdxTraj - 1) : 0.0;
-    double s = m_launchTime ? std::clamp((time - *m_launchTime) / m_config.dt, 0.0, last) : 0.0;
+    const double elapsed = m_launchTime ? (time + lookahead - *m_launchTime) / m_config.dt : 0.0;
+    double s = m_launchTime ? std::clamp(elapsed, 0.0, last) : 0.0;
     if (!m_inFlight) {
         s = std::max(s, static_cast<double>(std::min(m_releaseIdx, m_endIdxTraj > 0 ? m_endIdxTraj - 1 : 0)));
     }
@@ -425,7 +474,7 @@ void MpcController::m_updateReference(const double time) {
     }
     m_referenceTime = s * m_config.dt;
     m_lastIdxTraj = static_cast<size_t>(s);
-    m_holding = m_launchTime && (time - *m_launchTime) / m_config.dt > last + 1e-6;
+    m_holding = m_launchTime && elapsed > last + 1e-6;
     if (m_launched && m_lastIdxTraj + 1 >= m_endIdxTraj) {
         m_endedTraj = true;
     }

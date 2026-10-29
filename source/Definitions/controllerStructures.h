@@ -37,6 +37,15 @@ struct solverConfig {
     // attack is sent as feedforward (1: the next sample, + link latency).
     int aoaFeedforwardStage = 1;
 
+    // Delay compensation (optional keys): the solve starts delayStages samples
+    // ahead, from the measured state propagated with the commands already
+    // sent and not yet applied, and the reference is read that far ahead.
+    // 0 disables it. delayTauRoll/delayTauPitch: attitude time constants [s]
+    // of that propagation.
+    int delayStages = 0;
+    double delayTauRoll = 0.2215;
+    double delayTauPitch = 0.1832;
+
     // Launch (optional keys, docs/Control.md). The launch is refused while a
     // UAV is more than launchPositionTolerance [m] from the reference's first
     // sample, or its yaw more than launchYawTolerance [deg] from the rail
