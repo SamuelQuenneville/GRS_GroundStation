@@ -8,6 +8,7 @@
 
 #include "trajectoryGenerator.h"
 
+#include <array>
 #include <cassert>
 #include <numeric>
 #include <tuple>
@@ -25,23 +26,6 @@ Vec3d normalizeSafe(const Vec3d& v) {
     const double n = v.norm();
     const double denom = std::max(n, 1e-8);
     return v * (1.0 / denom);
-}
-
-// [dt, 2dt, ..., T] with T always included.
-std::vector<double> phaseTime(const double T, const double dt) {
-    if (T <= 0.0) {
-        return {};
-    }
-
-    std::vector<double> tau;
-    for (double t = dt; t <= T + 1e-12; t += dt) {
-        tau.push_back(t);
-    }
-
-    if (tau.empty() || std::abs(tau.back() - T) > 1e-9) {
-        tau.push_back(T);
-    }
-    return tau;
 }
 
 // Trapezoidal cumulative integral, matching MATLAB's cumtrapz(t, y) (scalar per sample).
@@ -104,7 +88,9 @@ void appendLoiter(const double t0, const Vec3d& xStart, const double thold, cons
     }
 }
 
-// jerk-limited S-curve, 1D.
+// Jerk-limited S-curve, 1D, from rest to rest over the distance d. Sampled
+// every dt from t = 0; the last sample, at or just after the end of the
+// motion, holds the end state, so every sample lies on the trajectory's grid.
 Profile1D sCurveProfile(double d, double vMax, double aMax, double jMax, double dt) {
     double tJ = aMax / jMax;
     double tA = vMax / aMax - tJ;
@@ -114,104 +100,42 @@ Profile1D sCurveProfile(double d, double vMax, double aMax, double jMax, double 
         tA = 0;
     }
 
-    double dAcc = vMax*(tJ + tA) - aMax*(tJ*tJ + tA*(tJ + tA/2.0));
-    const double dTotalMin = 2 * dAcc;
-    double vPeak = vMax;
+    // Distance to accelerate from 0 to vMax (symmetric profile).
+    double dAcc = 0.5 * vMax * (2.0*tJ + tA);
     double tV;
 
-    if (dTotalMin > d) {
+    if (2 * dAcc > d) {
+        // vMax not reached: jerk phases only, peak speed from d/2 = vPeak tJ.
         tA = 0;
         tV = 0;
-        vPeak = std::pow(d/2.0 * std::sqrt(jMax), 2.0/3.0);
+        const double vPeak = std::pow(d/2.0 * std::sqrt(jMax), 2.0/3.0);
         tJ = std::sqrt(vPeak / jMax);
-        dAcc = d / 2.0;
     } else {
-        tV = std::max(0.0, (d - 2*dAcc) / vPeak);
+        tV = (d - 2*dAcc) / vMax;
     }
 
-    std::vector<double> t1 = {0.0};
-    { auto p = phaseTime(tJ, dt); t1.insert(t1.end(), p.begin(), p.end()); }
-    std::vector<double> t2 = phaseTime(tA, dt);
-    std::vector<double> t3 = phaseTime(tJ, dt);
-    std::vector<double> t4 = phaseTime(tV, dt);
-    std::vector<double> t5 = phaseTime(tJ, dt);
-    std::vector<double> t6 = phaseTime(tA, dt);
-    std::vector<double> t7 = phaseTime(tJ, dt);
-
-    const double T1 = 0, T2 = T1 + tJ, T3 = T2 + tA, T4 = T3 + tJ, T5 = T4 + tV, T6 = T5 + tJ, T7 = T6 + tA;
+    const std::array<double, 7> duration{tJ, tA, tJ, tV, tJ, tA, tJ};
+    const std::array<double, 7> jerk{jMax, 0.0, -jMax, 0.0, -jMax, 0.0, jMax};
+    const double tEnd = std::accumulate(duration.begin(), duration.end(), 0.0);
+    const auto n = static_cast<size_t>(std::ceil(tEnd / dt - 1e-9)) + 1;
 
     Profile1D out;
-    auto appendPhase = [&](const std::vector<double>& tp, const double offset) {
-        for (const double v : tp) {
-            out.t.push_back(offset + v);
+    for (size_t k = 0; k < n; ++k) {
+        double t = std::min(static_cast<double>(k) * dt, tEnd);
+        double sk = 0.0, vk = 0.0, ak = 0.0;
+        for (size_t p = 0; p < duration.size() && t > 0.0; ++p) {
+            const double h = std::min(duration[p], t);
+            const double j = jerk[p];
+            sk += vk*h + 0.5*ak*h*h + j*h*h*h/6.0;
+            vk += ak*h + 0.5*j*h*h;
+            ak += j*h;
+            t -= h;
         }
-    };
-    appendPhase(t1, T1); appendPhase(t2, T2); appendPhase(t3, T3);
-    appendPhase(t4, T4); appendPhase(t5, T5); appendPhase(t6, T6); appendPhase(t7, T7);
-
-    const size_t n = out.t.size();
-    out.s.assign(n, 0.0); out.v.assign(n, 0.0); out.a.assign(n, 0.0);
-
-    size_t e1 = t1.size(), e2 = e1 + t2.size(), e3 = e2 + t3.size();
-    size_t e4 = e3 + t4.size(), e5 = e4 + t5.size(), e6 = e5 + t6.size(), e7 = e6 + t7.size();
-    assert(e7 == n);
-
-    // Phase 1: jerk up
-    for (size_t i = 0; i < e1; ++i) {
-        const double tau = t1[i];
-        out.a[i] = jMax * tau;
-        out.v[i] = 0.5 * jMax * tau*tau;
-        out.s[i] = (1.0/6.0) * jMax * tau*tau*tau;
+        out.t.push_back(static_cast<double>(k) * dt);
+        out.s.push_back(sk);
+        out.v.push_back(vk);
+        out.a.push_back(ak);
     }
-    const double vE1 = e1 > 0 ? out.v[e1-1] : 0, sE1 = e1 > 0 ? out.s[e1-1] : 0;
-    // Phase 2: constant acceleration
-    for (size_t i = 0; i < t2.size(); ++i) {
-        const double tau = t2[i]; const size_t idx = e1 + i;
-        out.a[idx] = aMax;
-        out.v[idx] = vE1 + aMax*tau;
-        out.s[idx] = sE1 + vE1*tau + 0.5*aMax*tau*tau;
-    }
-    const double vE2 = e2 > e1 ? out.v[e2-1] : vE1, sE2 = e2 > e1 ? out.s[e2-1] : sE1;
-    // Phase 3: jerk down
-    for (size_t i = 0; i < t3.size(); ++i) {
-        const double tau = t3[i]; const size_t idx = e2 + i;
-        out.a[idx] = aMax - jMax*tau;
-        out.v[idx] = vE2 + aMax*tau - 0.5*jMax*tau*tau;
-        out.s[idx] = sE2 + vE2*tau + 0.5*aMax*tau*tau - (1.0/6.0)*jMax*tau*tau*tau;
-    }
-    const double vE3 = e3 > e2 ? out.v[e3-1] : vE2, sE3 = e3 > e2 ? out.s[e3-1] : sE2;
-    // Phase 4: constant velocity
-    for (size_t i = 0; i < t4.size(); ++i) {
-        const double tau = t4[i]; const size_t idx = e3 + i;
-        out.a[idx] = 0;
-        out.v[idx] = vE3;
-        out.s[idx] = sE3 + vE3*tau;
-    }
-    const double vE4 = e4 > e3 ? out.v[e4-1] : vE3, sE4 = e4 > e3 ? out.s[e4-1] : sE3;
-    // Phase 5: jerk negative
-    for (size_t i = 0; i < t5.size(); ++i) {
-        const double tau = t5[i]; const size_t idx = e4 + i;
-        out.a[idx] = -jMax*tau;
-        out.v[idx] = vE4 - 0.5*jMax*tau*tau;
-        out.s[idx] = sE4 + vE4*tau - (1.0/6.0)*jMax*tau*tau*tau;
-    }
-    const double vE5 = e5 > e4 ? out.v[e5-1] : vE4, sE5 = e5 > e4 ? out.s[e5-1] : sE4;
-    // Phase 6: constant deceleration
-    for (size_t i = 0; i < t6.size(); ++i) {
-        const double tau = t6[i]; const size_t idx = e5 + i;
-        out.a[idx] = -aMax;
-        out.v[idx] = vE5 - aMax*tau;
-        out.s[idx] = sE5 + vE5*tau - 0.5*aMax*tau*tau;
-    }
-    const double vE6 = e6 > e5 ? out.v[e6-1] : vE5, sE6 = e6 > e5 ? out.s[e6-1] : sE5;
-    // Phase 7: jerk to zero
-    for (size_t i = 0; i < t7.size(); ++i) {
-        const double tau = t7[i]; const size_t idx = e6 + i;
-        out.a[idx] = -aMax + jMax*tau;
-        out.v[idx] = vE6 - aMax*tau + 0.5*jMax*tau*tau;
-        out.s[idx] = sE6 + vE6*tau - 0.5*aMax*tau*tau + (1.0/6.0)*jMax*tau*tau*tau;
-    }
-
     return out;
 }
 
@@ -287,14 +211,31 @@ PayloadMission generatePayloadPath(const TrajectoryConfig& config) {
 // Aircraft Takeoff
 // ---------------------------------------------------------------------------
 
+// Catapult stroke: samples from rest to the release and their length [m]
+// (prependCatapultStroke), rounded to the time grid. 0 without a stroke.
+std::pair<size_t, double> catapultStroke(const TrajectoryConfig& config) {
+    const double V0 = config.aircraftPath.takeoffVel0;
+    const double dt = config.simDt;
+    if (!(config.aircraftPath.railLength > 0.0) || !(V0 > 0.0)) return {0, 0.0};
+    const auto n = static_cast<size_t>(std::max(1.0, std::round(1.5 * config.aircraftPath.railLength / V0 / dt)));
+    return {n, 2.0 * V0 * static_cast<double>(n) * dt / 3.0};
+}
+
+// Rail direction: horizontal direction of the release velocity, inclined at takeoffPitch0Deg.
+Vec3d railDirection(const TrajectoryConfig& config, const Vec3d& releaseVel) {
+    const double rail = grs::degToRad(config.aircraftPath.takeoffPitch0Deg);
+    return normalizeSafe(Vec3d(releaseVel[0], releaseVel[1], 0.0)) * std::cos(rail) + Vec3d(0.0, 0.0, -std::sin(rail));
+}
+
 struct TakeoffMission {
     std::vector<double> t;
     std::vector<double> gamma, psi;
+    size_t phase1End = 0; // last sample with the pitch held at the rail angle
     std::vector<KinematicSample> payloadFrame; // relative to launcher (pre-x0)
     std::vector<KinematicSample> inertial;     // + config.payloadPath.x0
 };
 
-TakeoffMission generateAircraftTakeoff(const TrajectoryConfig& config, const double phase, const double z0) {
+TakeoffMission generateAircraftTakeoff(const TrajectoryConfig& config, const double phase, const double z0, const double L0, const double dPsiEnd) {
     const auto& ap = config.aircraftPath;
     const double Lfinal = config.tether.length;
     const double dt = config.simDt;
@@ -314,7 +255,6 @@ TakeoffMission generateAircraftTakeoff(const TrajectoryConfig& config, const dou
     // ordinary product rule on L(t): a real outward-radial motion layered
     // on top of the unchanged angular path, not a re-solve of the
     // underlying boundary-value problem.
-    const double L0 = config.tether.lengthAtLaunch; // finalize() resolves <0 to Lfinal
     const double Tpo = std::max(config.tether.payoutDurationSeconds, 0.0);
     const double dL = Lfinal - L0;
     auto payoutTau = [&](const double time) { return Tpo > 1e-9 ? std::clamp(time / Tpo, 0.0, 1.0) : 1.0; };
@@ -495,9 +435,17 @@ TakeoffMission generateAircraftTakeoff(const TrajectoryConfig& config, const dou
     const std::vector<double> psiCum = cumtrapzScalar(t, psiDot);
     std::vector<double> psi(n);
     for (size_t i = 0; i < n; ++i) psi[i] = phase + psiCum[i];
+    // Azimuth correction faded in over the takeoff (zero rate and acceleration at both ends).
+    for (size_t i = 0; i < n; ++i) {
+        const double tau = std::clamp(t[i] / T, 0.0, 1.0);
+        psi[i] += dPsiEnd * quinticSmoothstep(tau);
+        psiDot[i] += dPsiEnd * quinticSmoothstepDeriv(tau) / T;
+        psiDdot[i] += dPsiEnd * quinticSmoothstepSecondDeriv(tau) / (T * T);
+    }
 
     TakeoffMission out;
     out.t = t; out.gamma = gamma; out.psi = psi;
+    out.phase1End = iSwitch;
     out.payloadFrame.resize(n);
     out.inertial.resize(n);
     for (size_t i = 0; i < n; ++i) {
@@ -559,16 +507,34 @@ TakeoffMission generateAircraftTakeoff(const TrajectoryConfig& config, const dou
 // core/+traj/generateAircraftPath.m (mission phase, uses payloadMission.t)
 // ---------------------------------------------------------------------------
 
+// Takeoff of a UAV given at rest on the launcher (phase, height above the
+// payload, distance to it, as captured live): the release is found so that
+// the stroke back along the rail (prependCatapultStroke) ends at that rest
+// position. The rail follows the release velocity, which turns with the
+// release azimuth, so a few iterations converge to well below a millimetre.
+TakeoffMission generateTakeoffFromRest(const TrajectoryConfig& config, const double phase, const double z0, const double L0, const double dPsiEnd) {
+    const double r = std::sqrt(std::max(L0*L0 - z0*z0, 0.0));
+    const Vec3d rest{r * std::cos(phase), r * std::sin(phase), -z0};
+    const double stroke = catapultStroke(config).second;
+    Vec3d release = rest;
+    TakeoffMission takeoff = generateAircraftTakeoff(config, phase, z0, L0, dPsiEnd);
+    for (int it = 0; it < 4 && stroke > 0.0; ++it) {
+        release = rest + railDirection(config, takeoff.payloadFrame.front().vel) * stroke;
+        takeoff = generateAircraftTakeoff(config, std::atan2(release[1], release[0]), -release[2], release.norm(), dPsiEnd);
+    }
+    return takeoff;
+}
+
 struct AircraftMissionRaw { AircraftTimeline timeline; TakeoffMission takeoff; };
 
-AircraftMissionRaw generateAircraftPathForUav(const TrajectoryConfig& config, const double phase, const double z0, const PayloadMission& payloadMission) {
+AircraftMissionRaw generateAircraftPathForUav(const TrajectoryConfig& config, const double phase, const double z0, const double L0, const double dPsiEnd, const PayloadMission& payloadMission) {
     const auto& ap = config.aircraftPath;
     const double R = ap.radius;
     const double omega = ap.direction * ap.velMean / R;
     const double zpay = -std::sqrt(config.tether.length*config.tether.length - R*R);
 
     AircraftMissionRaw out;
-    out.takeoff = generateAircraftTakeoff(config, phase, z0);
+    out.takeoff = generateTakeoffFromRest(config, phase, z0, L0, dPsiEnd);
     const double psiEnd = out.takeoff.psi.back();
 
     const size_t n = payloadMission.t.size();
@@ -576,7 +542,8 @@ AircraftMissionRaw generateAircraftPathForUav(const TrajectoryConfig& config, co
     out.timeline.inertial.resize(n);
 
     for (size_t i = 0; i < n; ++i) {
-        const double theta = omega * payloadMission.t[i] + psiEnd;
+        // payloadMission.t[0] is one sample after the end of the takeoff (generate()).
+        const double theta = omega * (payloadMission.t[i] + config.simDt) + psiEnd;
         const double xPay = R*std::cos(theta), yPay = R*std::sin(theta);
         const double vxPay = -R*omega*std::sin(theta), vyPay = R*omega*std::cos(theta);
         const double axPay = -R*omega*omega*std::cos(theta), ayPay = -R*omega*omega*std::sin(theta);
@@ -757,7 +724,7 @@ AngleOfAttackThrust computeAngleOfAttackThrust(const TrajectoryConfig& config, c
     const Vec3d weight{0, 0, config.aircraft.mass * config.world.gravity};
     const Vec3d fAero = acc * config.aircraft.mass - forceTether - weight;
 
-    const Vec3d freestream = vel + config.world.wind;
+    const Vec3d freestream = vel - config.world.wind;
     const Vec3d freestreamUnit = normalizeSafe(freestream);
 
     const double f1 = dot(fAero, freestreamUnit);
@@ -778,7 +745,7 @@ AngleOfAttackThrust computeAngleOfAttackThrust(const TrajectoryConfig& config, c
 ControlSample inverseDynamic(const TrajectoryConfig& config, const KinematicSample& sample, const Vec3d& externalForce) {
     const auto [angleOfAttack, thrust, liftDir] = computeAngleOfAttackThrust(config, sample.vel, sample.acc, externalForce);
 
-    const Vec3d freestream = sample.vel + config.world.wind;
+    const Vec3d freestream = sample.vel - config.world.wind;
     const Vec3d freestreamUnit = normalizeSafe(freestream);
 
     constexpr Vec3d zWorld{0, 0, 1};
@@ -812,6 +779,7 @@ std::vector<ControlSample> computeControlsTakeoff(const TrajectoryConfig& config
     const auto& ap = config.aircraftPath;
     const double T = ap.takeoffTime;
     const size_t n = takeoff.t.size();
+    const double railPitch = grs::degToRad(ap.takeoffPitch0Deg);
 
     std::vector<ControlSample> out(n);
     for (size_t i = 0; i < n; ++i) {
@@ -829,16 +797,17 @@ std::vector<ControlSample> computeControlsTakeoff(const TrajectoryConfig& config
         const Vec3d externalForce = et * std::max(hold, takeoffTetherForce(config, t));
 
         const auto [angleOfAttack, thrust, liftDir] = computeAngleOfAttackThrust(config, takeoff.inertial[i].vel, takeoff.inertial[i].acc, externalForce);
-        const Vec3d freestream = takeoff.inertial[i].vel + config.world.wind;
+        const Vec3d freestream = takeoff.inertial[i].vel - config.world.wind;
         const double pathAngle = -std::atan2(freestream[2], std::hypot(freestream[0], freestream[1]));
 
         ControlSample& c = out[i];
         c.rollRad = phi;
-        c.pitchRad = angleOfAttack + pathAngle;
-        c.yawRad = takeoff.psi[i];
+        c.yawRad = std::atan2(freestream[1], freestream[0]);
         c.thrustNewton = thrust;
-        c.angleOfAttackRad = angleOfAttack;
         c.liftDirection = liftDir;
+        // Phase 1 of generateAircraftTakeoff: pitch held at the rail angle, angle of attack = rail - path angle.
+        c.pitchRad = i <= takeoff.phase1End ? railPitch : angleOfAttack + pathAngle;
+        c.angleOfAttackRad = i <= takeoff.phase1End ? railPitch - takeoff.gamma[i] : angleOfAttack;
     }
     return out;
 }
@@ -853,12 +822,11 @@ std::vector<ControlSample> computeControlsTakeoff(const TrajectoryConfig& config
 void prependCatapultStroke(const TrajectoryConfig& config, GeneratedMission& mission) {
     const double V0 = config.aircraftPath.takeoffVel0;
     const double dt = config.simDt;
-    if (!(config.aircraftPath.railLength > 0.0) || !(V0 > 0.0) || mission.time.empty()) return;
+    const auto [n, stroke] = catapultStroke(config);
+    if (n == 0 || mission.time.empty()) return;
 
-    const auto n = static_cast<size_t>(std::max(1.0, std::round(1.5 * config.aircraftPath.railLength / V0 / dt)));
     const double T = static_cast<double>(n) * dt;
     const double a0 = 2.0 * V0 / T;
-    const double stroke = a0 * T * T / 3.0;
 
     for (auto& t : mission.time) t += static_cast<double>(n) * dt;
     std::vector<double> time(n);
@@ -868,9 +836,8 @@ void prependCatapultStroke(const TrajectoryConfig& config, GeneratedMission& mis
 
     for (size_t k = 0; k < mission.aircraft.size(); ++k) {
         const KinematicSample release = mission.aircraft[k].inertial.front();
-        const Vec3d horizontal = normalizeSafe(Vec3d(release.vel[0], release.vel[1], 0.0));
         const double railPitch = grs::degToRad(config.aircraftPath.takeoffPitch0Deg);
-        const Vec3d u = horizontal * std::cos(railPitch) + Vec3d(0.0, 0.0, -std::sin(railPitch));
+        const Vec3d u = railDirection(config, release.vel);
         std::vector<KinematicSample> inertial(n), payloadFrame(n);
         for (size_t i = 0; i < n; ++i) {
             const double t = time[i];
@@ -908,16 +875,27 @@ GeneratedMission TrajectoryGenerator::generate() const {
     const auto& ap = m_config.aircraftPath;
     const size_t nUavs = ap.phaseRad.size();
     assert(ap.z0.size() == nUavs && "One launcher height (z0) per UAV.");
+    assert(m_config.tether.lengthAtLaunch.size() == nUavs && "One launcher distance (lengthAtLaunch) per UAV.");
+    assert(nUavs == 2 && "Tether force solve is hard-coded for two aircraft, matching the MATLAB source.");
+
+    // Takeoffs from launchers at different heights and distances end at azimuths
+    // that are not exactly opposite: each is turned by half the gap so the UAVs
+    // circle on opposite sides of the payload.
+    std::array<double, 2> psiEnd{};
+    for (size_t k = 0; k < nUavs; ++k) {
+        psiEnd[k] = generateTakeoffFromRest(m_config, ap.phaseRad[k], ap.z0[k], m_config.tether.lengthAtLaunch[k], 0.0).psi.back();
+    }
+    const double gap = std::remainder(psiEnd[0] - psiEnd[1] - M_PI, 2.0 * M_PI);
+    const std::array<double, 2> dPsiEnd{-0.5 * gap, 0.5 * gap};
+
     std::vector<AircraftMissionRaw> aircraftRaw(nUavs);
     for (size_t k = 0; k < nUavs; ++k) {
-        aircraftRaw[k] = generateAircraftPathForUav(m_config, ap.phaseRad[k], ap.z0[k], payloadMission);
+        aircraftRaw[k] = generateAircraftPathForUav(m_config, ap.phaseRad[k], ap.z0[k], m_config.tether.lengthAtLaunch[k], dPsiEnd[k], payloadMission);
     }
 
     // dyn.getTethersForces: static per-tether gravity + per-sample tether pull at each aircraft.
     const TetherStaticForces staticForces = computeForcesOnTethers(m_config);
     const std::vector<Vec3d> fOnPayload = computeForcesOnPayload(m_config, payloadMission);
-
-    assert(nUavs == 2 && "Tether force solve is hard-coded for two aircraft, matching the MATLAB source.");
 
     const size_t nMission = payloadMission.t.size();
     std::vector<Vec3d> tetherF1(nMission, Vec3d::zeros()), tetherF2(nMission, Vec3d::zeros());
@@ -938,23 +916,21 @@ GeneratedMission TrajectoryGenerator::generate() const {
             missionControls[k][i] = inverseDynamic(m_config, aircraftRaw[k].timeline.inertial[i], forces[i]);
         }
     }
-    const double rollLoiter = missionControls[0].front().rollRad;
-
     std::vector<std::vector<ControlSample>> takeoffControls(nUavs);
     for (size_t k = 0; k < nUavs; ++k) {
-        takeoffControls[k] = computeControlsTakeoff(m_config, rollLoiter, aircraftRaw[k].takeoff);
+        takeoffControls[k] = computeControlsTakeoff(m_config, missionControls[k].front().rollRad, aircraftRaw[k].takeoff);
     }
 
-    // traj.appendTakeoff: prepend takeoff kinematics to each aircraft, pad payload with zeros.
+    // traj.appendTakeoff: prepend takeoff kinematics to each aircraft, payload at rest meanwhile.
     GeneratedMission out;
     const size_t nTakeoff = aircraftRaw[0].takeoff.t.size();
     const size_t nTotal = nTakeoff + nMission;
 
     out.time.resize(nTotal);
     for (size_t i = 0; i < nTakeoff; ++i) out.time[i] = i * m_config.simDt;
-    for (size_t i = 0; i < nMission; ++i) out.time[nTakeoff + i] = payloadMission.t[i] + m_config.aircraftPath.takeoffTime + m_config.simDt;
+    for (size_t i = 0; i < nMission; ++i) out.time[nTakeoff + i] = static_cast<double>(nTakeoff) * m_config.simDt + payloadMission.t[i];
 
-    out.payload.assign(nTotal, KinematicSample{});
+    out.payload.assign(nTotal, payloadMission.samples.front()); // at rest at x0 during the takeoff
     for (size_t i = 0; i < nMission; ++i) out.payload[nTakeoff + i] = payloadMission.samples[i];
 
     out.aircraft.resize(nUavs);

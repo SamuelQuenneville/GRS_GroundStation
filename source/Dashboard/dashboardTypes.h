@@ -337,16 +337,17 @@ struct TrajectoryGenerationParams {
     /// @}
 
     /// @name Slip-clutch tether payout
-    /// Defaults equal tetherLengthMeters, i.e. no payout modeled until set
-    /// shorter than tetherLengthMeters.
+    /// Distance payload to each UAV at rest on its launcher. Defaults equal
+    /// tetherLengthMeters, i.e. no payout modeled until set shorter.
     /// @{
-    double tetherLengthAtLaunchMeters = 30.0;
+    double uav1TetherLengthAtLaunchMeters = 30.0;
+    double uav2TetherLengthAtLaunchMeters = 30.0;
     double tetherPayoutDurationSeconds = 1.5;
     /// @}
 
     /// Height of each aircraft above the payload on its launcher at t=0 [m], positive up.
     /// A wrong value shifts every takeoff/loiter waypoint even when phase and
-    /// tetherLengthAtLaunchMeters are correct -- see docs/Trajectory.md.
+    /// uavNTetherLengthAtLaunchMeters are correct -- see docs/Trajectory.md.
     /// "Capture live positions" derives them from the real payload/anchor
     /// -> UAV offsets instead of requiring a manual guess.
     double uav1Z0Meters = 1.382;
@@ -415,7 +416,8 @@ struct TrajectoryGenerationParams {
             .add("originDownOffsetMeters", originDownOffsetMeters)
             .add("uav1PhaseDeg", uav1PhaseDeg)
             .add("uav2PhaseDeg", uav2PhaseDeg)
-            .add("tetherLengthAtLaunchMeters", tetherLengthAtLaunchMeters)
+            .add("uav1TetherLengthAtLaunchMeters", uav1TetherLengthAtLaunchMeters)
+            .add("uav2TetherLengthAtLaunchMeters", uav2TetherLengthAtLaunchMeters)
             .add("tetherPayoutDurationSeconds", tetherPayoutDurationSeconds)
             .add("uav1Z0Meters", uav1Z0Meters)
             .add("uav2Z0Meters", uav2Z0Meters)
@@ -461,7 +463,8 @@ struct TrajectoryGenerationParams {
         p.originDownOffsetMeters = reader.getNumber("originDownOffsetMeters", p.originDownOffsetMeters);
         p.uav1PhaseDeg = reader.getNumber("uav1PhaseDeg", p.uav1PhaseDeg);
         p.uav2PhaseDeg = reader.getNumber("uav2PhaseDeg", p.uav2PhaseDeg);
-        p.tetherLengthAtLaunchMeters = reader.getNumber("tetherLengthAtLaunchMeters", p.tetherLengthAtLaunchMeters);
+        p.uav1TetherLengthAtLaunchMeters = reader.getNumber("uav1TetherLengthAtLaunchMeters", p.uav1TetherLengthAtLaunchMeters);
+        p.uav2TetherLengthAtLaunchMeters = reader.getNumber("uav2TetherLengthAtLaunchMeters", p.uav2TetherLengthAtLaunchMeters);
         p.tetherPayoutDurationSeconds = reader.getNumber("tetherPayoutDurationSeconds", p.tetherPayoutDurationSeconds);
         p.uav1Z0Meters = reader.getNumber("uav1Z0Meters", p.uav1Z0Meters);
         p.uav2Z0Meters = reader.getNumber("uav2Z0Meters", p.uav2Z0Meters);

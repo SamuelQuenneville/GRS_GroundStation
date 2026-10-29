@@ -105,7 +105,7 @@ public:
 
     /// Translates each UAV's generated trajectory (already field-calibrated,
     /// i.e. real-world NED) so its first (launch) sample lands exactly on a
-    /// measured live GPS fix, instead of wherever phase/z0/tetherLengthAtLaunch
+    /// measured live GPS fix, instead of wherever phase/z0/lengthAtLaunch
     /// would otherwise place it. The offset is full up to the release, then
     /// fades out over the takeoff (velocity and acceleration follow), so the
     /// mission circles stay centred on the payload at the nominal height.

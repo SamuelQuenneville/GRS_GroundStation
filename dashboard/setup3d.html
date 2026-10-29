@@ -112,7 +112,8 @@
 
             <div class="section-gap"></div>
             <span class="ro-label">Tether slip clutch</span>
-            <div class="gen-row"><label for="gen-tetherLengthAtLaunchMeters">Length at launch (m)</label><input type="number" id="gen-tetherLengthAtLaunchMeters" step="0.1"></div>
+            <div class="gen-row"><label for="gen-uav1TetherLengthAtLaunchMeters">UAV 1 length at launch (m)</label><input type="number" id="gen-uav1TetherLengthAtLaunchMeters" step="0.1"></div>
+            <div class="gen-row"><label for="gen-uav2TetherLengthAtLaunchMeters">UAV 2 length at launch (m)</label><input type="number" id="gen-uav2TetherLengthAtLaunchMeters" step="0.1"></div>
             <div class="gen-row"><label for="gen-tetherPayoutDurationSeconds">Rollout duration (s)</label><input type="number" id="gen-tetherPayoutDurationSeconds" step="0.1"></div>
 
             <div class="section-gap"></div>
@@ -1064,7 +1065,7 @@
     // mode (see the sidebar section of the same name), used in place of a
     // real GET /api/trajectory/live-positions read. Chosen so that
     // capturing them and generating a preview reproduces this GCS's own
-    // existing defaults -- uav1Z0Meters=uav2Z0Meters=1.382, tetherLengthAtLaunchMeters
+    // existing defaults -- uav1Z0Meters=uav2Z0Meters=1.382, uavNTetherLengthAtLaunchMeters
     // =30, phase 0/180 -- rather than an arbitrary-looking layout. The
     // reference point for that math (see the capture handler below) is
     // always the origin (0,0,0) whether or not the demo payload is
@@ -1296,7 +1297,7 @@
         'climbDistanceMeters', 'climbVelMetersPerSecond', 'climbAccelMetersPerSecondSq',
         'moveDistanceMeters', 'moveVelMetersPerSecond', 'moveAccelMetersPerSecondSq', 'moveAngleDegrees',
         'holdTimeSeconds', 'tetherLengthMeters', 'payloadMassKg',
-        'tetherLengthAtLaunchMeters', 'tetherPayoutDurationSeconds', 'railLengthMeters',
+        'uav1TetherLengthAtLaunchMeters', 'uav2TetherLengthAtLaunchMeters', 'tetherPayoutDurationSeconds', 'railLengthMeters',
         'fieldHeadingDeg', 'originNorthOffsetMeters', 'originEastOffsetMeters', 'originDownOffsetMeters',
         'uav1PhaseDeg', 'uav2PhaseDeg', 'uav1Z0Meters', 'uav2Z0Meters',
         'uav1SnapNorthMeters', 'uav1SnapEastMeters', 'uav1SnapDownMeters',
@@ -1508,16 +1509,12 @@
             if (uav1) document.getElementById('gen-uav1PhaseDeg').value = wrapDeg180(bearingDeg(reference, uav1) + fieldHeadingDeg).toFixed(1);
             if (uav2) document.getElementById('gen-uav2PhaseDeg').value = wrapDeg180(bearingDeg(reference, uav2) + fieldHeadingDeg).toFixed(1);
 
-            // Launch geometry (theta0 = asin(z0 / tetherLengthAtLaunch) in
-            // trajectoryGenerator.cpp): read straight off the measured
-            // reference->UAV offsets. Height above the reference per UAV
-            // (positive up); TrajectoryConfig::Tether::lengthAtLaunch is
-            // shared, so averaged across whichever UAVs have a live fix.
+            // Launch geometry at rest on the launcher, per UAV: height above
+            // the reference (positive up) and distance to it.
             if (uav1) document.getElementById('gen-uav1Z0Meters').value = (reference.down - uav1.down).toFixed(3);
             if (uav2) document.getElementById('gen-uav2Z0Meters').value = (reference.down - uav2.down).toFixed(3);
-            const l0Vals = liveUavs.map(u => distance3D(reference, u));
-            const meanL0 = l0Vals.reduce((a, b) => a + b, 0) / l0Vals.length;
-            document.getElementById('gen-tetherLengthAtLaunchMeters').value = meanL0.toFixed(2);
+            if (uav1) document.getElementById('gen-uav1TetherLengthAtLaunchMeters').value = distance3D(reference, uav1).toFixed(3);
+            if (uav2) document.getElementById('gen-uav2TetherLengthAtLaunchMeters').value = distance3D(reference, uav2).toFixed(3);
 
             // Saves this instant's fix into the hidden gen-uavNSnap* fields,
             // which is what "Snap launch point to captured position" above

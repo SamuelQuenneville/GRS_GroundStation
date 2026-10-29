@@ -530,7 +530,7 @@ grs::trajgen::TrajectoryConfig GroundControlStation::m_paramsToTrajectoryConfig(
         grs::degToRad(params.uav2PhaseDeg),
     };
 
-    config.tether.lengthAtLaunch       = params.tetherLengthAtLaunchMeters;
+    config.tether.lengthAtLaunch       = {params.uav1TetherLengthAtLaunchMeters, params.uav2TetherLengthAtLaunchMeters};
     config.tether.payoutDurationSeconds = params.tetherPayoutDurationSeconds;
 
     config.aircraftPath.z0 = {params.uav1Z0Meters, params.uav2Z0Meters};

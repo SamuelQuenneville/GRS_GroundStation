@@ -50,11 +50,11 @@ struct TrajectoryConfig {
         /// `lengthAtLaunch` (t=0) to `length` (t=payoutDurationSeconds,
         /// held thereafter), see generateAircraftTakeoff() in
         /// trajectoryGenerator.cpp for the exact spherical to Cartesian
-        /// reconstruction. A negative `lengthAtLaunch` means "not set",
-        /// resolved to `length` by finalize() below (no payout modeled)
-        /// unless explicitly set shorter than `length`.
+        /// reconstruction. One value per UAV. A negative `lengthAtLaunch`
+        /// means "not set", resolved to `length` by finalize() below (no
+        /// payout modeled) unless explicitly set shorter than `length`.
         /// @{
-        double lengthAtLaunch = -1.0;       // Tether length at t=0 [m]; <0 = same as `length`
+        std::vector<double> lengthAtLaunch = {-1.0, -1.0}; // Distance payload to aircraft at rest on the launcher per UAV [m]; <0 = same as `length`
         double payoutDurationSeconds = 1.5; // Time to ramp lengthAtLaunch -> length [s]; only matters if lengthAtLaunch < length
         /// @}
 
@@ -85,9 +85,9 @@ struct TrajectoryConfig {
     struct AircraftPath {
         int direction = -1;                         // +1 = CW, -1 = CCW seen from above (azimuth from North toward East)
         double velMean = 26;                        // Aircraft mean speed [m/s]
-        std::vector<double> phaseRad = {0.0, M_PI}; // Aircraft phase per UAV [rad], from North toward East
+        std::vector<double> phaseRad = {0.0, M_PI}; // Aircraft azimuth at rest on the launcher per UAV [rad], from North toward East
         double radius = 25;                         // Aircraft path radius [m]
-        std::vector<double> z0 = {1.382, 1.382};    // Aircraft height above the payload on the launcher per UAV [m], positive up
+        std::vector<double> z0 = {1.382, 1.382};    // Aircraft height above the payload at rest on the launcher per UAV [m], positive up
 
         double takeoffTime = 10;          // Takeoff phase duration [s]
         double takeoffTimeBalistic = 1.5; // Max duration of the pitch held at the rail angle after the release [s]
@@ -95,7 +95,6 @@ struct TrajectoryConfig {
         double takeoffVel0 = 9.5;         // Aircraft speed at the catapult release [m/s], flight 2026-08-25
         double takeoffAcc0 = 1.75;        // Acceleration right after the release [m/s^2], flight 2026-08-25
         double railLength = 2.15;         // Catapult stroke [m], rail inclined at takeoffPitch0Deg: samples at rest to takeoffVel0 prepended, 0 = none
-        double takeoffAngle0Deg = 0;      // Azimuth of aircraft 1 on launcher [deg]
         double takeoffRoll0Deg = 10;      // Launcher roll angle [deg]
 
         double takeoffPitch0Deg = 19;           // Rail inclination [deg]: pitch held after the release, initial path angle
@@ -113,7 +112,9 @@ struct TrajectoryConfig {
     /// Populates tether.segment* from tether.length/linearMass/nSegments.
     /// Call once after setting the raw tether fields (or after loading from YAML).
     void finalize() {
-        if (tether.lengthAtLaunch < 0.0) tether.lengthAtLaunch = tether.length;
+        for (auto& L0 : tether.lengthAtLaunch) {
+            if (L0 < 0.0) L0 = tether.length;
+        }
 
         tether.segmentMass.assign(tether.nSegments, (tether.length * tether.linearMass) / tether.nSegments);
         tether.segmentLinCoordNorm.resize(tether.nSegments);

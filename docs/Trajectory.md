@@ -31,7 +31,7 @@ a valid trajectory.
 Call `finalize()` once after setting any `tether.*` fields (or after loading
 config from YAML) — it derives `tether.segmentMass`/
 `segmentLinCoordNorm` from `length`/`linearMass`/`nSegments`, and resolves
-`tether.lengthAtLaunch < 0` ("not set") to `tether.length` (no payout
+each `tether.lengthAtLaunch < 0` ("not set") to `tether.length` (no payout
 modeled). Nothing else in the generator recomputes these, so skipping
 `finalize()` after changing tether fields leaves stale derived values.
 
@@ -40,7 +40,10 @@ modeled). Nothing else in the generator recomputes these, so skipping
 Constructed with a `TrajectoryConfig`; `generate()` runs the full pipeline
 and returns a `GeneratedMission`:
 
-1. Payload path (climb, move, hold phases).
+1. Payload path (climb, move, hold phases). Each climb and move is a
+   jerk-limited S-curve covering exactly its configured distance, sampled
+   on the `simDt` grid like every other sample (the reference is read by
+   index, one row per `simDt`).
 2. Each aircraft's path around the payload, plus its takeoff phase
    (`generateAircraftTakeoff`) — the tether's slip-clutch payout, if
    configured, is modeled here as a smooth ramp of tether length from
@@ -66,6 +69,16 @@ and returns a `GeneratedMission`:
    measured acceleration `takeoffAcc0` and reaches `velMean` at
    `takeoffTimeAcc`. Rounded to the time grid. `grs_batchsim`
    generates without it (its truth plant has no catapult).
+
+The launcher geometry (`aircraftPath.phaseRad`, `aircraftPath.z0`,
+`tether.lengthAtLaunch`, one value per UAV each) is the UAV **at rest on the launcher**: azimuth,
+height above the payload and distance to it, as "Capture live positions"
+measures them. The takeoff starts at the release, found so that the stroke
+back along the rail ends exactly at that rest position. Launchers at
+different heights and distances give takeoffs that end at azimuths not
+exactly opposite: each takeoff is turned by half the gap (quintic fade, zero
+rate at both ends) so the UAVs circle on opposite sides of the payload. The
+mission circle continues the takeoff one sample after its end.
 
 `generate()` is `const` and has no side effects on `m_config` — calling it
 twice returns the same mission. Output is in the config's local NED frame,

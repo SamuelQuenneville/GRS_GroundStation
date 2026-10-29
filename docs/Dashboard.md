@@ -79,7 +79,7 @@ means renaming it in the frontend too. Types: `UavTelemetrySnapshot`,
 `grs::trajgen::TrajectoryConfig` exposed on the dashboard's trajectory
 generator sidebar. It carries the densest rationale in this module — several
 fields (`uav1PhaseDeg`/`uav2PhaseDeg`, `snapToLiveLaunchPosition` +
-`uavNSnap*`, `tetherLengthAtLaunchMeters`, `testEnabled` + `test*`) exist
+`uavNSnap*`, `uavNTetherLengthAtLaunchMeters`, `testEnabled` + `test*`) exist
 to support specific dashboard features: real launch-position capture,
 slip-clutch tether payout, and reduced-order testing — see
 `docs/Trajectory.md`. The struct itself should keep only a one-line pointer
