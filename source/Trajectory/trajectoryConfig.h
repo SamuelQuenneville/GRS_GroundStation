@@ -26,13 +26,16 @@ struct TrajectoryConfig {
     } world;
 
     struct Aircraft {
-        double mass = 4.475;           // Mass [kg]
+        // Calibration 2026-10-28 (GRS_Simulator sigCoeffs). Its CL = CL_TRIM + CL_ALPHA (a - a0)
+        // + CL_de (de - de0) is reduced to CL0 + CLalpha a with the elevator at moment trim
+        // (de - de0 = -Cm_ALPHA / Cm_de (a - a0)), q = 0.
+        double mass = 4.613;           // Mass [kg]
         double wingArea = 0.53625;     // Wing surface [m^2]
         double aspectRatio = 4.924242; // Wing aspect ratio
-        double oswald = 0.92;          // Oswald efficiency
-        double CD0 = 0.05;             // Aircraft CD0
-        double CL0 = 0.21385;          // Aircraft CL0
-        double CLalpha = 4.32893;      // Aircraft CL_alpha [rad^-1]
+        double oswald = 0.59263;       // Oswald efficiency
+        double CD0 = 0.05076;          // Aircraft CD0
+        double CL0 = -0.00279;         // Aircraft CL0
+        double CLalpha = 4.32313;      // Aircraft CL_alpha [rad^-1]
     } aircraft;
 
     struct Tether {
