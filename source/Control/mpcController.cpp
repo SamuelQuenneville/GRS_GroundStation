@@ -66,7 +66,8 @@ MpcController::MpcController(const solverConfig& config)
         grs::sim::AirframeParams uav;
         uav.T_roll = m_config.delayTauRoll;
         uav.T_pitch = m_config.delayTauPitch;
-        constexpr grs::sim::RigParams rig;
+        grs::sim::RigParams rig;
+        rig.m_pay = m_config.payloadMass;
         if (m_config.numUavs == 2 && hasPayload()) {
             m_predictor = std::make_unique<grs::sim::TwoUavPayloadPlant>(uav, uav, rig);
         } else if (m_config.numUavs == 1 && !hasPayload()) {
@@ -607,7 +608,8 @@ void MpcController::m_packParameters(const bool aboutPlan) {
     dst = std::ranges::copy(m_config.weight, dst).out;
     dst = std::ranges::copy(m_uPrev, dst).out;
     const double* L0 = dst;
-    dst = std::fill_n(dst, m_config.nL0, m_config.tetherL0);
+    *dst++ = m_config.tetherL0;
+    if (m_config.nL0 == 2) *dst++ = m_config.payloadMass;
     if (m_linearization) {
         const double* point = m_referenceWindow.data();
         if (aboutPlan) {

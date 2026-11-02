@@ -209,6 +209,7 @@ void NmheEstimator::m_packParameters() {
     for (const auto* v : {&m_windEst, &m_dEst, &m_config.wMeas, &m_config.wWindPrior, &m_config.wDPrior}) {
         dst = std::ranges::copy(*v, dst).out;
     }
-    dst = std::fill_n(dst, m_config.nL0, m_config.tetherL0);
+    *dst++ = m_config.tetherL0;
+    if (m_config.nL0 == 2) *dst++ = m_config.payloadMass;
     assert(dst == m_solver.p.end());
 }

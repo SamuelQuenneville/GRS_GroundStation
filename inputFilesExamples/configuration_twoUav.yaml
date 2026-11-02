@@ -56,7 +56,7 @@ SolverConfiguration:
   NU: 6    # [UAV1(3); UAV2(3)]
   NP: 3    # wind, shared
   ND: 9    # [dFa1 dCL1 b_roll1 b_pitch1  dFa2 dCL2 b_roll2 b_pitch2  dFz_pay]
-  NL0: 1   # tether rest length, shared by both tethers
+  NL0: 2   # rig parameters [L0 shared by both tethers, payload mass]
   N: 30
   DT: 0.05
   NUM_UAVS: 2
@@ -78,6 +78,7 @@ SolverConfiguration:
   DELAY_STAGES: 0
   DELAY_TAU_ROLL: 0.35
   DELAY_TAU_PITCH: 0.1832
+  PAYLOAD_MASS: 20.0  # [kg], as in GRS_Controller rigParams_twoUavPayload.m
 
   # Angle-of-attack feedforward sent with each command: the plan's alpha this
   # many stages after the applied control (1 + link latency in samples).
@@ -127,7 +128,7 @@ EstimatorConfiguration:
   NU: 6
   NP: 3
   ND: 9    # same layout as SolverConfiguration.ND
-  NL0: 1
+  NL0: 2
   M: 40
   DT: 0.05
   NUM_UAVS: 2

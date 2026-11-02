@@ -30,17 +30,18 @@
 // GRS_Controller/02_matlab/06_comparison/cpp_batchsim/export_plant_golden.m.
 namespace grs::sim {
 
-// uavParams_Sig.m
+// uavParams_Sig.m: calibration 2026-10-28, lift reduced to CL0 + CL_alpha alpha
+// with the elevator at moment trim (same values as trajectoryConfig.h).
 struct AirframeParams {
-    double mass = 4.475;       // [kg]
+    double mass = 4.613;       // [kg]
     double T_roll = 0.2215;    // [s]
     double T_pitch = 0.1832;   // [s]
     double S = 0.53625;        // [m^2]
-    double CL0 = 0.21385;      // [-]
-    double CL_alpha = 4.32893; // [1/rad]
-    double CD0 = 0.05;         // [-]
+    double CL0 = -0.00279;     // [-]
+    double CL_alpha = 4.32313; // [1/rad]
+    double CD0 = 0.05076;      // [-]
     double AR = 4.9242;        // [-]
-    double e = 0.92;           // [-]
+    double e = 0.59263;        // [-]
 };
 
 // rigParams_twoUavPayload.m (payload/ground fields unused by the one-UAV

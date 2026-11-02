@@ -27,7 +27,7 @@ struct solverConfig {
     int nu;          // joint control size, all UAVs
     int np;          // wind parameters (3, shared)
     int nd;          // disturbance parameters
-    int nL0;         // tether rest-length parameters
+    int nL0;         // rig parameters: 1 = [L0], 2 = [L0, payload mass]
     int N;           // prediction horizon
     int numUavs;
     double dt;       // shooting interval [s]
@@ -45,6 +45,9 @@ struct solverConfig {
     int delayStages = 0;
     double delayTauRoll = 0.2215;
     double delayTauPitch = 0.1832;
+    // Payload mass [kg]: solver parameter with NL0 = 2, and payload of the
+    // delay-compensation propagation.
+    double payloadMass = 20.0;
 
     // Launch (optional keys, docs/Control.md). The launch is refused while a
     // UAV is more than launchPositionTolerance [m] from the reference's first
@@ -83,6 +86,7 @@ struct estimatorConfig {
     int numUavs;
     double dt;       // sample interval [s]
     double tetherL0;
+    double payloadMass = 20.0; // NL0 = 2: SolverConfiguration.PAYLOAD_MASS (controlStep)
 
     // Measurement-fit and arrival-cost weights: W_meas(nx), W_windp(np), W_dp(nd).
     std::vector<double> wMeas;

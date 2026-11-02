@@ -76,6 +76,7 @@ namespace YAML {
                 rhs.np             = node["NP"].as<int>();
                 rhs.nd             = node["ND"].as<int>();
                 rhs.nL0            = node["NL0"].as<int>();
+                if (rhs.nL0 != 1 && rhs.nL0 != 2) throw std::runtime_error("SolverConfiguration.NL0 must be 1 (L0) or 2 (L0, payload mass)");
                 rhs.N              = node["N"].as<int>();
                 rhs.numUavs        = node["NUM_UAVS"].as<int>();
                 rhs.dt             = node["DT"].as<double>();
@@ -97,11 +98,12 @@ namespace YAML {
                 if (node["DELAY_STAGES"])    rhs.delayStages = node["DELAY_STAGES"].as<int>();
                 if (node["DELAY_TAU_ROLL"])  rhs.delayTauRoll = node["DELAY_TAU_ROLL"].as<double>();
                 if (node["DELAY_TAU_PITCH"]) rhs.delayTauPitch = node["DELAY_TAU_PITCH"].as<double>();
+                if (node["PAYLOAD_MASS"])    rhs.payloadMass = node["PAYLOAD_MASS"].as<double>();
                 if (rhs.delayStages < 0 || rhs.delayStages >= rhs.N) {
                     throw std::runtime_error("SolverConfiguration.DELAY_STAGES must be in [0, N-1]");
                 }
-                if (!(rhs.delayTauRoll > 0.0) || !(rhs.delayTauPitch > 0.0)) {
-                    throw std::runtime_error("SolverConfiguration.DELAY_TAU_ROLL and DELAY_TAU_PITCH must be > 0");
+                if (!(rhs.delayTauRoll > 0.0) || !(rhs.delayTauPitch > 0.0) || !(rhs.payloadMass > 0.0)) {
+                    throw std::runtime_error("SolverConfiguration.DELAY_TAU_ROLL, DELAY_TAU_PITCH and PAYLOAD_MASS must be > 0");
                 }
 
                 if (node["LAUNCH_POS_TOL"])   rhs.launchPositionTolerance = node["LAUNCH_POS_TOL"].as<double>();
@@ -160,6 +162,7 @@ namespace YAML {
                 rhs.np      = node["NP"].as<int>();
                 rhs.nd      = node["ND"].as<int>();
                 rhs.nL0     = node["NL0"].as<int>();
+                if (rhs.nL0 != 1 && rhs.nL0 != 2) throw std::runtime_error("EstimatorConfiguration.NL0 must be 1 (L0) or 2 (L0, payload mass)");
                 rhs.nxi     = rhs.nx + rhs.np + rhs.nd;
                 rhs.M       = node["M"].as<int>();
                 rhs.numUavs = node["NUM_UAVS"].as<int>();

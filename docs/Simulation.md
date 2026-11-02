@@ -131,8 +131,9 @@ parameter sets included.
 ### Sample mapping (`truthSample.h`)
 
 `applySample()` is `mc_apply_sample_twoUav.m`: `rel` parameters are
-factors on nominal, `abs` parameters are values, absent parameters are
-nominal, unknown names are an error. The controller and NMHE never see the
+factors on nominal, `abs` parameters are values (`aN_CL0` an offset added to
+the nominal CL0, which is about 0 in the calibrated model), absent
+parameters are nominal, unknown names are an error. The controller and NMHE never see the
 sample: they keep their nominal model and the YAML `L0`.
 
 ### Runner (`closedLoopRunner.h`)

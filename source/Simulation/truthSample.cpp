@@ -36,7 +36,7 @@ std::set<std::string> relNames(const int numUavs) {
     std::set<std::string> names{"pay_mass", "tether_k", "tether_b"};
     for (int i = 1; i <= numUavs; ++i) {
         const std::string a = "a" + std::to_string(i) + "_";
-        for (const char* c : {"mass", "CL0", "CL_alpha", "CD0", "e", "T_roll", "T_pitch"}) names.insert(a + c);
+        for (const char* c : {"mass", "CL_alpha", "CD0", "e", "T_roll", "T_pitch"}) names.insert(a + c);
     }
     if (numUavs == 1) names.erase("pay_mass");
     return names;
@@ -45,6 +45,7 @@ std::set<std::string> relNames(const int numUavs) {
 std::set<std::string> absNames(const int numUavs) {
     std::set<std::string> names{"wind_speed", "wind_heading", "wind_down", "tether_L0_err"};
     for (int i = 1; i <= numUavs; ++i) {
+        names.insert("a" + std::to_string(i) + "_CL0"); // offset: the nominal CL0 is about 0
         const std::string d = "d" + std::to_string(i) + "_";
         for (const char* c : {"broll", "bpitch"}) names.insert(d + c);
         if (numUavs == 1) {
@@ -112,7 +113,7 @@ TruthSpec applySample(const Sample& sample, const int numUavs, const double L0No
         const std::string a = "a" + std::to_string(i + 1) + "_";
         AirframeParams& p = t.uav[i];
         p.mass *= v(a + "mass");
-        p.CL0 *= v(a + "CL0");
+        p.CL0 += v(a + "CL0");
         p.CL_alpha *= v(a + "CL_alpha");
         p.CD0 *= v(a + "CD0");
         p.e *= v(a + "e");

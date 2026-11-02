@@ -122,6 +122,14 @@ Launch phases (`m_unpackLatestStates()`):
   headwind), else back to standby (misfire).
 - **In flight**: fully measured state, NMHE on.
 
+**Rig parameters.** The solvers take the tether rest length `L0` and, for
+the two-UAV model generated with it as a parameter (`NL0: 2`), the payload
+mass `PAYLOAD_MASS` [kg] (optional, default 20) as the last entries of their
+parameter vector: a new payload needs no regeneration. The NMHE gets the
+same value; the delay compensation uses it too. Keep it equal to the
+dashboard's payload mass, which the trajectory generator uses. `NL0: 1`
+keeps solvers generated before (payload mass compiled in).
+
 `launchReady()` gates `catapultFire` and `initLaunch` (after the param check
 between UAVs, `docs/Communication.md`): refused without a
 checked frame offset for every UAV (below), without a trajectory, before the first solve, with incomplete telemetry, without a
@@ -169,7 +177,8 @@ propagated over the last n commands sent (nominal plant model of
 the solve starts from that state with the reference read n samples ahead:
 the first control applies when it takes effect. `DELAY_TAU_ROLL` and
 `DELAY_TAU_PITCH` set the attitude time constants of the propagation
-(default the solver model's 0.2215 / 0.1832 s). Not applied on the launcher
+(default the solver model's 0.2215 / 0.1832 s). The airframe is the
+calibrated model of `plantModel.h`, the payload mass `PAYLOAD_MASS` (below). Not applied on the launcher
 (the catapult stroke is not in the model). The angle-of-attack feedforward
 goes through the same link and its own 2 Hz filter, so `AOA_FF_STAGE: 0`
 with delay compensation.

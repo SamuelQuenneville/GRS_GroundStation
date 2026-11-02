@@ -131,6 +131,7 @@ ControlStack buildControlStack(YAML::Node& node, const bool withEstimator) {
                 || e.numUavs != s.numUavs || std::abs(e.dt - s.dt) > 1e-9) {
                 throw std::runtime_error("EstimatorConfiguration does not match SolverConfiguration (nx, nu, np, nd, nL0, numUavs or dt)");
             }
+            stack.estimator->payloadMass = s.payloadMass;
             stack.estimatorInstance = std::make_unique<NmheEstimator>(*stack.estimator);
         }
     }

@@ -48,7 +48,7 @@ SolverConfiguration:
   NU: 6    # [UAV1(3); UAV2(3)]
   NP: 3    # wind, shared
   ND: 9    # [dFa1 dCL1 b_roll1 b_pitch1  dFa2 dCL2 b_roll2 b_pitch2  dFz_pay]
-  NL0: 1   # tether rest length, shared by both tethers
+  NL0: 2   # rig parameters [L0 shared by both tethers, payload mass]
   N: 30
   DT: 0.05
   NUM_UAVS: 2
@@ -57,6 +57,8 @@ SolverConfiguration:
 
   # Tether rest length [m], packed into every solve's L0 parameter.
   L0: 28.5
+  # Payload mass [kg], solver parameter with NL0: 2 (same as the dashboard).
+  PAYLOAD_MASS: 20.0
 
   # Angle-of-attack bound [rad], both UAVs (build option 'alpha_max').
   ALPHA_MAX: 0.436332  # deg2rad(25)
@@ -109,7 +111,7 @@ EstimatorConfiguration:
   NU: 6
   NP: 3
   ND: 9    # same layout as SolverConfiguration.ND
-  NL0: 1
+  NL0: 2
   M: 40
   DT: 0.05
   NUM_UAVS: 2
