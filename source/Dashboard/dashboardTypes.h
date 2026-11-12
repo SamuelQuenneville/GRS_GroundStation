@@ -314,6 +314,7 @@ struct TrajectoryGenerationParams {
     double holdTimeSeconds = 5.0;
     double tetherLengthMeters = 30.0;
     double payloadMassKg = 20.0;
+    double payloadGroundLoadFraction = 0.8; // share of the payload weight on the tethers before the lift
 
     /// @name Field calibration
     /// @{
@@ -410,6 +411,7 @@ struct TrajectoryGenerationParams {
             .add("holdTimeSeconds", holdTimeSeconds)
             .add("tetherLengthMeters", tetherLengthMeters)
             .add("payloadMassKg", payloadMassKg)
+            .add("payloadGroundLoadFraction", payloadGroundLoadFraction)
             .add("fieldHeadingDeg", fieldHeadingDeg)
             .add("originNorthOffsetMeters", originNorthOffsetMeters)
             .add("originEastOffsetMeters", originEastOffsetMeters)
@@ -457,6 +459,7 @@ struct TrajectoryGenerationParams {
         p.holdTimeSeconds = reader.getNumber("holdTimeSeconds", p.holdTimeSeconds);
         p.tetherLengthMeters = reader.getNumber("tetherLengthMeters", p.tetherLengthMeters);
         p.payloadMassKg = reader.getNumber("payloadMassKg", p.payloadMassKg);
+        p.payloadGroundLoadFraction = reader.getNumber("payloadGroundLoadFraction", p.payloadGroundLoadFraction);
         p.fieldHeadingDeg = reader.getNumber("fieldHeadingDeg", p.fieldHeadingDeg);
         p.originNorthOffsetMeters = reader.getNumber("originNorthOffsetMeters", p.originNorthOffsetMeters);
         p.originEastOffsetMeters = reader.getNumber("originEastOffsetMeters", p.originEastOffsetMeters);

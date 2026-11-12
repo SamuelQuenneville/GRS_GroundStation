@@ -49,6 +49,10 @@ struct solverConfig {
     // delay-compensation propagation.
     double payloadMass = 20.0;
 
+    // Largest change of the sent command per tick, in flight, per UAV
+    // [thrust N, roll rad, pitch rad] (optional key, empty = no limit).
+    std::vector<double> maxControlStep;
+
     // Launch (optional keys, docs/Control.md). The launch is refused while a
     // UAV is more than launchPositionTolerance [m] from the reference's first
     // sample, or its yaw more than launchYawTolerance [deg] from the rail

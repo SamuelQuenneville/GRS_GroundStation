@@ -26,7 +26,7 @@ public:
 
     void addSample(const std::vector<double>& measuredState, const std::vector<double>& appliedControl) override;
     bool estimate() override;
-    void reset() override;
+    void reset(bool keepEstimate) override;
 
     [[nodiscard]] const std::vector<double>& windEstimate() const override;
     [[nodiscard]] const std::vector<double>& dEstimate() const override;

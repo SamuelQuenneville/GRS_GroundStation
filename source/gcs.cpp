@@ -521,6 +521,7 @@ grs::trajgen::TrajectoryConfig GroundControlStation::m_paramsToTrajectoryConfig(
     config.payloadPath.timehold = params.holdTimeSeconds;
     config.tether.length        = params.tetherLengthMeters;
     config.payload.mass         = params.payloadMassKg;
+    config.payloadPath.groundLoadFraction = params.payloadGroundLoadFraction;
 
     config.fieldHeadingDeg  = params.fieldHeadingDeg;
     config.originOffsetNed  = grs::Vec3d(params.originNorthOffsetMeters, params.originEastOffsetMeters, params.originDownOffsetMeters);

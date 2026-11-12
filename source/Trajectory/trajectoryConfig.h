@@ -72,6 +72,13 @@ struct TrajectoryConfig {
         grs::Vec3d x0 = grs::Vec3d::zeros(); // Payload origin [m] (NED)
         double timehold = 5;                 // Fixed payload time between maneuvers [s]
 
+        // Share of the payload weight the tethers carry while it is on the ground, so it stays
+        // down until the lift: ramped to 1 over groundLoadRampSeconds before the lift-off and
+        // back after the touchdown. The UAVs fly sqrt(groundLoadFraction) x velMean meanwhile,
+        // wings level. 1 = previous behavior (payload weightless on the ground).
+        double groundLoadFraction = 0.8;
+        double groundLoadRampSeconds = 2.0; // [s], at most timehold
+
         double accClimb = 0.25;    // [m/s^2]
         double velClimb = 1;       // [m/s]
         double distanceClimb = 25; // [m], relative to origin

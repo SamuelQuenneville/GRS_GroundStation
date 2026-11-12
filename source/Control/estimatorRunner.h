@@ -56,8 +56,8 @@ public:
     virtual void pushSample(const std::vector<double>& measuredState, const std::vector<double>& appliedControl) = 0;
     virtual void endTick() {}
     // Drops the pending samples and estimates and resets the estimator
-    // (window empty, estimate zero) before its next sample.
-    virtual void reset() = 0;
+    // (window empty, estimate zero unless keepEstimate) before its next sample.
+    virtual void reset(bool keepEstimate) = 0;
     [[nodiscard]] virtual Stats stats() const = 0;
 };
 
@@ -77,7 +77,7 @@ public:
 
     std::optional<Estimate> takeEstimate() override;
     void pushSample(const std::vector<double>& measuredState, const std::vector<double>& appliedControl) override;
-    void reset() override;
+    void reset(bool keepEstimate) override;
     [[nodiscard]] Stats stats() const override;
 
 private:
@@ -97,6 +97,7 @@ private:
     // when the count changed and drops a solve that a reset overtook.
     std::atomic<uint64_t> m_resets{0};
     uint64_t m_seenResets = 0;
+    std::atomic<bool> m_clearEstimate{false}; // a reset since the last one seen asked to zero the estimate
 
     std::mutex m_wakeMutex;
     std::condition_variable m_wake;
@@ -123,7 +124,7 @@ public:
     std::optional<Estimate> takeEstimate() override;
     void pushSample(const std::vector<double>& measuredState, const std::vector<double>& appliedControl) override;
     void endTick() override;
-    void reset() override;
+    void reset(bool keepEstimate) override;
     [[nodiscard]] Stats stats() const override { return m_stats; }
 
 private:

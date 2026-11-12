@@ -117,12 +117,14 @@ bool NmheEstimator::estimate() {
     return valid;
 }
 
-void NmheEstimator::reset() {
+void NmheEstimator::reset(const bool keepEstimate) {
     std::lock_guard lock(m_solveMutex);
     m_stateWindow.clear();
     m_controlWindow.clear();
-    std::ranges::fill(m_windEst, 0.0);
-    std::ranges::fill(m_dEst, 0.0);
+    if (!keepEstimate) {
+        std::ranges::fill(m_windEst, 0.0);
+        std::ranges::fill(m_dEst, 0.0);
+    }
     m_prevSolution.clear();
     m_samplesSinceSolve = 0;
     m_windowFull = false;

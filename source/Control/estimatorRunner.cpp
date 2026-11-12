@@ -47,10 +47,11 @@ void ThreadedEstimatorRunner::pushSample(const std::vector<double>& measuredStat
     while (m_pending.size() > m_maxPending) m_pending.pop_front();
 }
 
-void ThreadedEstimatorRunner::reset() {
+void ThreadedEstimatorRunner::reset(const bool keepEstimate) {
     {
         std::lock_guard lock(m_inMutex);
         m_pending.clear();
+        if (!keepEstimate) m_clearEstimate = true;
         ++m_resets;
     }
     std::lock_guard lock(m_outMutex);
@@ -90,7 +91,7 @@ void ThreadedEstimatorRunner::m_loop() {
         bool ok = false;
         bool attempted = false;
         try {
-            if (reset) m_estimator.reset();
+            if (reset) m_estimator.reset(!m_clearEstimate.exchange(false));
             for (const auto& [x, u] : batch) m_estimator.addSample(x, u);
             ok = m_estimator.estimate();
             attempted = m_estimator.getDebugInfo().windowFull;
@@ -156,8 +157,8 @@ void DeferredEstimatorRunner::pushSample(const std::vector<double>& measuredStat
     m_estimator.addSample(measuredState, appliedControl);
 }
 
-void DeferredEstimatorRunner::reset() {
-    m_estimator.reset();
+void DeferredEstimatorRunner::reset(const bool keepEstimate) {
+    m_estimator.reset(keepEstimate);
     m_inFlight.clear();
     m_accumulatorMs = 0.0;
 }

@@ -99,6 +99,7 @@ private:
     bool m_prevInFlight = false;
     bool m_prevEndedTraj = false;
     bool m_prevViolation = false;
+    bool m_prevRateLimited = false;
     bool m_prevHolding = false;
     bool m_prevOpenLoop = false;
     // False while some vehicle of the layout sent no telemetry this tick
@@ -122,6 +123,7 @@ private:
     size_t m_trackingNumber = 0;
 
     bool m_violation = false;
+    bool m_rateLimited = false; // the sent command was rate limited this tick
     Nlpsol::Status m_lastStatus;
     double m_lastMaxConstraintViolation = 0.0;
     // Last accepted solution (scaled, m_solver.x layout) and the reference

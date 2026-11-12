@@ -290,8 +290,10 @@ std::map<uint8_t, uavCommandsFlags> MpcController::solve(const std::map<uint8_t,
         m_packParameters(fromPlan);
         m_lastStatus = m_solver.solve();
 
+        // A feasible point is not enough: Fatrop stopped at its iteration limit or failed
+        // (return code > 0) can hand back a feasible but meaningless plan.
         const auto check = m_solver.check(m_lastStatus);
-        m_violation = !check.valid;
+        m_violation = !check.valid || m_lastStatus.fatrop.returnCode > 0;
         m_lastMaxConstraintViolation = check.maxConstraintViolation;
     }
     m_logPlan(time);
@@ -322,6 +324,7 @@ std::map<uint8_t, uavCommandsFlags> MpcController::solve(const std::map<uint8_t,
     // Applied control: the plan at its age, else the reference feedforward.
     // Also U_prev for the next solve.
     m_openLoop = m_inFlight && m_planAge >= N;
+    const std::vector<double> uSent = m_uPrev;
     if (m_planAge < N) {
         const size_t offset = m_planAge * m_solStride + m_nz;
         for (int i = 0; i < m_config.nu; ++i) {
@@ -329,6 +332,18 @@ std::map<uint8_t, uavCommandsFlags> MpcController::solve(const std::map<uint8_t,
         }
     } else {
         std::copy_n(m_referenceWindow.begin() + m_config.nx, m_config.nu, m_uPrev.begin());
+    }
+    // Rate limit on the sent command, from the previous in-flight command; U_prev
+    // and the delay propagation use the limited value, as sent.
+    m_rateLimited = false;
+    const auto& maxStep = m_config.maxControlStep;
+    if (!maxStep.empty() && m_inFlight && m_prevInFlight) {
+        for (int i = 0; i < m_config.nu; ++i) {
+            const double lim = maxStep[static_cast<size_t>(i) % maxStep.size()];
+            const double step = std::clamp(m_uPrev[i] - uSent[i], -lim, lim);
+            m_rateLimited = m_rateLimited || step != m_uPrev[i] - uSent[i];
+            m_uPrev[i] = uSent[i] + step;
+        }
     }
     m_recordSentControl();
 
@@ -383,6 +398,7 @@ void MpcController::m_logTransitions() {
         else LOG_INFO("Valid solve again: closed loop resumed");
     }
     edge(m_violation, m_prevViolation, "VIOLATION entered", "VIOLATION cleared");
+    edge(m_rateLimited, m_prevRateLimited, "RATE LIMIT entered", "RATE LIMIT cleared");
 }
 
 MpcController::DebugInfo MpcController::getDebugInfo() const {

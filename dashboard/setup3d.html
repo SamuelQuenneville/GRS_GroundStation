@@ -109,6 +109,7 @@
             <div class="gen-row"><label for="gen-holdTimeSeconds">Hold time (s)</label><input type="number" id="gen-holdTimeSeconds" step="0.5"></div>
             <div class="gen-row"><label for="gen-tetherLengthMeters">Tether length (m)</label><input type="number" id="gen-tetherLengthMeters" step="0.5"></div>
             <div class="gen-row"><label for="gen-payloadMassKg">Payload mass (kg)</label><input type="number" id="gen-payloadMassKg" step="0.5"></div>
+            <div class="gen-row"><label for="gen-payloadGroundLoadFraction">Weight on tethers before lift (0-1, speed sqrt of it)</label><input type="number" id="gen-payloadGroundLoadFraction" step="0.05" min="0" max="1"></div>
 
             <div class="section-gap"></div>
             <span class="ro-label">Tether slip clutch</span>
@@ -1296,7 +1297,7 @@
         'radiusMeters', 'velMeanMetersPerSecond',
         'climbDistanceMeters', 'climbVelMetersPerSecond', 'climbAccelMetersPerSecondSq',
         'moveDistanceMeters', 'moveVelMetersPerSecond', 'moveAccelMetersPerSecondSq', 'moveAngleDegrees',
-        'holdTimeSeconds', 'tetherLengthMeters', 'payloadMassKg',
+        'holdTimeSeconds', 'tetherLengthMeters', 'payloadMassKg', 'payloadGroundLoadFraction',
         'uav1TetherLengthAtLaunchMeters', 'uav2TetherLengthAtLaunchMeters', 'tetherPayoutDurationSeconds', 'railLengthMeters',
         'fieldHeadingDeg', 'originNorthOffsetMeters', 'originEastOffsetMeters', 'originDownOffsetMeters',
         'uav1PhaseDeg', 'uav2PhaseDeg', 'uav1Z0Meters', 'uav2Z0Meters',

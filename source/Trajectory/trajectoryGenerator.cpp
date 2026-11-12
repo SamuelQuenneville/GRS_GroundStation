@@ -8,8 +8,11 @@
 
 #include "trajectoryGenerator.h"
 
+#include <algorithm>
 #include <array>
 #include <cassert>
+#include <cmath>
+#include <limits>
 #include <numeric>
 #include <tuple>
 #include <utility>
@@ -66,7 +69,7 @@ std::pair<double, double> quinticFromSlope(const double x0, const double slope0,
 double takeoffTetherForce(const TrajectoryConfig& config, const double t) {
     const auto& ap = config.aircraftPath;
     const double zTarget = std::sqrt(config.tether.length*config.tether.length - ap.radius*ap.radius);
-    const double fTarget = (0.5 * config.payload.mass * config.world.gravity) / (zTarget / config.tether.length);
+    const double fTarget = config.payloadPath.groundLoadFraction * (0.5 * config.payload.mass * config.world.gravity) / (zTarget / config.tether.length);
     constexpr double tDelay = 2.0;
     constexpr double tRamp = 6.0;
     return (0.1 + 0.9 * quinticSmoothstep(std::clamp((t - tDelay) / tRamp, 0.0, 1.0))) * fTarget;
@@ -207,6 +210,40 @@ PayloadMission generatePayloadPath(const TrajectoryConfig& config) {
     return out;
 }
 
+// Share of the payload weight the tethers carry at each mission sample: 1 in the
+// air, groundLoadFraction on the ground, ramped to 1 over groundLoadRampSeconds
+// before the lift-off and back after the touchdown.
+std::vector<double> payloadCarriedFraction(const TrajectoryConfig& config, const PayloadMission& payloadMission) {
+    const auto& pp = config.payloadPath;
+    const size_t n = payloadMission.samples.size();
+
+    std::vector<bool> grounded(n);
+    for (size_t i = 0; i < n; ++i) {
+        grounded[i] = std::abs(payloadMission.samples[i].pos[2] - pp.x0[2]) < 1e-6;
+    }
+    // Time to the nearest airborne sample, before or after.
+    constexpr double inf = std::numeric_limits<double>::infinity();
+    std::vector<double> toAir(n, inf);
+    double lastAir = -inf;
+    for (size_t i = 0; i < n; ++i) {
+        if (!grounded[i]) lastAir = payloadMission.t[i];
+        else toAir[i] = payloadMission.t[i] - lastAir;
+    }
+    double nextAir = inf;
+    for (size_t i = n; i-- > 0;) {
+        if (!grounded[i]) nextAir = payloadMission.t[i];
+        else toAir[i] = std::min(toAir[i], nextAir - payloadMission.t[i]);
+    }
+
+    std::vector<double> carried(n, 1.0);
+    for (size_t i = 0; i < n; ++i) {
+        if (!grounded[i]) continue;
+        const double ramp = pp.groundLoadRampSeconds > 0.0 ? 1.0 - std::clamp(toAir[i] / pp.groundLoadRampSeconds, 0.0, 1.0) : 0.0;
+        carried[i] = pp.groundLoadFraction + (1.0 - pp.groundLoadFraction) * quinticSmoothstep(ramp);
+    }
+    return carried;
+}
+
 // ---------------------------------------------------------------------------
 // Aircraft Takeoff
 // ---------------------------------------------------------------------------
@@ -273,7 +310,8 @@ TakeoffMission generateAircraftTakeoff(const TrajectoryConfig& config, const dou
     }
 
     const double V0 = ap.takeoffVel0;
-    const double Vf = ap.velMean;
+    // Pre-lift speed: the tether pull scales with V^2, see generateAircraftPathForUav().
+    const double Vf = ap.velMean * std::sqrt(config.payloadPath.groundLoadFraction);
     // Starts with the acceleration measured after the release (flight
     // 2026-08-25: 10.2 m/s at 0.4 s, 11.5 at 1 s, 15 at 2 s).
     const double Tacc = ap.takeoffTimeAcc;
@@ -530,8 +568,20 @@ struct AircraftMissionRaw { AircraftTimeline timeline; TakeoffMission takeoff; }
 AircraftMissionRaw generateAircraftPathForUav(const TrajectoryConfig& config, const double phase, const double z0, const double L0, const double dPsiEnd, const PayloadMission& payloadMission) {
     const auto& ap = config.aircraftPath;
     const double R = ap.radius;
-    const double omega = ap.direction * ap.velMean / R;
     const double zpay = -std::sqrt(config.tether.length*config.tether.length - R*R);
+    const double dt = config.simDt;
+
+    // Speed sqrt(carried) x velMean: with the payload on the ground the tether pull,
+    // about m V^2 / R, drops with the share of its weight the tethers carry, wings
+    // level. Angular rate and its derivative per sample.
+    const std::vector<double> carried = payloadCarriedFraction(config, payloadMission);
+    const size_t nM = carried.size();
+    std::vector<double> omega(nM), omegaDot(nM, 0.0);
+    for (size_t i = 0; i < nM; ++i) omega[i] = ap.direction * ap.velMean * std::sqrt(carried[i]) / R;
+    for (size_t i = 0; i < nM; ++i) {
+        const size_t a = i > 0 ? i - 1 : i, b = i + 1 < nM ? i + 1 : i;
+        if (b > a) omegaDot[i] = (omega[b] - omega[a]) / ((b - a) * dt);
+    }
 
     AircraftMissionRaw out;
     out.takeoff = generateTakeoffFromRest(config, phase, z0, L0, dPsiEnd);
@@ -541,12 +591,15 @@ AircraftMissionRaw generateAircraftPathForUav(const TrajectoryConfig& config, co
     out.timeline.payloadFrame.resize(n);
     out.timeline.inertial.resize(n);
 
+    double theta = psiEnd;
     for (size_t i = 0; i < n; ++i) {
         // payloadMission.t[0] is one sample after the end of the takeoff (generate()).
-        const double theta = omega * (payloadMission.t[i] + config.simDt) + psiEnd;
-        const double xPay = R*std::cos(theta), yPay = R*std::sin(theta);
-        const double vxPay = -R*omega*std::sin(theta), vyPay = R*omega*std::cos(theta);
-        const double axPay = -R*omega*omega*std::cos(theta), ayPay = -R*omega*omega*std::sin(theta);
+        theta += i == 0 ? omega[0] * dt : 0.5 * (omega[i - 1] + omega[i]) * dt;
+        const double w = omega[i], wDot = omegaDot[i];
+        const double c = std::cos(theta), sn = std::sin(theta);
+        const double xPay = R*c, yPay = R*sn;
+        const double vxPay = -R*w*sn, vyPay = R*w*c;
+        const double axPay = -R*w*w*c - R*wDot*sn, ayPay = -R*w*w*sn + R*wDot*c;
 
         KinematicSample rel;
         rel.pos = {xPay, yPay, zpay};
@@ -569,13 +622,15 @@ AircraftMissionRaw generateAircraftPathForUav(const TrajectoryConfig& config, co
 // ---------------------------------------------------------------------------
 
 std::vector<Vec3d> computeForcesOnPayload(const TrajectoryConfig& config, const PayloadMission& payloadMission) {
-    std::vector<Vec3d> fTotal(payloadMission.samples.size(), Vec3d::zeros());
+    const std::vector<double> carried = payloadCarriedFraction(config, payloadMission);
+    std::vector<Vec3d> fTotal(carried.size(), Vec3d::zeros());
     for (size_t i = 0; i < fTotal.size(); ++i) {
         const Vec3d vAir = payloadMission.samples[i].vel - config.world.wind;
         const double vAirNorm = vAir.norm();
         const Vec3d fDrag = vAir * (-0.5 * config.world.airDensity * config.payload.CdA * vAirNorm);
         const Vec3d fGravity{0, 0, config.payload.mass * config.world.gravity};
-        fTotal[i] = fDrag + fGravity;
+        const Vec3d fGround{0, 0, -(1.0 - carried[i]) * config.payload.mass * config.world.gravity};
+        fTotal[i] = fDrag + fGravity + fGround;
     }
     return fTotal;
 }

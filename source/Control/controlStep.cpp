@@ -87,8 +87,10 @@ std::map<uint8_t, uavCommandsFlags> ControlStep::tick(const std::map<uint8_t, ua
         const bool flying = m_controller.inFlight();
         const bool gap = m_lastSampleTime && time - *m_lastSampleTime > 2.0 * m_sampleDt;
         if (flying != m_wasInFlight || (flying && gap)) {
-            m_runner->reset();
-            m_appliedEstimate = {};
+            // After a gap in flight the estimate stays (prior and applied), only the window restarts.
+            const bool keep = flying == m_wasInFlight;
+            m_runner->reset(keep);
+            if (!keep) m_appliedEstimate = {};
             m_wasInFlight = flying;
             logEstimator(*m_runner, "reset", time);
         }

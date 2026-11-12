@@ -12,6 +12,7 @@
 #pragma once
 
 #include <algorithm>
+#include <numbers>
 #include <stdexcept>
 #include <string>
 
@@ -99,6 +100,15 @@ namespace YAML {
                 if (node["DELAY_TAU_ROLL"])  rhs.delayTauRoll = node["DELAY_TAU_ROLL"].as<double>();
                 if (node["DELAY_TAU_PITCH"]) rhs.delayTauPitch = node["DELAY_TAU_PITCH"].as<double>();
                 if (node["PAYLOAD_MASS"])    rhs.payloadMass = node["PAYLOAD_MASS"].as<double>();
+                if (node["MAX_CONTROL_STEP"]) {
+                    // [thrust N, roll deg, pitch deg] per tick, stored in rad
+                    const auto s = node["MAX_CONTROL_STEP"].as<std::vector<double>>();
+                    if (s.size() != 3 || !(s[0] > 0.0 && s[1] > 0.0 && s[2] > 0.0)) {
+                        throw std::runtime_error("SolverConfiguration.MAX_CONTROL_STEP must be [thrust N, roll deg, pitch deg], all > 0");
+                    }
+                    constexpr double rad = std::numbers::pi / 180.0;
+                    rhs.maxControlStep = {s[0], s[1] * rad, s[2] * rad};
+                }
                 if (rhs.delayStages < 0 || rhs.delayStages >= rhs.N) {
                     throw std::runtime_error("SolverConfiguration.DELAY_STAGES must be in [0, N-1]");
                 }
