@@ -349,6 +349,19 @@ add_library(grs_core STATIC
         ${GRS_UTIL}
 )
 target_include_directories(grs_core PUBLIC source)
+
+# Git commit of this tree, recorded in every log manifest. Regenerated on
+# every build; the header only changes (and recompiles its users) when the
+# commit or the dirty state changes.
+set(GRS_GIT_VERSION_HEADER ${CMAKE_BINARY_DIR}/generated/gitVersion.h)
+add_custom_target(git_version
+        COMMAND ${CMAKE_COMMAND} -DSRC=${CMAKE_SOURCE_DIR} -DOUT=${GRS_GIT_VERSION_HEADER} -P ${CMAKE_SOURCE_DIR}/cmake/gitVersion.cmake
+        BYPRODUCTS ${GRS_GIT_VERSION_HEADER}
+        COMMENT "Recording the git commit"
+        VERBATIM)
+add_dependencies(grs_core git_version)
+# PUBLIC: grs_batchsim records the commit in its manifest too.
+target_include_directories(grs_core PUBLIC ${CMAKE_BINARY_DIR}/generated)
 # The global -ffast-math implies -ffinite-math-only, which lets GCC fold
 # std::isnan()/std::isfinite() to constants: MpcController/NmheEstimator's
 # m_solutionIsValid() NaN checks and grs_batchsim's NaN-aware metrics were

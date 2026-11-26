@@ -15,7 +15,7 @@
 
 // Bumped on every change to a log file's columns or meaning; written to
 // manifest.yaml so the MATLAB parser picks the matching reader.
-//   1: first versioned schema 
+//   1: first versioned schema
 inline constexpr int kLogSchemaVersion = 1;
 
 // Column names and units of every type are defined in Log/logSchema.cpp.
