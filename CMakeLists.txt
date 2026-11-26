@@ -153,6 +153,8 @@ set(GRS_LOG
         source/Log/threadSafeQueue.h
         source/Log/logger.cpp
         source/Log/logger.h
+        source/Log/logSchema.cpp
+        source/Log/logSchema.h
 )
 
 set(GRS_MATHEMATICS

@@ -8,6 +8,8 @@
 
 #include "controlStep.h"
 
+#include <algorithm>
+#include <cmath>
 #include <iomanip>
 #include <sstream>
 
@@ -25,25 +27,27 @@ std::ostringstream logLine(const double time) {
     return line;
 }
 
-void logEstimator(const EstimatorRunner& runner, const char* event, const double time,
+// Fixed width: np wind then nd disturbance values, NaN when the row carries no estimate.
+void logEstimator(const EstimatorRunner& runner, const char* event, const double time, const size_t np, const size_t nd,
                   const EstimatorRunner::Estimate* estimate = nullptr) {
     if (!Logger::instance().verbose()) return;
     const auto stats = runner.stats();
     auto line = logLine(time);
     line << "," << event << "," << stats.solves << "," << stats.published << "," << stats.overruns << "," << stats.lastSolveMs;
-    if (estimate) {
-        for (const double v : estimate->wind) line << "," << v;
-        for (const double v : estimate->d) line << "," << v;
-    }
+    for (size_t i = 0; i < np; ++i) line << "," << (estimate && i < estimate->wind.size() ? estimate->wind[i] : NAN);
+    for (size_t i = 0; i < nd; ++i) line << "," << (estimate && i < estimate->d.size() ? estimate->d[i] : NAN);
     Logger::instance().log(LogType::ESTIMATOR, line.str());
 }
 
 } // namespace
 
-ControlStep::ControlStep(Controller& controller, std::unique_ptr<EstimatorRunner> runner, const int estimatorNu, const double sampleDt)
+ControlStep::ControlStep(Controller& controller, std::unique_ptr<EstimatorRunner> runner, const int estimatorNu, const double sampleDt,
+                         const int estimatorNp, const int estimatorNd)
     : m_controller(controller)
     , m_runner(std::move(runner))
     , m_sampleDt(sampleDt)
+    , m_np(static_cast<size_t>(std::max(0, estimatorNp)))
+    , m_nd(static_cast<size_t>(std::max(0, estimatorNd)))
 {
     if (m_runner) {
         m_appliedControl.assign(static_cast<size_t>(estimatorNu), 0.0);
@@ -58,7 +62,7 @@ std::map<uint8_t, uavCommandsFlags> ControlStep::tick(const std::map<uint8_t, ua
     if (m_runner) {
         if (auto est = m_runner->takeEstimate()) {
             const bool apply = m_controller.inFlight();
-            logEstimator(*m_runner, apply ? "applied" : "ignored", time, &*est);
+            logEstimator(*m_runner, apply ? "applied" : "ignored", time, m_np, m_nd, &*est);
             if (apply) {
                 m_controller.setDisturbanceEstimate(est->wind, est->d);
                 m_appliedEstimate = std::move(*est);
@@ -92,7 +96,7 @@ std::map<uint8_t, uavCommandsFlags> ControlStep::tick(const std::map<uint8_t, ua
             m_runner->reset(keep);
             if (!keep) m_appliedEstimate = {};
             m_wasInFlight = flying;
-            logEstimator(*m_runner, "reset", time);
+            logEstimator(*m_runner, "reset", time, m_np, m_nd);
         }
         if (flying) {
             grs::control::fillStateVector(navStates, m_layout, m_measuredState);

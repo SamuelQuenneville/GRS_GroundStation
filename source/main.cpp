@@ -42,6 +42,10 @@ int main(const int argc, const char * argv[]) {
         return 1;
     }
 
+    for (int i = 0; i < argc; ++i) {
+        config.commandLine += (i ? " " : "") + std::string(argv[i]);
+    }
+
     // Loop through command-line arguments
     for (int i = 1; i < argc; ++i) {
         const std::string arg = argv[i];
@@ -93,6 +97,9 @@ int main(const int argc, const char * argv[]) {
             config.attitudeFile = arg.substr(arg.find('=') + 1);
             config.controlMode = ControlMode::ATTITUDE_FILE;
 
+        } else if (arg.find("--run-dir=") == 0) {
+            config.runDirectory = arg.substr(arg.find('=') + 1);
+
         } else if (arg == "--sitl") {
             config.pixhawk.sitl = true;
 
@@ -115,7 +122,8 @@ int main(const int argc, const char * argv[]) {
                       << "  --matlab=[ip]:[port]  Enable matlab controller via UDP\n"
                       << "  --commandFile=[file]  Enable control input (RPYT) from file\n"
                       << "  --listCommand         Show all commands\n"
-                      << "  --sitl                Enable SITL mode\n";
+                      << "  --sitl                Enable SITL mode\n"
+                      << "  --run-dir=[path]      Log into [path]/gcs (shared with the simulator's [path]/sim)\n";
             return 0;
         } else {
             std::cerr << "Unknown option: " << arg << "\n";

@@ -104,7 +104,7 @@ void MpcController::initLaunch() {
 
 void MpcController::m_logEvent(const std::string& event) const {
     Logger::instance().log(LogType::NMPC_EVENT, std::to_string(m_trackingNumber) + "," + std::to_string(Logger::instance().nowMilliseconds())
-        + "," + std::to_string(Logger::nowWallTimeMs()) + "," + event);
+        + "," + std::to_string(Logger::nowWallTimeMs()) + "," + Logger::csvQuoted(event));
 }
 
 bool MpcController::launchReady(std::string& reason) const {
@@ -677,15 +677,15 @@ std::map<uint8_t, uavCommandsFlags> MpcController::m_extractControls() const {
 
         out[static_cast<uint8_t>(sysId)] = cmd;
 
+        // Columns: Log/logSchema.cpp. planAge: plan stages since the last
+        // accepted solve, N when the command falls back to the reference.
         std::ostringstream msg;
-        msg << std::fixed << std::setprecision(4) << m_trackingNumber << "," << Logger::instance().nowMilliseconds() << "," << Logger::nowWallTimeMs() << "," << m_lastSolveMs << ",";
+        msg << std::fixed << std::setprecision(4) << m_trackingNumber << "," << Logger::instance().nowMilliseconds() << "," << Logger::nowWallTimeMs()
+            << "," << sysId << "," << m_lastSolveMs << ",";
         msg << cmd.commands.thrust << "," << cmd.commands.rollDegree << "," << cmd.commands.pitchDegree << "," << cmd.commands.yawDegree << "," << m_lastIdxTraj;
         msg << "," << m_lastStatus.fatrop.iterations << "," << m_lastStatus.fatrop.returnCode << "," << m_referenceTime;
         msg << "," << grs::radToDeg(cmd.estimates.aoaRad);
-
-        if (m_violation) {
-            msg << ", INVALID SOL, " << (m_planAge < static_cast<size_t>(m_config.N) ? "plan age " + std::to_string(m_planAge) : "reference");
-        }
+        msg << "," << (m_violation ? 0 : 1) << "," << std::min(m_planAge, static_cast<size_t>(m_config.N));
         Logger::instance().log(LogType::CONTROLS, msg.str());
     }
 
@@ -757,9 +757,9 @@ void MpcController::m_unpackLatestStates(const std::map<uint8_t, uavStates>& lat
     }
 
     std::ostringstream msg;
-    msg << std::fixed << std::setprecision(4) << m_trackingNumber << "," << Logger::instance().nowMilliseconds() << "," << Logger::nowWallTimeMs() << ",";
+    msg << std::fixed << std::setprecision(4) << m_trackingNumber << "," << Logger::instance().nowMilliseconds() << "," << Logger::nowWallTimeMs();
     for (auto&& x : m_initialStates) {
-        msg << x << ",";
+        msg << "," << x;
     }
     Logger::instance().log(LogType::STATES, msg.str());
 }

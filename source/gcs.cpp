@@ -881,7 +881,13 @@ void GroundControlStation::m_supervisorLoop() {
     // Enable and start logging. The heavy per-tick CSVs (solver args/
     // output, raw states, raw controls) are gated by verboseLogging; the
     // NMPC event log is not -- see Logger::start().
-    Logger::instance().start(m_gcsConfig.verboseLogging, "logGcs" + Logger::getDateString());
+    const std::string logDirectory = m_gcsConfig.runDirectory.empty()
+        ? "logGcs" + Logger::getDateString()
+        : m_gcsConfig.runDirectory + "/gcs";
+    Logger::instance().start(m_gcsConfig.verboseLogging, logDirectory,
+                             {.commandLine = m_gcsConfig.commandLine,
+                              .runDirectory = m_gcsConfig.runDirectory,
+                              .configFile = m_gcsConfig.configPath});
 
     m_communicationManager->start();
     m_controlDispatcher->start();

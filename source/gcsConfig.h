@@ -107,6 +107,10 @@ struct gcsConfig {
     ControlMode controlMode = ControlMode::MPC;
     std::vector<catapultEndpointConfig> catapults;
     std::string configPath = "inputFilesExamples/configuration.yaml";
+    // --run-dir: logs go to <runDirectory>/gcs instead of logGcs/<date>.
+    std::string runDirectory;
+    // Arguments as typed, recorded in the log manifest.
+    std::string commandLine;
 };
 
 #endif //GCSCONFIG_H

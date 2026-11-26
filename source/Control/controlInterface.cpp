@@ -16,8 +16,10 @@
 #include <ranges>
 #include <sstream>
 #include <stdexcept>
+#include <vector>
 
 #include "Log/logger.h"
+#include "Log/logSchema.h"
 
 ControlInterface::~ControlInterface() {
     stop();
@@ -46,7 +48,11 @@ void ControlInterface::initialize(const gcsConfig& config) {
         if (m_estimator) {
             runner = std::make_unique<ThreadedEstimatorRunner>(*m_estimator, m_config.nmheFrequency, static_cast<size_t>(stack.estimator->M) + 8);
         }
-        m_controlStep = std::make_unique<ControlStep>(*m_controller, std::move(runner), stack.estimator ? stack.estimator->nu : 0, stack.solver.dt);
+        m_controlStep = std::make_unique<ControlStep>(*m_controller, std::move(runner), stack.estimator ? stack.estimator->nu : 0, stack.solver.dt,
+                                                      stack.solver.np, stack.solver.nd);
+
+        // Column names and units of the controller CSVs, from this solver's layout.
+        grs::logschema::registerControlColumns(stack.solver, m_controller->hasPayload());
     }
 }
 
@@ -304,12 +310,29 @@ void ControlInterface::m_controlLoop() {
             const double periodMs = lastTickStart ? std::chrono::duration<double, std::milli>(tickStart - *lastTickStart).count() : 0.0;
             lastTickStart = tickStart;
             std::ostringstream vehicles;
-            if (Logger::instance().verbose()) {
+            if (Logger::instance().verbose() && m_controller) {
+                // Fixed slots (Log/logSchema.cpp): UAV 1..numUavs, then the
+                // payload (highest sysId above numUavs). Missing: -1, -1, 0.
                 vehicles << std::fixed << std::setprecision(3);
-                for (const auto sysId : latestStates | std::views::keys) {
-                    const auto age = m_telemetryAge ? m_telemetryAge(sysId) : std::nullopt;
-                    const auto vehicleTime = m_vehicleTime ? m_vehicleTime(sysId) : std::nullopt;
-                    vehicles << "," << static_cast<int>(sysId) << "," << (age ? *age * 1000.0 : -1.0) << "," << (vehicleTime ? *vehicleTime : 0);
+                const int numUavs = m_controller->numUavs();
+                std::vector<int> slots;
+                for (int i = 1; i <= numUavs; ++i) slots.push_back(i);
+                if (m_controller->hasPayload()) {
+                    int payloadId = -1;
+                    for (const auto sysId : latestStates | std::views::keys) {
+                        if (sysId > numUavs) payloadId = sysId;
+                    }
+                    slots.push_back(payloadId);
+                }
+                for (const int sysId : slots) {
+                    const auto id = static_cast<uint8_t>(sysId);
+                    if (sysId < 0 || !latestStates.contains(id)) {
+                        vehicles << ",-1,-1,0";
+                        continue;
+                    }
+                    const auto age = m_telemetryAge ? m_telemetryAge(id) : std::nullopt;
+                    const auto vehicleTime = m_vehicleTime ? m_vehicleTime(id) : std::nullopt;
+                    vehicles << "," << sysId << "," << (age ? *age * 1000.0 : -1.0) << "," << (vehicleTime ? *vehicleTime : 0);
                 }
             }
 

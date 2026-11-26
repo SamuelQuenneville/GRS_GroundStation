@@ -38,7 +38,9 @@ public:
     // estimatorNu is the estimator's joint control dimension (ignored
     // without a runner).
     // sampleDt: estimator sample interval [s]; a longer gap restarts its window.
-    ControlStep(Controller& controller, std::unique_ptr<EstimatorRunner> runner, int estimatorNu, double sampleDt);
+    // estimatorNp, estimatorNd: wind and disturbance sizes, the fixed width of estimator.csv.
+    ControlStep(Controller& controller, std::unique_ptr<EstimatorRunner> runner, int estimatorNu, double sampleDt,
+                int estimatorNp = 0, int estimatorNd = 0);
 
     // navStates: telemetry in the NED frame, by sysId (stateVector.h).
     // time: when navStates were sampled (see Controller::solve()).
@@ -58,6 +60,8 @@ private:
     EstimatorRunner::Estimate m_appliedEstimate;
     bool m_wasInFlight = false;
     double m_sampleDt;
+    size_t m_np;
+    size_t m_nd;
     std::optional<double> m_lastSampleTime;
 
     // Estimator sample, same layout as the controller's state (stateVector.h).
