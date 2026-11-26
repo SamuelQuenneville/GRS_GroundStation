@@ -15,11 +15,8 @@
 
 // Bumped on every change to a log file's columns or meaning; written to
 // manifest.yaml so the MATLAB parser picks the matching reader.
-//   1: no headers
-//   2: names + units lines (Log/logSchema.cpp), manifest.yaml, config.yaml copy,
-//      nmpc_events.csv (quoted event text), fixed-width ESTIMATOR and TIMING
-//      rows, sysId/valid/planAge in CONTROLS, unused MPC_ARG_* / MPC_RES_X files removed
-inline constexpr int kLogSchemaVersion = 2;
+//   1: first versioned schema 
+inline constexpr int kLogSchemaVersion = 1;
 
 // Column names and units of every type are defined in Log/logSchema.cpp.
 enum class LogType {
