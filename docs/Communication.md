@@ -92,6 +92,37 @@ with the previous estimate. The dashboard's Link card shows them against the
 requested rates. The vehicle streams nothing else when its `SRx_*` of this
 port are -1.
 
+## `LinkEmulator` (`linkEmulator.h`/`.cpp`)
+
+Simulation only: on when `LinkEmulation.enabled` is true (default false),
+whatever the connection (`Pixhawk.sitl` or `Pixhawk.endpoints`), with a
+warning at start. Never enable it for a flight. Delays each vehicle's `CONTROL_SYSTEM_STATE` between its
+reception and the `StatesAggregator` (downlink), and its `SET_ATTITUDE_TARGET`
+between the control loop and MAVSDK (uplink), to reproduce the flight Wi-Fi
+link. The telemetry age seen by the control loop is then measured from the
+delayed reception, as in flight, where a backlog kept it low while the states
+were late.
+
+Each direction of each vehicle has a `LinkDelay` and stays in order: release =
+max(reception + delay, previous release). Released messages are run on the
+emulator's thread; `stop()` drops the pending ones. Modes (`linkDelayConfig`):
+
+| Mode | Delay |
+|---|---|
+| `constant` | `delayMs` |
+| `parametric` | `delayMs` + congestion episodes: Poisson starts at `episodeRateHz`; the delay grows by `growth` s/s up to `peakMinMs` + lognormal(`peakMedianMs`, `peakSigma`), at most `peakMaxMs`, then drops to 0 |
+| `trace` | `delayMs` + a measured excess delay against time since launch (`file`, CSV with one header line), 0 before the launch flag is first sent and after the trace |
+
+Every mode adds an exponential jitter of mean `jitterMs`. Random draws use
+`seed` (+ sysId), so a run is repeatable. Each message's delay is logged in
+`link.csv` (verbose logging).
+
+Fitted on the 2026-11-12 flight (excess over SITL; SITL has about 10 ms p50
+of its own): downlink parametric, `jitterMs` 5, `growth` 0.8, `peakMinMs` 30,
+`peakMedianMs` 100, `peakSigma` 0.6 (UAV 1, payload) / 0.8 (UAV 2),
+`episodeRateHz` 1.2 / 2.0 / 0.8 (UAV 1 / UAV 2 / payload); uplink constant
+30 ms. The traces are in `inputFilesExamples/linkDelay/`.
+
 ## `StatesAggregator` (`statesAggregator.h`/`.cpp`)
 
 One instance per vehicle. Merges `CONTROL_SYSTEM_STATE` (position,

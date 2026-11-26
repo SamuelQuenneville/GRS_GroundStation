@@ -23,6 +23,7 @@
 #include <vector>
 
 #include "gcsConfig.h"
+#include "linkEmulator.h"
 #include "statesAggregator.h"
 #include "Definitions/communicationStructures.h"
 
@@ -179,6 +180,7 @@ private:
     // requested at stateRateHz. Its arrival rate is logged after the first 5 s
     // window and whenever below 70 % of the request.
     void m_onControlState(uint8_t sysId, const mavlink_message_t& message);
+    void m_applyControlState(uint8_t sysId, const mavlink_message_t& message);
     void m_onGpsGlobalOrigin(uint8_t sysId, const mavlink_message_t& message);
     // SET_MESSAGE_INTERVAL refusals, logged at most every 10 s per vehicle.
     void m_onCommandAck(uint8_t sysId, const mavlink_message_t& message);
@@ -207,6 +209,11 @@ private:
     std::map<uint8_t, RateWindow> m_stateRate;
 
     void m_sendAttitudeTarget(const std::map<uint8_t, uavCommandsFlags>& commands);
+
+    // LinkEmulation enabled: delays the control states in and the commands out.
+    std::mutex m_emulatorMutex;
+    std::shared_ptr<LinkEmulator> m_linkEmulator; // m_emulatorMutex
+    std::shared_ptr<LinkEmulator> m_emulator();
 
     // Message counts of the current window and smoothed rates, m_rateMutex.
     struct RateCounter {

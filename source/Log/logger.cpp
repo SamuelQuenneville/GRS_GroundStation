@@ -54,6 +54,7 @@ void Logger::start(const bool enabled, const std::string& logDirectory, const Lo
         m_files[LogType::ESTIMATOR].open(logDirectory + "/estimator.csv");
         m_files[LogType::PLAN].open(logDirectory + "/plan.csv");
         m_files[LogType::TIMING].open(logDirectory + "/timing.csv");
+        m_files[LogType::LINK].open(logDirectory + "/link.csv");
     }
 
     // Sparse NMPC event log -- always on, regardless of `enabled`: this is

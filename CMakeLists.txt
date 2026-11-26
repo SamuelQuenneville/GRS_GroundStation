@@ -69,6 +69,8 @@ set(GRS_COMMUNICATION
         source/Communication/communicationManager.h
         source/Communication/statesAggregator.cpp
         source/Communication/statesAggregator.h
+        source/Communication/linkEmulator.cpp
+        source/Communication/linkEmulator.h
         source/Communication/mavlinkMessageBuilder.cpp
         source/Communication/mavlinkMessageBuilder.h
         source/Communication/rtkBaseStation.cpp

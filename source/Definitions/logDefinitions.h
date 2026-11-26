@@ -45,6 +45,9 @@ enum class LogType {
     // age ms at tick start, vehicle time_usec of that state
     // (CONTROL_SYSTEM_STATE). Missing vehicle: sysId -1, age -1, time 0.
     TIMING,
+    // Emulated link delay (SITL): wall ms, sysId, D (downlink) or U (uplink),
+    // vehicle time_usec (downlink, 0 uplink), delay ms from reception or send to release.
+    LINK,
     // Sparse NMPC events (launch, in flight, trajectory ended, violation,
     // telemetry complete). Always written, unlike the types above.
     NMPC_EVENT

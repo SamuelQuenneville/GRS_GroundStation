@@ -78,12 +78,31 @@ void CommunicationManager::start() {
         });
     }
 
+    if (const auto& link = m_config.linkEmulation; link.enabled && (!link.downlink.empty() || !link.uplink.empty())) {
+        std::lock_guard lock(m_emulatorMutex);
+        m_linkEmulator = std::make_shared<LinkEmulator>(link);
+        LOG_WARNING("LINK EMULATION ON: control states and commands are delayed (simulation only)");
+    }
+
     LOG_INFO("CommunicationManager started");
+}
+
+std::shared_ptr<LinkEmulator> CommunicationManager::m_emulator() {
+    std::lock_guard lock(m_emulatorMutex);
+    return m_linkEmulator;
 }
 
 void CommunicationManager::stop() {
     m_running = false;
     if (m_publishThread.joinable()) m_publishThread.join();
+
+    // Pending delayed messages are dropped; the last owner joins the emulator thread.
+    std::shared_ptr<LinkEmulator> emulator;
+    {
+        std::lock_guard lock(m_emulatorMutex);
+        emulator.swap(m_linkEmulator);
+    }
+    emulator.reset();
 
     // Everything is moved out under the lock and released outside it: the
     // MAVSDK callbacks take the same locks while running.
@@ -791,6 +810,16 @@ void CommunicationManager::m_onHeartbeat(const uint8_t sysId, const mavlink_mess
 }
 
 void CommunicationManager::m_onControlState(const uint8_t sysId, const mavlink_message_t& message) {
+    if (const auto emulator = m_emulator(); emulator && emulator->delaysDownlink(sysId)) {
+        emulator->downlink(sysId, mavlink_msg_control_system_state_get_time_usec(&message), [this, sysId, message] {
+            m_applyControlState(sysId, message);
+        });
+        return;
+    }
+    m_applyControlState(sysId, message);
+}
+
+void CommunicationManager::m_applyControlState(const uint8_t sysId, const mavlink_message_t& message) {
     mavlink_control_system_state_t state;
     mavlink_msg_control_system_state_decode(&message, &state);
     const float pos[3] = {state.x_pos, state.y_pos, state.z_pos};
@@ -914,6 +943,7 @@ void CommunicationManager::m_sendCommandLong(const uint8_t sysId, const uint16_t
 }
 
 void CommunicationManager::m_sendAttitudeTarget(const std::map<uint8_t, uavCommandsFlags>& commands) {
+    const auto emulator = m_emulator();
     for (const auto& [sysId, cmd] : commands) {
         const auto passthrough = m_passthroughOf(sysId);
         if (!passthrough) {
@@ -921,16 +951,33 @@ void CommunicationManager::m_sendAttitudeTarget(const std::map<uint8_t, uavComma
             continue;
         }
 
-        const auto targetSysId  = passthrough->get_target_sysid();
-        const auto targetCompId = passthrough->get_target_compid();
-        const auto result = passthrough->queue_message([cmd, targetSysId, targetCompId](const MavlinkAddress address, const uint8_t channel) {
-            return MavlinkMessageBuilder::buildSetAttitudeTarget(address, channel, targetSysId, targetCompId, cmd);
-        });
-        if (result != mavsdk::MavlinkPassthrough::Result::Success) {
-            LOG_WARNING("Failed to queue SET_ATTITUDE_TARGET for sysId " + std::to_string(sysId));
+        auto send = [this, sysId, cmd, passthrough] {
+            const auto targetSysId  = passthrough->get_target_sysid();
+            const auto targetCompId = passthrough->get_target_compid();
+            const auto result = passthrough->queue_message([cmd, targetSysId, targetCompId](const MavlinkAddress address, const uint8_t channel) {
+                return MavlinkMessageBuilder::buildSetAttitudeTarget(address, channel, targetSysId, targetCompId, cmd);
+            });
+            if (result != mavsdk::MavlinkPassthrough::Result::Success) {
+                LOG_WARNING("Failed to queue SET_ATTITUDE_TARGET for sysId " + std::to_string(sysId));
+            } else {
+                std::lock_guard lock(m_rateMutex);
+                ++m_rates[sysId].sent;
+            }
+        };
+
+        if (!emulator) {
+            send();
+            continue;
+        }
+
+        if (cmd.flags & commandFlag::kLaunch) {
+            emulator->setLaunched();
+        }
+
+        if (emulator->delaysUplink(sysId)) {
+            emulator->uplink(sysId, std::move(send));
         } else {
-            std::lock_guard lock(m_rateMutex);
-            ++m_rates[sysId].sent;
+            send();
         }
     }
 }

@@ -50,6 +50,9 @@ gcsConfig ConfigurationParser::parseGcsConfig(YAML::Node& node, const gcsConfig&
     if (const auto catapultsNode = node["Catapults"])
         config.catapults = catapultsNode.as<std::vector<catapultEndpointConfig>>();
 
+    if (const auto linkNode = node["LinkEmulation"])
+        config.linkEmulation = linkNode.as<linkEmulationConfig>();
+
     return config;
 }
 

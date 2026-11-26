@@ -12,7 +12,9 @@
 #pragma once
 
 #include <algorithm>
+#include <fstream>
 #include <numbers>
+#include <sstream>
 #include <stdexcept>
 #include <string>
 
@@ -61,6 +63,64 @@ namespace YAML {
                 if (node["tcpPortIncrement"]) rhs.tcpPortIncrement = node["tcpPortIncrement"].as<int>();
                 if (node["paramCheck"])       rhs.paramCheck       = node["paramCheck"].as<bool>();
                 if (node["paramCheckPrefixes"]) rhs.paramCheckPrefixes = node["paramCheckPrefixes"].as<std::vector<std::string>>();
+                return true;
+            }
+        };
+
+    template<>
+        struct convert<linkDelayConfig> {
+            static bool decode(const Node& node, linkDelayConfig& rhs) {
+                if (!node.IsMap()) return false;
+                const auto mode = node["mode"] ? node["mode"].as<std::string>() : "none";
+                if (mode == "none")            rhs.mode = linkDelayConfig::Mode::NONE;
+                else if (mode == "constant")   rhs.mode = linkDelayConfig::Mode::CONSTANT;
+                else if (mode == "parametric") rhs.mode = linkDelayConfig::Mode::PARAMETRIC;
+                else if (mode == "trace")      rhs.mode = linkDelayConfig::Mode::TRACE;
+                else throw std::runtime_error("LinkEmulation mode must be none, constant, parametric or trace, got '" + mode + "'");
+
+                if (node["delayMs"])       rhs.delayMs       = node["delayMs"].as<double>();
+                if (node["jitterMs"])      rhs.jitterMs      = node["jitterMs"].as<double>();
+                if (node["episodeRateHz"]) rhs.episodeRateHz = node["episodeRateHz"].as<double>();
+                if (node["peakMinMs"])     rhs.peakMinMs     = node["peakMinMs"].as<double>();
+                if (node["peakMedianMs"])  rhs.peakMedianMs  = node["peakMedianMs"].as<double>();
+                if (node["peakSigma"])     rhs.peakSigma     = node["peakSigma"].as<double>();
+                if (node["peakMaxMs"])     rhs.peakMaxMs     = node["peakMaxMs"].as<double>();
+                if (node["growth"])        rhs.growth        = node["growth"].as<double>();
+                if (node["file"])          rhs.traceFile     = node["file"].as<std::string>();
+
+                if (rhs.delayMs < 0.0 || rhs.jitterMs < 0.0 || rhs.episodeRateHz < 0.0 || rhs.peakSigma < 0.0 || !(rhs.growth > 0.0))
+                    throw std::runtime_error("LinkEmulation: delayMs, jitterMs, episodeRateHz, peakSigma must be >= 0 and growth > 0");
+
+                if (rhs.mode == linkDelayConfig::Mode::TRACE) {
+                    std::ifstream file(rhs.traceFile);
+                    if (!file) throw std::runtime_error("LinkEmulation: cannot read trace file '" + rhs.traceFile + "'");
+                    std::string line;
+                    std::getline(file, line);
+                    while (std::getline(file, line)) {
+                        double t, delayMs;
+                        char comma;
+                        std::istringstream fields(line);
+                        if (fields >> t >> comma >> delayMs) rhs.trace.emplace_back(t, delayMs);
+                    }
+                    if (rhs.trace.empty()) throw std::runtime_error("LinkEmulation: trace file '" + rhs.traceFile + "' has no samples");
+                }
+                return true;
+            }
+        };
+
+    template<>
+        struct convert<linkEmulationConfig> {
+            static bool decode(const Node& node, linkEmulationConfig& rhs) {
+                if (!node.IsMap()) return false;
+                if (node["enabled"]) rhs.enabled = node["enabled"].as<bool>();
+                if (node["seed"]) rhs.seed = node["seed"].as<uint32_t>();
+                if (const auto vehicles = node["vehicles"]) {
+                    for (const auto& vehicle : vehicles) {
+                        const auto sysId = static_cast<uint8_t>(vehicle.first.as<int>());
+                        if (vehicle.second["downlink"]) rhs.downlink[sysId] = vehicle.second["downlink"].as<linkDelayConfig>();
+                        if (vehicle.second["uplink"])   rhs.uplink[sysId]   = vehicle.second["uplink"].as<linkDelayConfig>();
+                    }
+                }
                 return true;
             }
         };

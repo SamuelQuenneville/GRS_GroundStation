@@ -42,6 +42,33 @@ Pixhawk:
     - {id: 2, ip: 192.168.50.10, port: 14500}
     - {id: 3, ip: 192.168.50.10, port: 14600}  # payload GPS, if it reports one
 
+# Simulation only, never in flight (enabled: true adds the delays to whatever
+# link the GCS uses, SITL or not): delays the CONTROL_SYSTEM_STATE received
+# (downlink) and the SET_ATTITUDE_TARGET sent (uplink) of each vehicle, to
+# reproduce the Wi-Fi link of the 2026-11-12 flight. Keys of `vehicles` are
+# sysIds. mode: none | constant | parametric | trace; every mode adds
+# delayMs and an exponential jitter of mean jitterMs. Delays per message in
+# link.csv (verboseLogging). SITL already has about 10 ms (p50) of its own.
+#   parametric: congestion episodes at episodeRateHz; the delay grows by
+#     `growth` s per s up to peakMinMs + lognormal(peakMedianMs, peakSigma)
+#     (at most peakMaxMs), then drops. Values fitted on the 2026-11-12 flight.
+#   trace: the 2026-11-12 excess delay against time since launch (0 to 90 s).
+#LinkEmulation:
+#  enabled: true
+#  seed: 1
+#  vehicles:
+#    1:
+#      downlink: {mode: parametric, jitterMs: 5, episodeRateHz: 1.2, peakMinMs: 30, peakMedianMs: 100, peakSigma: 0.6, peakMaxMs: 900, growth: 0.8}
+#      uplink:   {mode: constant, delayMs: 30}
+#    2:
+#      downlink: {mode: parametric, jitterMs: 5, episodeRateHz: 2.0, peakMinMs: 30, peakMedianMs: 100, peakSigma: 0.8, peakMaxMs: 900, growth: 0.8}
+#      uplink:   {mode: constant, delayMs: 30}
+#    3:
+#      downlink: {mode: parametric, jitterMs: 5, episodeRateHz: 0.8, peakMinMs: 30, peakMedianMs: 100, peakSigma: 0.6, peakMaxMs: 900, growth: 0.8}
+#    # trace replay instead, e.g.:
+#    # 2:
+#    #   downlink: {mode: trace, file: inputFilesExamples/linkDelay/flight_2026-11-12_downlink_uav2.csv}
+
 # Connect via TCP
 Catapults:
   - {id: 1, port: 5800, ip: 192.168.50.20}
