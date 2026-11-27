@@ -80,7 +80,15 @@ struct RunResult {
     std::vector<std::string> tsHeader;
     std::vector<std::vector<float>> tsColumns;
     double tsDt = 0.0;
+
+    // Unit of each trajHeader / tsHeader column ("-" when dimensionless).
+    std::vector<std::string> trajUnits;
+    std::vector<std::string> tsUnits;
 };
+
+// Unit of a RunResult::metrics entry ("-" when dimensionless, "?" for a
+// metric missing from the table: add it next to its put() in computeMetrics).
+std::string metricUnit(const std::string& name);
 
 // One closed-loop run: builds a fresh controller (+ estimator for *_of)
 // from `config` exactly as the GCS does, a truth plant from `truth`, and

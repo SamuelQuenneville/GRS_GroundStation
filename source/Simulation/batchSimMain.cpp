@@ -12,7 +12,9 @@
 // Carlo sample set (samples.csv exported from GRS_Controller) for one or
 // more controller variants and weight sets, and writes one metrics file
 // (mc_metrics_twoUav.m names) and one binary time series per run for the
-// MATLAB analysis (mc_analysis/).
+// MATLAB analysis (mc_analysis/), plus a run manifest (sample_XXXX.run.yaml:
+// git commit, controller, weight set, sample parameters, options, and the
+// columns and units of every file of the run).
 //
 // Resumable (existing result files are skipped) and parallel by processes:
 // every pending (sample, controller, weight set) run goes into one shared queue, and
@@ -40,6 +42,7 @@
 #include <thread>
 
 #include "Configuration/configurationParser.h"
+#include "Definitions/logDefinitions.h"
 #include "Simulation/closedLoopRunner.h"
 #include "Simulation/truthSample.h"
 #include "Trajectory/trajectoryGenerator.h"
@@ -89,6 +92,8 @@ Optional:
                            runs (longer solves skip ticks, the command is held). Implies
                            --cmd-delay=measured
   --store-traj=<k>         also write every k-th step to sample_XXXX.traj.csv
+                           (every run also writes sample_XXXX.run.yaml: provenance, sample
+                           parameters, options, column units)
   --ts-decim=<k>           keep every k-th step in sample_XXXX.ts.bin (default 1, 0 = no file)
   --jobs=<n>|auto|max      worker processes (default 1). auto = one per physical core
                            (recommended), max = one per logical CPU (hyper-threads
@@ -237,6 +242,123 @@ std::string tsBinary(const RunResult& r) {
     }
     for (const auto& col : r.tsColumns) out.append(reinterpret_cast<const char*>(col.data()), col.size() * sizeof(float));
     return out;
+}
+
+uint64_t wallTimeMs() {
+    return std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count();
+}
+
+// Invocation-level inputs recorded in every run manifest.
+struct CampaignInfo {
+    std::string configFile;
+    std::string reference;   // --reference (path or generate)
+    std::string samples;     // --samples (path or nominal)
+    std::string integrator;  // --integrator
+    std::string commandLine;
+    const RunOptions* opts = nullptr;
+};
+
+void emitColumns(YAML::Emitter& e, const std::vector<std::string>& names, const std::vector<std::string>& units) {
+    e << YAML::BeginSeq;
+    for (size_t i = 0; i < names.size(); ++i) {
+        e << YAML::Flow << YAML::BeginMap
+          << YAML::Key << "name" << YAML::Value << names[i]
+          << YAML::Key << "unit" << YAML::Value << (i < units.size() ? units[i] : "?")
+          << YAML::EndMap;
+    }
+    e << YAML::EndSeq;
+}
+
+// sample_XXXX.run.yaml: everything the MATLAB parser needs to place this run
+// in a study (conditions as columns) and read its files with units. The
+// metrics.csv / ts.bin / traj.csv formats are unchanged (mc_analysis reads them).
+std::string runManifestYaml(const CampaignInfo& campaign, const std::string& controller, const std::string& weightSet,
+                            const Sample& sample, const std::string& name, const RunResult& r,
+                            const uint64_t startMs, const uint64_t endMs) {
+    const RunOptions& o = *campaign.opts;
+    YAML::Emitter e;
+    e.SetDoublePrecision(10);
+    e << YAML::BeginMap;
+    e << YAML::Key << "program" << YAML::Value << "grs_batchsim";
+    e << YAML::Key << "logSchema" << YAML::Value << kLogSchemaVersion;
+    e << YAML::Key << "gitCommit" << YAML::Value << kGitCommit;
+    e << YAML::Key << "gitBranch" << YAML::Value << kGitBranch;
+    e << YAML::Key << "gitDirty" << YAML::Value << kGitDirty;
+    e << YAML::Key << "startWallTimeMs" << YAML::Value << startMs;
+    e << YAML::Key << "endWallTimeMs" << YAML::Value << endMs;
+
+    e << YAML::Key << "controller" << YAML::Value << controller;
+    e << YAML::Key << "weightSet" << YAML::Value << weightSet;
+    e << YAML::Key << "sampleId" << YAML::Value << sample.id;
+    e << YAML::Key << "completed" << YAML::Value << r.completed;
+    e << YAML::Key << "abortReason" << YAML::Value << r.abortReason;
+
+    // Monte Carlo parameters of this sample (samples.csv row); absent = nominal.
+    e << YAML::Key << "sample" << YAML::Value << YAML::BeginMap;
+    for (const auto& [param, value] : sample.values) e << YAML::Key << param << YAML::Value << value;
+    e << YAML::EndMap;
+
+    e << YAML::Key << "inputs" << YAML::Value << YAML::BeginMap
+      << YAML::Key << "configFile" << YAML::Value << campaign.configFile
+      << YAML::Key << "profile" << YAML::Value << "profile_" + weightSet + ".yaml"
+      << YAML::Key << "reference" << YAML::Value << campaign.reference
+      << YAML::Key << "samples" << YAML::Value << campaign.samples
+      << YAML::Key << "commandLine" << YAML::Value << campaign.commandLine
+      << YAML::EndMap;
+
+    e << YAML::Key << "options" << YAML::Value << YAML::BeginMap;
+    e << YAML::Key << "tEnd" << YAML::Value;
+    if (o.tEnd) e << *o.tEnd; else e << YAML::Null;
+    e << YAML::Key << "abortErrM" << YAML::Value << o.abortErrM
+      << YAML::Key << "measNoiseStd" << YAML::Value << o.measNoiseStd
+      << YAML::Key << "seed" << YAML::Value << o.seed
+      << YAML::Key << "nSub" << YAML::Value << o.nSub
+      << YAML::Key << "integrator" << YAML::Value << campaign.integrator
+      << YAML::Key << "nmheFrequency" << YAML::Value << o.nmheFrequency
+      << YAML::Key << "nmheLatencyMs" << YAML::Value << o.nmheLatencyMs   // < 0: measured
+      << YAML::Key << "cmdDelayMs" << YAML::Value << o.cmdDelayMs
+      << YAML::Key << "cmdDelayMeasured" << YAML::Value << o.cmdDelayMeasured
+      << YAML::Key << "deadline" << YAML::Value << o.deadline
+      << YAML::Key << "storeTrajDecim" << YAML::Value << o.storeTrajDecim
+      << YAML::Key << "tsDecim" << YAML::Value << o.tsDecim
+      << YAML::EndMap;
+
+    // Same column order as metricsCsv().
+    std::vector<std::string> metricNames{"controller", "weight_set", "sample_id"};
+    std::vector<std::string> metricUnits{"-", "-", "-"};
+    for (const auto& [metric, value] : r.metrics) {
+        if (metric == "wall_s") continue;
+        metricNames.push_back(metric);
+        metricUnits.push_back(metricUnit(metric));
+    }
+    metricNames.insert(metricNames.end(), {"abort_reason", "wall_s"});
+    metricUnits.insert(metricUnits.end(), {"-", "s"});
+
+    e << YAML::Key << "files" << YAML::Value << YAML::BeginMap;
+    e << YAML::Key << "metrics" << YAML::Value << YAML::BeginMap
+      << YAML::Key << "file" << YAML::Value << name + ".metrics.csv"
+      << YAML::Key << "columns" << YAML::Value;
+    emitColumns(e, metricNames, metricUnits);
+    e << YAML::EndMap;
+    if (o.tsDecim > 0) {
+        e << YAML::Key << "timeSeries" << YAML::Value << YAML::BeginMap
+          << YAML::Key << "file" << YAML::Value << name + ".ts.bin"
+          << YAML::Key << "dt" << YAML::Value << r.tsDt
+          << YAML::Key << "columns" << YAML::Value;
+        emitColumns(e, r.tsHeader, r.tsUnits);
+        e << YAML::EndMap;
+    }
+    if (o.storeTrajDecim > 0) {
+        e << YAML::Key << "trajectory" << YAML::Value << YAML::BeginMap
+          << YAML::Key << "file" << YAML::Value << name + ".traj.csv"
+          << YAML::Key << "columns" << YAML::Value;
+        emitColumns(e, r.trajHeader, r.trajUnits);
+        e << YAML::EndMap;
+    }
+    e << YAML::EndMap;
+
+    e << YAML::EndMap;
+    return std::string(e.c_str()) + "\n";
 }
 
 // Returns the profile with SolverConfiguration.WEIGHT scaled by the named
@@ -463,6 +585,13 @@ int main(int argc, char** argv) {
             manifest << "\n";
         }
 
+        CampaignInfo campaign{.configFile = args.get("config"),
+                              .reference = args.get("reference"),
+                              .samples = args.get("samples", "nominal"),
+                              .integrator = args.get("integrator", "rk4"),
+                              .opts = &opts};
+        for (int i = 0; i < argc; ++i) campaign.commandLine += (i ? " " : "") + std::string(argv[i]);
+
         auto runName = [](const int id) {
             char name[32];
             std::snprintf(name, sizeof(name), "sample_%04d", id);
@@ -520,10 +649,13 @@ int main(int argc, char** argv) {
                 const std::string name = runName(s.id);
                 std::ostringstream line;
                 try {
+                    const uint64_t startMs = wallTimeMs();
                     const TruthSpec truth = applySample(s, sc.numUavs, sc.tetherL0);
                     const RunResult r = runClosedLoop(YAML::Clone(configs.at(ws)), c, reference, truth, s.id, opts);
                     if (opts.storeTrajDecim > 0) writeAtomic(dir / (name + ".traj.csv"), trajCsv(r));
                     if (opts.tsDecim > 0) writeAtomic(dir / (name + ".ts.bin"), tsBinary(r));
+                    writeAtomic(dir / (name + ".run.yaml"),
+                                runManifestYaml(campaign, "cpp_" + c, ws, s, name, r, startMs, wallTimeMs()));
                     // Written last: its presence marks the run as done for a resume.
                     writeAtomic(dir / (name + ".metrics.csv"), metricsCsv("cpp_" + c, ws, s.id, r));
 

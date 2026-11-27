@@ -125,6 +125,23 @@ struct History {
 // Port of mc_metrics_twoUav.m (same names, same definitions), generalized
 // to the one-UAV layout where a metric has a natural counterpart (payload
 // and second-UAV metrics are NaN without a payload / second UAV).
+// Units of the metrics below, kept next to them: a new put() needs a line here.
+const std::map<std::string, std::string>& metricUnitTable() {
+    static const std::map<std::string, std::string> table{
+        {"pay_rms_3d", "m"}, {"pay_peak_3d", "m"}, {"pay_rms_alt", "m"}, {"pay_rms_horiz", "m"},
+        {"pay_rms_3d_last25", "m"}, {"uav1_rms_3d", "m"}, {"uav2_rms_3d", "m"},
+        {"alpha_max_deg", "deg"}, {"alpha_margin_min_deg", "deg"}, {"alpha_violation_frac", "-"},
+        {"tether_stretch_max", "m"}, {"tether_tension_max", "N"}, {"tether_slack_frac_airborne", "-"},
+        {"payload_lifted", "-"},
+        {"sat_frac", "-"}, {"thrust_sat_frac", "-"}, {"du_rms", "-"},
+        {"fail_rate", "-"}, {"iter_mean", "-"}, {"iter_max", "-"},
+        {"online_ms_mean", "ms"}, {"online_ms_p95", "ms"}, {"online_ms_max", "ms"},
+        {"deadline_miss_frac", "-"}, {"skipped_frac", "-"}, {"mhe_ms_mean", "ms"}, {"mhe_ms_max", "ms"},
+        {"wind_err_rms", "m/s"}, {"dF_err_rms", "N"}, {"btrim_err_rms_deg", "deg"}, {"dCL_err_rms", "-"},
+        {"n_steps_planned", "-"}, {"n_steps_done", "-"}, {"completed", "-"}, {"wall_s", "s"}};
+    return table;
+}
+
 std::vector<std::pair<std::string, double>> computeMetrics(
     const History& h, const std::vector<double>& ref, const solverConfig& sc, const TruthSpec& truth,
     const bool hasPayload, const bool useEst) {
@@ -319,6 +336,9 @@ void fillTimeSeries(const History& h, const std::vector<double>& ref, const solv
     r.tsHeader = {"t", "e_n", "e_e", "e_d", "e_uav1", "e_uav2", "alpha1_deg", "alpha2_deg", "stretch1", "stretch2",
                   "pay_h", "sat_count", "thrust_sat", "du_norm", "ok", "ctrl_ms", "wind_err", "dF_err", "btrim_err_deg",
                   "dCL_err"};
+    r.tsUnits = {"s", "m", "m", "m", "m", "m", "deg", "deg", "m", "m",
+                 "m", "-", "-", "-", "-", "ms", "m/s", "N", "deg",
+                 "-"};
     const auto kinds = disturbanceKinds(numUavs);
     r.tsColumns.assign(r.tsHeader.size(), {});
     r.tsDt = sc.dt * decim;
@@ -554,6 +574,22 @@ RunResult runClosedLoop(YAML::Node config, const std::string& controller, const 
         for (int i = 0; i < sc.nd; ++i) r.trajHeader.push_back("d_hat" + std::to_string(i + 1));
         r.trajHeader.emplace_back("ctrl_ms");
         r.trajHeader.emplace_back("ok");
+        // Same order. States (stateVector.h): per UAV pN pE pD vN vE vD roll
+        // pitch, then the payload pN..vD; controls: per UAV thrust, roll, pitch.
+        r.trajUnits.emplace_back("s");
+        for (int i = 0; i < nx; ++i) {
+            const int j = i < numUavs * static_cast<int>(kUavBlock) ? i % static_cast<int>(kUavBlock) : (i - numUavs * static_cast<int>(kUavBlock)) % 6;
+            r.trajUnits.emplace_back(j < 3 ? "m" : j < 6 ? "m/s" : "rad");
+        }
+        const int perUavNu = nu / std::max(1, numUavs);
+        for (int i = 0; i < nu; ++i) {
+            r.trajUnits.emplace_back(perUavNu != 3 ? "-" : i % 3 == 0 ? "N" : "rad");
+        }
+        for (int i = 0; i < numUavs; ++i) r.trajUnits.emplace_back("rad");
+        for (int i = 0; i < sc.np; ++i) r.trajUnits.emplace_back("m/s");
+        for (int i = 0; i < sc.nd; ++i) r.trajUnits.emplace_back("-"); // mixed: see the model's d layout
+        r.trajUnits.emplace_back("ms");
+        r.trajUnits.emplace_back("-");
         // Row k: state at t=k*dt and the control/diagnostics applied from it
         // (NaN on the last state row, which has no control after it).
         for (size_t k = 0; k <= nDone; k += static_cast<size_t>(opts.storeTrajDecim)) {
@@ -573,6 +609,12 @@ RunResult runClosedLoop(YAML::Node config, const std::string& controller, const 
         }
     }
     return r;
+}
+
+std::string metricUnit(const std::string& name) {
+    const auto& table = metricUnitTable();
+    const auto it = table.find(name);
+    return it == table.end() ? "?" : it->second;
 }
 
 } // namespace grs::sim
